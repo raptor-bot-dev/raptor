@@ -162,15 +162,15 @@ contract RaptorVaultTest is Test {
     function testPauseWithdraw() public {
         vm.startPrank(user1);
         vault.deposit{value: 1 ether}();
+        uint256 shares = vault.shareBalance(user1);
         vm.stopPrank();
 
         vm.prank(owner);
         vault.pause();
 
-        vm.startPrank(user1);
+        vm.prank(user1);
         vm.expectRevert("Paused");
-        vault.withdraw(vault.shareBalance(user1));
-        vm.stopPrank();
+        vault.withdraw(shares);
     }
 
     function testSetExecutor() public {
