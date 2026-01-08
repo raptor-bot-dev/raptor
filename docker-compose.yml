@@ -1,0 +1,95 @@
+# =============================================================================
+# RAPTOR Docker Compose
+# Local development and production deployment
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # Telegram Bot
+  # ===========================================================================
+  bot:
+    build:
+      context: .
+      target: bot
+    container_name: raptor-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - executor
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # API Server
+  # ===========================================================================
+  api:
+    build:
+      context: .
+      target: api
+    container_name: raptor-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # Trading Executor
+  # ===========================================================================
+  executor:
+    build:
+      context: .
+      target: executor
+    container_name: raptor-executor
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ===========================================================================
+# Networks
+# ===========================================================================
+networks:
+  default:
+    name: raptor-network
+    driver: bridge
