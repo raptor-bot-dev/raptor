@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "src/**/*.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/auth/(.*)",
+      "dest": "/src/routes/auth.ts"
+    },
+    {
+      "src": "/api/user/(.*)",
+      "dest": "/src/routes/user.ts"
+    },
+    {
+      "src": "/api/stats/(.*)",
+      "dest": "/src/routes/stats.ts"
+    },
+    {
+      "src": "/api/trades/(.*)",
+      "dest": "/src/routes/trades.ts"
+    }
+  ],
+  "env": {
+    "SUPABASE_URL": "@supabase_url",
+    "SUPABASE_SERVICE_KEY": "@supabase_service_key"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@raptor/database",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./types.ts",
+  "scripts": {
+    "generate": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > types.ts"
+  },
+  "devDependencies": {
+    "supabase": "^1.120.0"
+  }
+}
