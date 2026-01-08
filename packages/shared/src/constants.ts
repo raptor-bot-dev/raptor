@@ -1,4 +1,4 @@
-import type { ChainConfig } from './types.js';
+import type { ChainConfig, SolanaConfig } from './types.js';
 
 export const BSC_CONFIG: ChainConfig = {
   chainId: 56,
@@ -66,7 +66,107 @@ export const BASE_CONFIG: ChainConfig = {
   ],
 };
 
-export const SUPPORTED_CHAINS = [BSC_CONFIG, BASE_CONFIG] as const;
+export const ETH_CONFIG: ChainConfig = {
+  chainId: 1,
+  name: 'Ethereum',
+  rpcUrl: process.env.ETH_RPC_URL || 'https://eth.drpc.org',
+  wssUrl: process.env.ETH_WSS_URL || 'wss://eth.drpc.org',
+  nativeToken: 'ETH',
+  wrappedNative: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+  explorerUrl: 'https://etherscan.io',
+  maxGasPrice: BigInt(50e9), // 50 gwei (ETH mainnet is more expensive)
+  minPositionSize: BigInt(5e16), // 0.05 ETH (higher minimum due to gas)
+  maxPositionSize: BigInt(10e18), // 10 ETH
+  maxPoolPercent: 30,
+  launchpads: [
+    {
+      name: 'Uniswap',
+      factory: '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f', // Uniswap V2 Factory
+      type: 'DIRECT_LP',
+      eventSignature: 'PairCreated(address,address,address,uint256)',
+    },
+  ],
+  dexes: [
+    {
+      name: 'Uniswap V2',
+      router: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D',
+      factory: '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f',
+      type: 'V2',
+    },
+    {
+      name: 'Uniswap V3',
+      router: '0xE592427A0AEce92De3Edee1F18E0157C05861564',
+      factory: '0x1F98431c8aD98523631AE4a59f267346ea31F984',
+      type: 'V3',
+    },
+    {
+      name: 'SushiSwap',
+      router: '0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F',
+      factory: '0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2Ac',
+      type: 'V2',
+    },
+  ],
+};
+
+export const SOLANA_CONFIG: SolanaConfig = {
+  cluster: 'mainnet-beta',
+  rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+  wssUrl: process.env.SOLANA_WSS_URL || 'wss://api.mainnet-beta.solana.com',
+  nativeToken: 'SOL',
+  minPositionSize: 0.1, // 0.1 SOL
+  maxPositionSize: 100, // 100 SOL
+  maxPoolPercent: 30,
+  launchpads: [
+    {
+      name: 'pump.fun',
+      programId: '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P',
+      type: 'BONDING_CURVE',
+    },
+    {
+      name: 'moonshot',
+      programId: 'MoonCVVNZFSYkqNXP6bxHLPL6QQJiMagDL3qcqUQTrG',
+      type: 'BONDING_CURVE',
+    },
+    {
+      name: 'bonk.fun',
+      programId: 'BonKyiRTJNYFweQirNMBGGqPnUqUwUwDsvgZBtpUgMwa',
+      type: 'BONDING_CURVE',
+    },
+    {
+      name: 'believe.app',
+      programId: 'BLVEvYpJBkEKLVzD2Q1HFKJ7jdxTqzDruBVAK6ZsLQNi',
+      type: 'BONDING_CURVE',
+    },
+  ],
+  dexes: [
+    {
+      name: 'Raydium AMM',
+      programId: '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',
+      type: 'AMM',
+    },
+    {
+      name: 'Raydium CLMM',
+      programId: 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK',
+      type: 'CLMM',
+    },
+    {
+      name: 'Jupiter',
+      programId: 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4',
+      type: 'AGGREGATOR',
+    },
+    {
+      name: 'Orca',
+      programId: 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc',
+      type: 'CLMM',
+    },
+  ],
+};
+
+// EVM chains array
+export const EVM_CHAINS = [BSC_CONFIG, BASE_CONFIG, ETH_CONFIG] as const;
+
+// All supported chains (including Solana config separately since different type)
+export const SUPPORTED_CHAINS = [BSC_CONFIG, BASE_CONFIG, ETH_CONFIG] as const;
 
 // Scoring thresholds
 export const MIN_OPPORTUNITY_SCORE = 50;

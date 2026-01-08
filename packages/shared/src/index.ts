@@ -9,3 +9,9 @@ export * from './supabase.js';
 
 // Re-export chain utilities
 export * from './chains.js';
+
+// Re-export fee utilities
+export * from './fees.js';
+
+// Re-export Solana utilities
+export * from './chains/solana.js';

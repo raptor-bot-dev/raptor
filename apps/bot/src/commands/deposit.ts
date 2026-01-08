@@ -5,17 +5,110 @@ export async function depositCommand(ctx: MyContext) {
   const user = ctx.from;
   if (!user) return;
 
-  // Show chain selection
+  // First show mode selection
   const keyboard = new InlineKeyboard()
-    .text('🟡 BSC (BNB)', 'deposit_chain_bsc')
-    .text('🔵 Base (ETH)', 'deposit_chain_base');
+    .text('🏊 Pool Mode', 'deposit_mode_pool')
+    .row()
+    .text('👤 Solo Mode', 'deposit_mode_solo')
+    .row()
+    .text('🎯 Snipe Mode', 'deposit_mode_snipe');
 
   await ctx.reply(
-    '💰 *Select Chain to Deposit*\n\n' +
-      'Choose which chain you want to deposit to:',
+    '💰 *Select Trading Mode*\n\n' +
+      '*Pool Mode* 🏊\n' +
+      'Join the collective pool. Trades are made automatically based on opportunities. P&L is shared proportionally.\n\n' +
+      '*Solo Mode* 👤\n' +
+      'Your personal vault. Same auto-trading, but only your funds. 100% of P&L is yours.\n\n' +
+      '*Snipe Mode* 🎯\n' +
+      'Manual control. Use /snipe to buy tokens yourself. Full control over entries and exits.',
     {
       parse_mode: 'Markdown',
       reply_markup: keyboard,
     }
   );
+}
+
+// Handle mode selection callback
+export async function handleModeSelection(ctx: MyContext, mode: string) {
+  // Store mode in context/session for next step
+  const keyboard = new InlineKeyboard()
+    .text('🟡 BSC (BNB)', `deposit_chain_bsc_${mode}`)
+    .text('🔵 Base (ETH)', `deposit_chain_base_${mode}`)
+    .row()
+    .text('⚪ ETH Mainnet', `deposit_chain_eth_${mode}`)
+    .text('🟣 Solana (SOL)', `deposit_chain_sol_${mode}`);
+
+  const modeEmoji = mode === 'pool' ? '🏊' : mode === 'solo' ? '👤' : '🎯';
+  const modeName = mode.charAt(0).toUpperCase() + mode.slice(1);
+
+  await ctx.editMessageText(
+    `💰 *Deposit to ${modeName} Mode* ${modeEmoji}\n\n` +
+      'Select which chain to deposit:',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    }
+  );
+
+  await ctx.answerCallbackQuery();
+}
+
+// Handle chain selection callback
+export async function handleChainSelection(
+  ctx: MyContext,
+  chain: string,
+  mode: string
+) {
+  const user = ctx.from;
+  if (!user) return;
+
+  const chainInfo: Record<string, { name: string; symbol: string; emoji: string; minDeposit: string }> = {
+    bsc: { name: 'BNB Smart Chain', symbol: 'BNB', emoji: '🟡', minDeposit: '0.01 BNB' },
+    base: { name: 'Base', symbol: 'ETH', emoji: '🔵', minDeposit: '0.005 ETH' },
+    eth: { name: 'Ethereum', symbol: 'ETH', emoji: '⚪', minDeposit: '0.01 ETH' },
+    sol: { name: 'Solana', symbol: 'SOL', emoji: '🟣', minDeposit: '0.05 SOL' },
+  };
+
+  const info = chainInfo[chain];
+  if (!info) {
+    await ctx.answerCallbackQuery({ text: 'Invalid chain' });
+    return;
+  }
+
+  // Generate or get deposit address
+  // In production, this would be derived from user ID or fetched from DB
+  const depositAddress = generateDepositAddress(user.id, chain, mode);
+
+  const modeEmoji = mode === 'pool' ? '🏊' : mode === 'solo' ? '👤' : '🎯';
+  const modeName = mode.charAt(0).toUpperCase() + mode.slice(1);
+
+  await ctx.editMessageText(
+    `${info.emoji} *Deposit to ${modeName} Mode*\n\n` +
+      `*Chain:* ${info.name}\n` +
+      `*Mode:* ${modeName} ${modeEmoji}\n\n` +
+      `Send ${info.symbol} to this address:\n` +
+      `\`${depositAddress}\`\n\n` +
+      `*Minimum deposit:* ${info.minDeposit}\n\n` +
+      `⚠️ *Important:*\n` +
+      `• Only send ${info.symbol} to this address\n` +
+      `• Deposits are auto-detected (usually within 1-2 minutes)\n` +
+      `• 1% fee applies to all trades (not deposits)`,
+    {
+      parse_mode: 'Markdown',
+    }
+  );
+
+  await ctx.answerCallbackQuery();
+}
+
+// Generate deposit address based on user, chain, and mode
+// In production, this would use HD wallet derivation or a proper address system
+function generateDepositAddress(userId: number, chain: string, mode: string): string {
+  // Placeholder - in production, derive from master wallet or use dedicated addresses
+  if (chain === 'sol') {
+    // Solana address format
+    return `RAPTOR${userId}${mode}SOL...`; // Placeholder
+  }
+  // EVM address format
+  return `0x${userId.toString(16).padStart(8, '0')}${mode}...`; // Placeholder
 }
