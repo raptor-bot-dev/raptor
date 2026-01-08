@@ -1,6 +1,12 @@
 import type { MyContext } from '../types.js';
 import { getUserBalances } from '@raptor/shared';
 import { getOrCreateDepositAddress, processWithdrawal } from '../services/wallet.js';
+import { handleModeSelection, handleChainSelection } from '../commands/deposit.js';
+import {
+  handleSellCallback,
+  handleConfirmSell,
+  handleCancelSell,
+} from '../commands/sell.js';
 
 export async function handleCallbackQuery(ctx: MyContext) {
   const data = ctx.callbackQuery?.data;
@@ -10,10 +16,38 @@ export async function handleCallbackQuery(ctx: MyContext) {
   if (!user) return;
 
   try {
-    // Deposit chain selection
-    if (data.startsWith('deposit_chain_')) {
+    // Deposit mode selection (pool/solo/snipe)
+    if (data.startsWith('deposit_mode_')) {
+      const mode = data.replace('deposit_mode_', '');
+      await handleModeSelection(ctx, mode);
+      return;
+    }
+    // Deposit chain selection with mode (deposit_chain_bsc_pool, etc.)
+    else if (data.startsWith('deposit_chain_')) {
+      const parts = data.replace('deposit_chain_', '').split('_');
+      if (parts.length === 2) {
+        const [chain, mode] = parts;
+        await handleChainSelection(ctx, chain, mode);
+        return;
+      }
+      // Legacy format without mode
       const chain = data.replace('deposit_chain_', '') as 'bsc' | 'base';
       await handleDepositChainSelection(ctx, chain);
+    }
+    // Sell position callbacks (sell:<positionId>:<percent>)
+    else if (data.startsWith('sell:')) {
+      await handleSellCallback(ctx, data);
+      return;
+    }
+    // Confirm sell callback (confirm_sell:<positionId>:<amount>)
+    else if (data.startsWith('confirm_sell:')) {
+      await handleConfirmSell(ctx, data);
+      return;
+    }
+    // Cancel sell
+    else if (data === 'cancel_sell') {
+      await handleCancelSell(ctx);
+      return;
     }
     // Withdraw chain selection
     else if (data.startsWith('withdraw_chain_')) {

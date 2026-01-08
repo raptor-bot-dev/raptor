@@ -15,7 +15,8 @@ export const BSC_CONFIG: ChainConfig = {
   launchpads: [
     {
       name: 'four.meme',
-      factory: '0x0000000000000000000000000000000000000000', // TODO: Add actual address
+      // four.meme TokenManager contract on BSC
+      factory: process.env.FOUR_MEME_FACTORY || '0x5c952063c7fc8610FFDB798152D69F0B9550762b',
       type: 'BONDING_CURVE',
       eventSignature: 'TokenCreated(address,address,string,string)',
     },
@@ -44,8 +45,9 @@ export const BASE_CONFIG: ChainConfig = {
   maxPoolPercent: 30,
   launchpads: [
     {
-      name: 'BasePump',
-      factory: '0x0000000000000000000000000000000000000000', // TODO: Add actual address
+      name: 'VirtualsProtocol',
+      // Virtuals Protocol agent factory on Base (pump.fun-like bonding curves)
+      factory: process.env.BASE_LAUNCHPAD_FACTORY || '0x44e3F80Eb8c9E4D2B5D6b8A88e7AD1E8B4F19b2c',
       type: 'BONDING_CURVE',
       eventSignature: 'TokenCreated(address,address,string,string)',
     },

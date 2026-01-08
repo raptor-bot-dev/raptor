@@ -31,7 +31,9 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0"
+    "@solana/web3.js": "^1.95.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "bs58": "^6.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

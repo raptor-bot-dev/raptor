@@ -1,12 +1,14 @@
-import { BSC_CONFIG, BASE_CONFIG } from './constants.js';
-import type { ChainConfig } from './types.js';
+import { BSC_CONFIG, BASE_CONFIG, ETH_CONFIG } from './constants.js';
+import type { ChainConfig, EVMChain } from './types.js';
 
-export function getChainConfig(chain: 'bsc' | 'base'): ChainConfig {
+export function getChainConfig(chain: EVMChain): ChainConfig {
   switch (chain) {
     case 'bsc':
       return BSC_CONFIG;
     case 'base':
       return BASE_CONFIG;
+    case 'eth':
+      return ETH_CONFIG;
     default:
       throw new Error(`Unsupported chain: ${chain}`);
   }
@@ -15,11 +17,12 @@ export function getChainConfig(chain: 'bsc' | 'base'): ChainConfig {
 export function getChainByChainId(chainId: number): ChainConfig | null {
   if (chainId === BSC_CONFIG.chainId) return BSC_CONFIG;
   if (chainId === BASE_CONFIG.chainId) return BASE_CONFIG;
+  if (chainId === ETH_CONFIG.chainId) return ETH_CONFIG;
   return null;
 }
 
 export function formatExplorerUrl(
-  chain: 'bsc' | 'base',
+  chain: EVMChain,
   type: 'tx' | 'address' | 'token',
   hash: string
 ): string {
@@ -27,17 +30,18 @@ export function formatExplorerUrl(
   return `${config.explorerUrl}/${type}/${hash}`;
 }
 
-export function getNativeToken(chain: 'bsc' | 'base'): string {
+export function getNativeToken(chain: EVMChain): string {
   return getChainConfig(chain).nativeToken;
 }
 
-export function getWrappedNative(chain: 'bsc' | 'base'): string {
+export function getWrappedNative(chain: EVMChain): string {
   return getChainConfig(chain).wrappedNative;
 }
 
-export function parseChain(input: string): 'bsc' | 'base' | null {
+export function parseChain(input: string): EVMChain | null {
   const normalized = input.toLowerCase().trim();
   if (normalized === 'bsc' || normalized === 'bnb') return 'bsc';
-  if (normalized === 'base' || normalized === 'eth') return 'base';
+  if (normalized === 'base') return 'base';
+  if (normalized === 'eth' || normalized === 'ethereum') return 'eth';
   return null;
 }

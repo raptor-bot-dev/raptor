@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@raptor/shared": "workspace:*",
+    "@solana/spl-token": "^0.4.6",
+    "@solana/web3.js": "^1.95.0",
+    "bs58": "^6.0.0",
     "ethers": "^6.11.0"
   },
   "devDependencies": {

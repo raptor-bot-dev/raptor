@@ -8,8 +8,12 @@ import { statusCommand } from './commands/status.js';
 import { positionsCommand } from './commands/positions.js';
 import { settingsCommand } from './commands/settings.js';
 import { helpCommand } from './commands/help.js';
+import { snipeCommand } from './commands/snipe.js';
+import { sellCommand } from './commands/sell.js';
+import { chainsCommand } from './commands/chains.js';
 import { handleCallbackQuery } from './handlers/callbacks.js';
 import { handleTextMessage } from './handlers/messages.js';
+import { depositMonitor } from './services/depositMonitor.js';
 
 // Validate environment
 if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -41,6 +45,9 @@ bot.command('status', statusCommand);
 bot.command('positions', positionsCommand);
 bot.command('settings', settingsCommand);
 bot.command('help', helpCommand);
+bot.command('snipe', snipeCommand);
+bot.command('sell', sellCommand);
+bot.command('chains', chainsCommand);
 
 // Handle callback queries (inline button presses)
 bot.on('callback_query:data', handleCallbackQuery);
@@ -68,14 +75,21 @@ console.log('🦅 RAPTOR Bot starting...');
 
 const runner = run(bot);
 
+// Start deposit monitoring service
+depositMonitor.start().catch((err) => {
+  console.error('Failed to start deposit monitor:', err);
+});
+
 console.log('✅ RAPTOR Bot is running');
 
 // Graceful shutdown
-const stopRunner = () => {
+const stopRunner = async () => {
+  console.log('Shutting down...');
+  await depositMonitor.stop();
   if (runner.isRunning()) {
     runner.stop();
   }
 };
 
-process.once('SIGINT', stopRunner);
-process.once('SIGTERM', stopRunner);
+process.once('SIGINT', () => void stopRunner());
+process.once('SIGTERM', () => void stopRunner());
