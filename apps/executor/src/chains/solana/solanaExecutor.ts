@@ -19,6 +19,9 @@ import {
   type BondingCurveState,
 } from '@raptor/shared';
 
+import { PublicKey, Connection, Keypair } from '@solana/web3.js';
+import { getAssociatedTokenAddress } from '@solana/spl-token';
+import bs58 from 'bs58';
 import { JupiterClient, jupiter } from './jupiter.js';
 import {
   calculateBuyOutput,
@@ -26,6 +29,9 @@ import {
   decodeBondingCurveState,
   getCurrentPrice,
   hasGraduated,
+  PumpFunClient,
+  getPumpFunClient,
+  deriveBondingCurvePDA,
 } from './pumpFun.js';
 
 // Re-export for convenience
@@ -57,12 +63,25 @@ export class SolanaExecutor {
   private rpcUrl: string;
   private wssUrl: string;
   private jupiterClient: JupiterClient;
+  private connection: Connection;
+  private pumpFunClient: PumpFunClient | null = null;
   private running: boolean = false;
 
   constructor() {
     this.rpcUrl = SOLANA_CONFIG.rpcUrl;
     this.wssUrl = SOLANA_CONFIG.wssUrl;
     this.jupiterClient = new JupiterClient();
+    this.connection = new Connection(this.rpcUrl, 'confirmed');
+  }
+
+  /**
+   * Get or create the PumpFunClient (lazy initialization)
+   */
+  private getPumpFunClient(): PumpFunClient {
+    if (!this.pumpFunClient) {
+      this.pumpFunClient = getPumpFunClient();
+    }
+    return this.pumpFunClient;
   }
 
   /**
@@ -432,28 +451,32 @@ export class SolanaExecutor {
     tokenMint: string,
     solAmount: number
   ): Promise<{ txHash: string; tokensReceived: number }> {
-    // In production, this would:
-    // 1. Get bonding curve PDA
-    // 2. Calculate expected tokens
-    // 3. Build and sign transaction
-    // 4. Submit and confirm
+    console.log(`[SolanaExecutor] Executing pump.fun buy of ${solAmount} SOL`);
 
-    // For now, return a simulated result
-    console.log(`[SolanaExecutor] Simulating pump.fun buy of ${solAmount} SOL`);
+    try {
+      const client = this.getPumpFunClient();
+      const mint = new PublicKey(tokenMint);
+      const lamports = solToLamports(solAmount);
 
-    // Simulate token amount based on bonding curve math
-    const lamports = solToLamports(solAmount);
-    const tokensRaw = calculateBuyOutput(
-      lamports,
-      VIRTUAL_SOL_RESERVES,
-      VIRTUAL_TOKEN_RESERVES
-    );
-    const tokensReceived = Number(tokensRaw) / 1e6; // Convert to decimal
+      const result = await client.buy({
+        mint,
+        solAmount: lamports,
+        minTokensOut: 0n, // Will use default slippage
+        slippageBps: 500, // 5% slippage
+      });
 
-    return {
-      txHash: `sim_pump_${Date.now().toString(36)}`,
-      tokensReceived,
-    };
+      const tokensReceived = Number(result.tokenAmount) / 1e6;
+
+      console.log(`[SolanaExecutor] pump.fun buy successful: ${result.signature}`);
+
+      return {
+        txHash: result.signature,
+        tokensReceived,
+      };
+    } catch (error) {
+      console.error('[SolanaExecutor] pump.fun buy failed:', error);
+      throw error;
+    }
   }
 
   /**
@@ -463,22 +486,32 @@ export class SolanaExecutor {
     tokenMint: string,
     tokenAmount: number
   ): Promise<{ txHash: string; solReceived: number }> {
-    // In production, similar to buy but with sell instruction
+    console.log(`[SolanaExecutor] Executing pump.fun sell of ${tokenAmount} tokens`);
 
-    console.log(`[SolanaExecutor] Simulating pump.fun sell of ${tokenAmount} tokens`);
+    try {
+      const client = this.getPumpFunClient();
+      const mint = new PublicKey(tokenMint);
+      const tokensRaw = BigInt(Math.floor(tokenAmount * 1e6));
 
-    const tokensRaw = BigInt(Math.floor(tokenAmount * 1e6));
-    const solRaw = calculateSellOutput(
-      tokensRaw,
-      VIRTUAL_SOL_RESERVES,
-      VIRTUAL_TOKEN_RESERVES
-    );
-    const solReceived = lamportsToSol(solRaw);
+      const result = await client.sell({
+        mint,
+        tokenAmount: tokensRaw,
+        minSolOut: 0n, // Will use default slippage
+        slippageBps: 500, // 5% slippage
+      });
 
-    return {
-      txHash: `sim_pump_${Date.now().toString(36)}`,
-      solReceived,
-    };
+      const solReceived = lamportsToSol(result.solAmount);
+
+      console.log(`[SolanaExecutor] pump.fun sell successful: ${result.signature}`);
+
+      return {
+        txHash: result.signature,
+        solReceived,
+      };
+    } catch (error) {
+      console.error('[SolanaExecutor] pump.fun sell failed:', error);
+      throw error;
+    }
   }
 
   /**
@@ -542,12 +575,19 @@ export class SolanaExecutor {
     tokenMint: string
   ): Promise<BondingCurveState | null> {
     try {
-      // Derive bonding curve PDA
-      // In production, would use proper PDA derivation
-      // For now, return null to indicate token is graduated
+      const mint = new PublicKey(tokenMint);
+      const [bondingCurvePDA] = deriveBondingCurvePDA(mint);
 
-      return null;
+      const accountInfo = await this.connection.getAccountInfo(bondingCurvePDA);
+
+      if (!accountInfo || accountInfo.data.length < 49) {
+        // No bonding curve found - token likely graduated or doesn't exist
+        return null;
+      }
+
+      return decodeBondingCurveState(Buffer.from(accountInfo.data));
     } catch (error) {
+      console.error('[SolanaExecutor] Error getting bonding curve state:', error);
       return null;
     }
   }
@@ -561,10 +601,6 @@ export class SolanaExecutor {
     return Math.min(100, (currentSol / GRADUATION_THRESHOLD) * 100);
   }
 }
-
-// Virtual reserves for estimation (from pump.fun)
-const VIRTUAL_SOL_RESERVES = 30_000_000_000n;
-const VIRTUAL_TOKEN_RESERVES = 1_073_000_000_000_000n;
 
 // Singleton instance
 export const solanaExecutor = new SolanaExecutor();

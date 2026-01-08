@@ -29,6 +29,13 @@ export const BSC_CONFIG: ChainConfig = {
       type: 'V2',
     },
   ],
+  // bloXroute for BSC MEV protection
+  privateRpc: {
+    enabled: !!process.env.BLOXROUTE_AUTH_HEADER,
+    type: 'bloxroute',
+    endpoint: process.env.BSC_PRIVATE_RPC_URL || 'https://bsc.rpc.blxrbdn.com',
+    authHeader: process.env.BLOXROUTE_AUTH_HEADER,
+  },
 };
 
 export const BASE_CONFIG: ChainConfig = {
@@ -66,6 +73,12 @@ export const BASE_CONFIG: ChainConfig = {
       type: 'V2',
     },
   ],
+  // Flashbots Protect for Base (L2 sequencer protection)
+  privateRpc: {
+    enabled: !!process.env.BASE_PRIVATE_RPC_URL,
+    type: 'flashbots',
+    endpoint: process.env.BASE_PRIVATE_RPC_URL || 'https://rpc.flashbots.net/base',
+  },
 };
 
 export const ETH_CONFIG: ChainConfig = {
@@ -108,6 +121,12 @@ export const ETH_CONFIG: ChainConfig = {
       type: 'V2',
     },
   ],
+  // Flashbots Protect for ETH mainnet (primary MEV protection)
+  privateRpc: {
+    enabled: true, // Always enabled for ETH mainnet - critical for MEV protection
+    type: 'flashbots',
+    endpoint: process.env.ETH_PRIVATE_RPC_URL || 'https://rpc.flashbots.net',
+  },
 };
 
 export const SOLANA_CONFIG: SolanaConfig = {

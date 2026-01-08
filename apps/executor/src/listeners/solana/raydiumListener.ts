@@ -1,11 +1,12 @@
 // Raydium Listener for Solana
 // Monitors new pool creates on Raydium AMM (for graduated pump.fun tokens)
 
+import WebSocket from 'ws';
+import { Connection, PublicKey } from '@solana/web3.js';
 import {
   SOLANA_CONFIG,
   PROGRAM_IDS,
   isValidSolanaAddress,
-  getSolanaExplorerUrl,
 } from '@raptor/shared';
 
 export interface RaydiumPoolCreateEvent {
@@ -24,20 +25,27 @@ export interface RaydiumPoolCreateEvent {
 
 export type RaydiumPoolHandler = (event: RaydiumPoolCreateEvent) => Promise<void>;
 
+// Initialize2 instruction discriminator for Raydium AMM
+const INITIALIZE2_DISCRIMINATOR = Buffer.from([1]); // Raydium uses simple u8 discriminators
+
 export class RaydiumListener {
   private rpcUrl: string;
   private wssUrl: string;
+  private connection: Connection;
   private subscriptionId: number | null = null;
   private handlers: RaydiumPoolHandler[] = [];
   private ws: WebSocket | null = null;
   private running: boolean = false;
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 10;
-  private reconnectDelay: number = 5000;
+  private reconnectDelay: number = 3000;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private pendingPings: number = 0;
 
   constructor() {
     this.rpcUrl = SOLANA_CONFIG.rpcUrl;
     this.wssUrl = SOLANA_CONFIG.wssUrl;
+    this.connection = new Connection(this.rpcUrl, 'confirmed');
   }
 
   /**
@@ -63,6 +71,11 @@ export class RaydiumListener {
     console.log('[RaydiumListener] Stopping...');
     this.running = false;
 
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -81,27 +94,62 @@ export class RaydiumListener {
 
       this.ws = new WebSocket(this.wssUrl);
 
-      this.ws.onopen = () => {
+      this.ws.on('open', () => {
         console.log('[RaydiumListener] WebSocket connected');
         this.reconnectAttempts = 0;
+        this.pendingPings = 0;
         this.subscribeToProgram();
-      };
+        this.startHeartbeat();
+      });
 
-      this.ws.onclose = () => {
-        console.log('[RaydiumListener] WebSocket closed');
+      this.ws.on('close', (code, reason) => {
+        console.log(`[RaydiumListener] WebSocket closed: ${code} - ${reason.toString()}`);
+        this.stopHeartbeat();
         this.handleDisconnect();
-      };
+      });
 
-      this.ws.onerror = (error) => {
-        console.error('[RaydiumListener] WebSocket error:', error);
-      };
+      this.ws.on('error', (error) => {
+        console.error('[RaydiumListener] WebSocket error:', error.message);
+      });
 
-      this.ws.onmessage = (message) => {
-        this.handleMessage(message.data);
-      };
+      this.ws.on('message', (data) => {
+        this.handleMessage(data.toString());
+      });
+
+      this.ws.on('pong', () => {
+        this.pendingPings = 0;
+      });
     } catch (error) {
       console.error('[RaydiumListener] Connection failed:', error);
       this.handleDisconnect();
+    }
+  }
+
+  /**
+   * Start heartbeat to keep connection alive
+   */
+  private startHeartbeat(): void {
+    this.heartbeatInterval = setInterval(() => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+      if (this.pendingPings >= 2) {
+        console.warn('[RaydiumListener] Connection unresponsive, reconnecting...');
+        this.ws.terminate();
+        return;
+      }
+
+      this.ws.ping();
+      this.pendingPings++;
+    }, 30000);
+  }
+
+  /**
+   * Stop heartbeat
+   */
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
     }
   }
 
@@ -152,8 +200,12 @@ export class RaydiumListener {
         message.method === 'logsNotification' &&
         message.params?.result?.value
       ) {
-        const { signature, logs } = message.params.result.value;
-        await this.processLogs(signature, logs);
+        const { signature, logs, err } = message.params.result.value;
+
+        // Skip failed transactions
+        if (err) return;
+
+        await this.processLogs(signature, logs || []);
       }
     } catch (error) {
       console.error('[RaydiumListener] Error handling message:', error);
@@ -171,7 +223,8 @@ export class RaydiumListener {
     const isPoolCreate = logs.some(
       (log) =>
         log.includes('Instruction: Initialize2') ||
-        log.includes('Program log: initialize2')
+        log.includes('Program log: initialize2') ||
+        log.includes('Program log: ray_log')
     );
 
     if (!isPoolCreate) {
@@ -181,27 +234,36 @@ export class RaydiumListener {
     console.log(`[RaydiumListener] New pool create detected: ${signature}`);
 
     // Fetch full transaction details
-    try {
-      const event = await this.fetchPoolCreateEvent(signature);
-      if (event) {
-        // Check if this is a WSOL pair (we only care about new token/SOL pools)
-        if (
-          event.quoteMint === PROGRAM_IDS.WSOL ||
-          event.baseMint === PROGRAM_IDS.WSOL
-        ) {
-          // Notify all handlers
-          for (const handler of this.handlers) {
-            try {
-              await handler(event);
-            } catch (error) {
-              console.error('[RaydiumListener] Handler error:', error);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const event = await this.fetchPoolCreateEvent(signature);
+        if (event) {
+          // Check if this is a WSOL pair (we only care about new token/SOL pools)
+          if (
+            event.quoteMint === PROGRAM_IDS.WSOL ||
+            event.baseMint === PROGRAM_IDS.WSOL
+          ) {
+            console.log(`[RaydiumListener] SOL pair pool: ${event.poolId}`);
+
+            // Notify all handlers
+            for (const handler of this.handlers) {
+              try {
+                await handler(event);
+              } catch (error) {
+                console.error('[RaydiumListener] Handler error:', error);
+              }
             }
           }
+          return;
+        }
+      } catch (error) {
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 500));
         }
       }
-    } catch (error) {
-      console.error('[RaydiumListener] Error fetching pool event:', error);
     }
+
+    console.warn(`[RaydiumListener] Failed to parse pool event: ${signature}`);
   }
 
   /**
@@ -211,69 +273,72 @@ export class RaydiumListener {
     signature: string
   ): Promise<RaydiumPoolCreateEvent | null> {
     try {
-      const response = await fetch(this.rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'getTransaction',
-          params: [
-            signature,
-            {
-              encoding: 'jsonParsed',
-              maxSupportedTransactionVersion: 0,
-            },
-          ],
-        }),
+      const tx = await this.connection.getTransaction(signature, {
+        maxSupportedTransactionVersion: 0,
+        commitment: 'confirmed',
       });
-
-      interface TxResponse {
-        result?: {
-          slot?: number;
-          blockTime?: number;
-          meta?: {
-            err?: unknown;
-            postTokenBalances?: Array<{ mint?: string; uiTokenAmount?: { amount?: string } }>;
-          };
-          transaction?: {
-            message?: {
-              accountKeys?: Array<{ pubkey?: string } | string>;
-            };
-          };
-        };
-      }
-      const data = (await response.json()) as TxResponse;
-      const tx = data.result;
 
       if (!tx || tx.meta?.err) {
         return null;
       }
 
-      // Parse the pool initialization instruction
-      // Note: Actual implementation would parse instruction data properly
-      const accountKeys = tx.transaction?.message?.accountKeys || [];
-      void accountKeys; // Used for parsing
+      const message = tx.transaction.message;
+      const accountKeys = message.staticAccountKeys || [];
 
-      const event: RaydiumPoolCreateEvent = {
-        signature,
-        slot: tx.slot || 0,
-        poolId: '', // Would be extracted from instruction
-        baseMint: '',
-        quoteMint: '',
-        baseVault: '',
-        quoteVault: '',
-        lpMint: '',
-        baseReserve: 0n,
-        quoteReserve: 0n,
-        timestamp: tx.blockTime || Math.floor(Date.now() / 1000),
-      };
+      // Find the Raydium AMM instruction
+      const instructions = message.compiledInstructions || [];
 
-      // Parse post-token balances to get initial liquidity
-      const postTokenBalances = tx.meta?.postTokenBalances || [];
-      void postTokenBalances; // Used for extracting reserve amounts
+      for (const ix of instructions) {
+        const programId = accountKeys[ix.programIdIndex];
+        if (programId?.toBase58() === PROGRAM_IDS.RAYDIUM_AMM) {
+          // Raydium AMM Initialize2 has many accounts
+          // Layout varies but typically:
+          // [0] = tokenProgram, [1] = splAssociatedTokenAccount, [2] = systemProgram,
+          // [3] = rent, [4] = ammId, [5] = ammAuthority, [6] = ammOpenOrders,
+          // [7] = lpMint, [8] = coinMint, [9] = pcMint, [10] = coinVault,
+          // [11] = pcVault, [12] = targetOrders, [13] = config, [14] = feeDestination,
+          // [15] = marketProgram, [16] = market, [17] = userWallet, [18] = userTokenCoin,
+          // [19] = userTokenPc, [20] = userTokenLp
+          const accountIndexes = ix.accountKeyIndexes || [];
 
-      return event;
+          if (accountIndexes.length >= 12) {
+            const poolId = accountKeys[accountIndexes[4]]?.toBase58() || '';
+            const lpMint = accountKeys[accountIndexes[7]]?.toBase58() || '';
+            const baseMint = accountKeys[accountIndexes[8]]?.toBase58() || '';
+            const quoteMint = accountKeys[accountIndexes[9]]?.toBase58() || '';
+            const baseVault = accountKeys[accountIndexes[10]]?.toBase58() || '';
+            const quoteVault = accountKeys[accountIndexes[11]]?.toBase58() || '';
+
+            // Parse initial reserves from postTokenBalances
+            let baseReserve = 0n;
+            let quoteReserve = 0n;
+
+            const postTokenBalances = tx.meta?.postTokenBalances || [];
+            for (const balance of postTokenBalances) {
+              const mint = balance.mint;
+              const amount = BigInt(balance.uiTokenAmount?.amount || '0');
+              if (mint === baseMint) baseReserve = amount;
+              if (mint === quoteMint) quoteReserve = amount;
+            }
+
+            return {
+              signature,
+              slot: tx.slot,
+              poolId,
+              baseMint,
+              quoteMint,
+              baseVault,
+              quoteVault,
+              lpMint,
+              baseReserve,
+              quoteReserve,
+              timestamp: tx.blockTime || Math.floor(Date.now() / 1000),
+            };
+          }
+        }
+      }
+
+      return null;
     } catch (error) {
       console.error('[RaydiumListener] Error fetching transaction:', error);
       return null;
@@ -288,15 +353,22 @@ export class RaydiumListener {
 
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
+      const delay = this.reconnectDelay * Math.min(this.reconnectAttempts, 5);
+
       console.log(
-        `[RaydiumListener] Reconnecting in ${this.reconnectDelay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+        `[RaydiumListener] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
       );
 
       setTimeout(() => {
         this.connect();
-      }, this.reconnectDelay);
+      }, delay);
     } else {
       console.error('[RaydiumListener] Max reconnect attempts reached');
+      // Reset and try again after a longer delay
+      setTimeout(() => {
+        this.reconnectAttempts = 0;
+        this.connect();
+      }, 60000);
     }
   }
 
@@ -311,39 +383,28 @@ export class RaydiumListener {
     lpSupply: bigint;
   } | null> {
     try {
-      const response = await fetch(this.rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'getAccountInfo',
-          params: [poolId, { encoding: 'base64' }],
-        }),
-      });
-
-      interface AccountResponse {
-        result?: {
-          value?: {
-            data?: [string, string];
-          };
-        };
-      }
-      const data = (await response.json()) as AccountResponse;
-      const accountInfo = data.result?.value;
+      const accountInfo = await this.connection.getAccountInfo(new PublicKey(poolId));
 
       if (!accountInfo) {
         return null;
       }
 
-      // Decode pool state from account data
-      // Would need proper Raydium AMM state deserialization
+      // Decode Raydium AMM pool state
+      // This requires proper state deserialization - simplified here
+      // In production, would use proper Raydium SDK or manual deserialization
 
       return null;
     } catch (error) {
       console.error('[RaydiumListener] Error getting pool info:', error);
       return null;
     }
+  }
+
+  /**
+   * Check if listener is running
+   */
+  isRunning(): boolean {
+    return this.running && this.ws?.readyState === WebSocket.OPEN;
   }
 }
 

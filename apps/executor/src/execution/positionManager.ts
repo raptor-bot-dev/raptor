@@ -5,98 +5,148 @@ import {
   MAX_HOLD_TIME,
 } from '@raptor/shared';
 import { ChainExecutor } from '../chains/chainExecutor.js';
+import { PriceFeed, createPriceFeed, PriceUpdate } from '../feeds/priceFeed.js';
 
-const PRICE_UPDATE_INTERVAL = 30000; // 30 seconds
-const POSITION_CHECK_INTERVAL = 10000; // 10 seconds
+// Faster intervals with real-time price feeds
+const POSITION_CHECK_INTERVAL = 3000; // 3 seconds (faster checks with real-time prices)
+const PRICE_POLL_INTERVAL = 5000; // 5 seconds fallback for polling
 
 export class PositionManager {
   private executors: Map<string, ChainExecutor> = new Map();
+  private priceFeeds: Map<string, PriceFeed> = new Map();
+  private latestPrices: Map<string, bigint> = new Map(); // token -> price
   private running = false;
-  private priceInterval: NodeJS.Timeout | null = null;
   private checkInterval: NodeJS.Timeout | null = null;
+  private subscribedPositions: Set<string> = new Set(); // position keys
 
   constructor(executors: ChainExecutor[]) {
     for (const executor of executors) {
       const config = executor.getConfig();
-      this.executors.set(config.name.toLowerCase(), executor);
+      const chainKey = config.name.toLowerCase();
+      this.executors.set(chainKey, executor);
+
+      // Create price feed for this chain
+      const priceFeed = createPriceFeed(config, executor.getProvider());
+      this.priceFeeds.set(chainKey, priceFeed);
     }
   }
 
   async start(): Promise<void> {
     this.running = true;
 
-    // Start price update loop
-    this.priceInterval = setInterval(
-      () => this.updatePrices(),
-      PRICE_UPDATE_INTERVAL
-    );
+    // Start price feeds for all chains
+    for (const [chain, priceFeed] of this.priceFeeds) {
+      await priceFeed.start();
+      console.log(`[PositionManager] Price feed started for ${chain}`);
+    }
 
-    // Start position check loop
+    // Subscribe to existing positions
+    await this.syncPositionSubscriptions();
+
+    // Start position check loop (faster with real-time prices)
     this.checkInterval = setInterval(
       () => this.checkPositions(),
       POSITION_CHECK_INTERVAL
     );
 
-    console.log('Position manager started');
+    console.log('[PositionManager] Started with real-time price feeds');
   }
 
   async stop(): Promise<void> {
     this.running = false;
-    if (this.priceInterval) clearInterval(this.priceInterval);
+
+    // Stop all price feeds
+    for (const priceFeed of this.priceFeeds.values()) {
+      await priceFeed.stop();
+    }
+
     if (this.checkInterval) clearInterval(this.checkInterval);
-    console.log('Position manager stopped');
+    console.log('[PositionManager] Stopped');
   }
 
-  private async updatePrices(): Promise<void> {
-    if (!this.running) return;
-
+  /**
+   * Sync price feed subscriptions with active positions
+   */
+  private async syncPositionSubscriptions(): Promise<void> {
     try {
       const positions = await getAllActivePositions();
+      const activeKeys = new Set<string>();
 
       for (const position of positions) {
-        const executor = this.executors.get(position.chain);
-        if (!executor) continue;
+        const key = `${position.chain}:${position.token_address}`;
+        activeKeys.add(key);
 
-        try {
-          const currentPrice = await executor.getTokenPrice(
-            position.token_address
-          );
+        // Subscribe if not already
+        if (!this.subscribedPositions.has(key)) {
+          await this.subscribeToPosition(position);
+        }
+      }
 
-          if (currentPrice > 0n) {
-            const entryPrice = parseFloat(position.entry_price);
-            const currentPriceNum =
-              Number(currentPrice) / Number(BigInt(position.tokens_held));
-            const pnlPercent =
-              ((currentPriceNum - entryPrice) / entryPrice) * 100;
-
-            await updatePosition(position.id, {
-              current_price: currentPriceNum.toString(),
-              unrealized_pnl_percent: pnlPercent,
-            });
+      // Unsubscribe from closed positions
+      for (const key of this.subscribedPositions) {
+        if (!activeKeys.has(key)) {
+          const [chain, token] = key.split(':');
+          const priceFeed = this.priceFeeds.get(chain);
+          if (priceFeed) {
+            priceFeed.unsubscribe(token);
           }
-        } catch (error) {
-          console.error(
-            `Failed to update price for position ${position.id}:`,
-            error
-          );
+          this.subscribedPositions.delete(key);
         }
       }
     } catch (error) {
-      console.error('Price update failed:', error);
+      console.error('[PositionManager] Sync subscriptions failed:', error);
     }
+  }
+
+  /**
+   * Subscribe to price updates for a position
+   */
+  private async subscribeToPosition(position: Position): Promise<void> {
+    const priceFeed = this.priceFeeds.get(position.chain);
+    if (!priceFeed) return;
+
+    const key = `${position.chain}:${position.token_address}`;
+
+    // Create handler for this token
+    const handler = async (update: PriceUpdate) => {
+      // Store latest price
+      this.latestPrices.set(update.token, update.price);
+
+      // Update position with new price
+      try {
+        const entryPrice = parseFloat(position.entry_price);
+        const currentPriceNum =
+          Number(update.price) / Number(BigInt(position.tokens_held));
+        const pnlPercent =
+          ((currentPriceNum - entryPrice) / entryPrice) * 100;
+
+        await updatePosition(position.id, {
+          current_price: currentPriceNum.toString(),
+          unrealized_pnl_percent: pnlPercent,
+        });
+      } catch (error) {
+        // Silent fail for price updates
+      }
+    };
+
+    await priceFeed.subscribe(position.token_address, handler);
+    this.subscribedPositions.add(key);
   }
 
   private async checkPositions(): Promise<void> {
     if (!this.running) return;
 
     try {
+      // Sync subscriptions to pick up new positions
+      await this.syncPositionSubscriptions();
+
       const positions = await getAllActivePositions();
 
       for (const position of positions) {
         await this.checkPosition(position);
       }
     } catch (error) {
-      console.error('Position check failed:', error);
+      console.error('[PositionManager] Position check failed:', error);
     }
   }
 

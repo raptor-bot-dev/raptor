@@ -2,7 +2,25 @@
 // Handles bonding curve buys/sells before graduation
 
 import {
+  Connection,
+  PublicKey,
+  Transaction,
+  TransactionInstruction,
+  Keypair,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+  sendAndConfirmTransaction,
+  ComputeBudgetProgram,
+} from '@solana/web3.js';
+import {
+  getAssociatedTokenAddress,
+  createAssociatedTokenAccountInstruction,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from '@solana/spl-token';
+import {
   PROGRAM_IDS,
+  SOLANA_CONFIG,
   solToLamports,
   lamportsToSol,
   tokenAmountToDecimal,
@@ -11,6 +29,7 @@ import {
   calculateBondingCurvePrice,
   calculateBondingCurveProgress,
 } from '@raptor/shared';
+import bs58 from 'bs58';
 
 // Pump.fun program constants
 export const PUMP_FUN_PROGRAM_ID = PROGRAM_IDS.PUMP_FUN;
@@ -280,4 +299,329 @@ export function encodeSellData(tokenAmount: bigint, minSolOutput: bigint): Buffe
   data.writeBigUInt64LE(tokenAmount, 8);
   data.writeBigUInt64LE(minSolOutput, 16);
   return data;
+}
+
+// =============================================================================
+// PDA Derivation Functions
+// =============================================================================
+
+const PUMP_FUN_PROGRAM = new PublicKey(PUMP_FUN_PROGRAM_ID);
+const PUMP_FUN_GLOBAL = new PublicKey(PUMP_FUN_GLOBAL_STATE);
+const PUMP_FUN_FEE_RECIPIENT = new PublicKey('CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM');
+const PUMP_FUN_EVENT_AUTHORITY = new PublicKey('Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1');
+
+/**
+ * Derive bonding curve PDA for a mint
+ */
+export function deriveBondingCurvePDA(mint: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('bonding-curve'), mint.toBuffer()],
+    PUMP_FUN_PROGRAM
+  );
+}
+
+/**
+ * Derive associated bonding curve token account
+ */
+export async function deriveAssociatedBondingCurve(
+  bondingCurve: PublicKey,
+  mint: PublicKey
+): Promise<PublicKey> {
+  return getAssociatedTokenAddress(mint, bondingCurve, true);
+}
+
+/**
+ * Get or create associated token account instruction
+ */
+export function getOrCreateATAInstruction(
+  mint: PublicKey,
+  owner: PublicKey,
+  payer: PublicKey
+): { ata: PublicKey; instruction: TransactionInstruction | null } {
+  const ata = PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+    ASSOCIATED_TOKEN_PROGRAM_ID
+  )[0];
+
+  // Note: We'll check if account exists before adding this instruction
+  const instruction = createAssociatedTokenAccountInstruction(
+    payer,
+    ata,
+    owner,
+    mint
+  );
+
+  return { ata, instruction };
+}
+
+// =============================================================================
+// Transaction Building Functions
+// =============================================================================
+
+export interface PumpFunBuyParams {
+  mint: PublicKey;
+  solAmount: bigint;
+  minTokensOut: bigint;
+  slippageBps?: number;
+}
+
+export interface PumpFunSellParams {
+  mint: PublicKey;
+  tokenAmount: bigint;
+  minSolOut: bigint;
+  slippageBps?: number;
+}
+
+export interface PumpFunTradeResult {
+  signature: string;
+  tokenAmount: bigint;
+  solAmount: bigint;
+}
+
+/**
+ * PumpFunClient - handles all pump.fun transactions
+ */
+export class PumpFunClient {
+  private connection: Connection;
+  private wallet: Keypair;
+
+  constructor(wallet?: Keypair) {
+    this.connection = new Connection(SOLANA_CONFIG.rpcUrl, 'confirmed');
+
+    // Load wallet from environment or use provided
+    if (wallet) {
+      this.wallet = wallet;
+    } else {
+      const privateKey = process.env.SOLANA_EXECUTOR_PRIVATE_KEY;
+      if (!privateKey) {
+        throw new Error('SOLANA_EXECUTOR_PRIVATE_KEY not set');
+      }
+      this.wallet = Keypair.fromSecretKey(bs58.decode(privateKey));
+    }
+  }
+
+  /**
+   * Get bonding curve state for a token
+   */
+  async getBondingCurveState(mint: PublicKey): Promise<BondingCurveState | null> {
+    try {
+      const [bondingCurve] = deriveBondingCurvePDA(mint);
+      const accountInfo = await this.connection.getAccountInfo(bondingCurve);
+
+      if (!accountInfo || accountInfo.data.length < 49) {
+        return null;
+      }
+
+      return decodeBondingCurveState(Buffer.from(accountInfo.data));
+    } catch (error) {
+      console.error('[PumpFunClient] Error getting bonding curve state:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Execute a buy on pump.fun bonding curve
+   */
+  async buy(params: PumpFunBuyParams): Promise<PumpFunTradeResult> {
+    const { mint, solAmount, minTokensOut, slippageBps = 500 } = params;
+
+    console.log(`[PumpFunClient] Buying with ${lamportsToSol(solAmount)} SOL`);
+
+    // Derive PDAs
+    const [bondingCurve] = deriveBondingCurvePDA(mint);
+    const associatedBondingCurve = await deriveAssociatedBondingCurve(bondingCurve, mint);
+    const userTokenAccount = await getAssociatedTokenAddress(mint, this.wallet.publicKey);
+
+    // Get bonding curve state for calculation
+    const state = await this.getBondingCurveState(mint);
+    if (!state) {
+      throw new Error('Token not found on bonding curve');
+    }
+    if (state.complete) {
+      throw new Error('Token has graduated - use Jupiter instead');
+    }
+
+    // Calculate expected tokens
+    const expectedTokens = calculateBuyOutput(
+      solAmount,
+      state.virtualSolReserves,
+      state.virtualTokenReserves
+    );
+
+    // Apply slippage
+    const minTokens = minTokensOut > 0n
+      ? minTokensOut
+      : (expectedTokens * BigInt(10000 - slippageBps)) / 10000n;
+
+    // Build transaction
+    const transaction = new Transaction();
+
+    // Add priority fee for faster inclusion
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 })
+    );
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 })
+    );
+
+    // Check if user token account exists, if not create it
+    const userATAInfo = await this.connection.getAccountInfo(userTokenAccount);
+    if (!userATAInfo) {
+      transaction.add(
+        createAssociatedTokenAccountInstruction(
+          this.wallet.publicKey,
+          userTokenAccount,
+          this.wallet.publicKey,
+          mint
+        )
+      );
+    }
+
+    // Build buy instruction
+    const buyInstruction = new TransactionInstruction({
+      programId: PUMP_FUN_PROGRAM,
+      keys: [
+        { pubkey: PUMP_FUN_GLOBAL, isSigner: false, isWritable: false },
+        { pubkey: PUMP_FUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
+        { pubkey: mint, isSigner: false, isWritable: false },
+        { pubkey: bondingCurve, isSigner: false, isWritable: true },
+        { pubkey: associatedBondingCurve, isSigner: false, isWritable: true },
+        { pubkey: userTokenAccount, isSigner: false, isWritable: true },
+        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: new PublicKey('SysvarRent111111111111111111111111111111111'), isSigner: false, isWritable: false },
+        { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
+        { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
+      ],
+      data: encodeBuyData(expectedTokens, solAmount),
+    });
+
+    transaction.add(buyInstruction);
+
+    // Send and confirm
+    const signature = await sendAndConfirmTransaction(
+      this.connection,
+      transaction,
+      [this.wallet],
+      { commitment: 'confirmed', maxRetries: 3 }
+    );
+
+    console.log(`[PumpFunClient] Buy successful: ${signature}`);
+
+    return {
+      signature,
+      tokenAmount: expectedTokens,
+      solAmount,
+    };
+  }
+
+  /**
+   * Execute a sell on pump.fun bonding curve
+   */
+  async sell(params: PumpFunSellParams): Promise<PumpFunTradeResult> {
+    const { mint, tokenAmount, minSolOut, slippageBps = 500 } = params;
+
+    console.log(`[PumpFunClient] Selling ${tokenAmount} tokens`);
+
+    // Derive PDAs
+    const [bondingCurve] = deriveBondingCurvePDA(mint);
+    const associatedBondingCurve = await deriveAssociatedBondingCurve(bondingCurve, mint);
+    const userTokenAccount = await getAssociatedTokenAddress(mint, this.wallet.publicKey);
+
+    // Get bonding curve state
+    const state = await this.getBondingCurveState(mint);
+    if (!state) {
+      throw new Error('Token not found on bonding curve');
+    }
+    if (state.complete) {
+      throw new Error('Token has graduated - use Jupiter instead');
+    }
+
+    // Calculate expected SOL
+    const expectedSol = calculateSellOutput(
+      tokenAmount,
+      state.virtualSolReserves,
+      state.virtualTokenReserves
+    );
+
+    // Apply slippage
+    const minSol = minSolOut > 0n
+      ? minSolOut
+      : (expectedSol * BigInt(10000 - slippageBps)) / 10000n;
+
+    // Build transaction
+    const transaction = new Transaction();
+
+    // Add priority fee
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 })
+    );
+    transaction.add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 })
+    );
+
+    // Build sell instruction
+    const sellInstruction = new TransactionInstruction({
+      programId: PUMP_FUN_PROGRAM,
+      keys: [
+        { pubkey: PUMP_FUN_GLOBAL, isSigner: false, isWritable: false },
+        { pubkey: PUMP_FUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
+        { pubkey: mint, isSigner: false, isWritable: false },
+        { pubkey: bondingCurve, isSigner: false, isWritable: true },
+        { pubkey: associatedBondingCurve, isSigner: false, isWritable: true },
+        { pubkey: userTokenAccount, isSigner: false, isWritable: true },
+        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
+        { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
+      ],
+      data: encodeSellData(tokenAmount, minSol),
+    });
+
+    transaction.add(sellInstruction);
+
+    // Send and confirm
+    const signature = await sendAndConfirmTransaction(
+      this.connection,
+      transaction,
+      [this.wallet],
+      { commitment: 'confirmed', maxRetries: 3 }
+    );
+
+    console.log(`[PumpFunClient] Sell successful: ${signature}`);
+
+    return {
+      signature,
+      tokenAmount,
+      solAmount: expectedSol,
+    };
+  }
+
+  /**
+   * Get wallet public key
+   */
+  getPublicKey(): PublicKey {
+    return this.wallet.publicKey;
+  }
+
+  /**
+   * Get SOL balance
+   */
+  async getBalance(): Promise<number> {
+    const balance = await this.connection.getBalance(this.wallet.publicKey);
+    return balance / LAMPORTS_PER_SOL;
+  }
+}
+
+// Singleton instance (lazy initialization)
+let pumpFunClient: PumpFunClient | null = null;
+
+export function getPumpFunClient(): PumpFunClient {
+  if (!pumpFunClient) {
+    pumpFunClient = new PumpFunClient();
+  }
+  return pumpFunClient;
 }

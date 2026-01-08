@@ -76,10 +76,16 @@ importers:
       ethers:
         specifier: ^6.11.0
         version: 6.16.0
+      ws:
+        specifier: ^8.16.0
+        version: 8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
         version: 20.19.27
+      '@types/ws':
+        specifier: ^8.5.10
+        version: 8.18.1
       tsx:
         specifier: ^4.7.0
         version: 4.21.0
@@ -839,7 +845,6 @@ packages:
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
     dependencies:
       '@types/node': 20.19.27
-    dev: false
 
   /@vercel/build-utils@7.11.0:
     resolution: {integrity: sha512-UFrx1hNIjNJJkd0NZrYfaOrmcWhQmrVsbKe9o3L9jX9J1iufG685wIZ9tFCKKC0Fa2HWbNDNzNxrE5SCAS2lyA==}

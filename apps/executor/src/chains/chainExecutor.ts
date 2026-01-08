@@ -13,6 +13,7 @@ import {
 } from '@raptor/shared';
 import { TokenAnalyzer } from '../analyzers/tokenAnalyzer.js';
 import { calculatePositionSize } from '../scoring/scorer.js';
+import { PrivateRpcClient, createPrivateRpcClient } from '../rpc/privateRpc.js';
 
 const ROUTER_ABI = [
   'function swapExactETHForTokens(uint amountOutMin, address[] path, address to, uint deadline) payable returns (uint[] amounts)',
@@ -34,6 +35,7 @@ export class ChainExecutor {
   private analyzer: TokenAnalyzer;
   private router: Contract;
   private running = false;
+  private privateRpc: PrivateRpcClient;
 
   constructor(config: ChainConfig) {
     this.config = config;
@@ -41,11 +43,19 @@ export class ChainExecutor {
     this.wallet = new Wallet(process.env.EXECUTOR_PRIVATE_KEY!, this.provider);
     this.analyzer = new TokenAnalyzer(this.provider, config);
     this.router = new Contract(config.dexes[0].router, ROUTER_ABI, this.wallet);
+    this.privateRpc = createPrivateRpcClient(config, this.provider, this.wallet);
   }
 
   async start(): Promise<void> {
     this.running = true;
     console.log(`[${this.config.name}] Executor started`);
+
+    // Log private RPC status
+    if (this.privateRpc.isEnabled()) {
+      console.log(`[${this.config.name}] Private RPC enabled (${this.config.privateRpc?.type})`);
+    } else {
+      console.log(`[${this.config.name}] Private RPC disabled - using public mempool`);
+    }
 
     // Connect WebSocket if available
     if (this.config.wssUrl) {
@@ -150,17 +160,56 @@ export class ChainExecutor {
     const amountsOut = await this.router.getAmountsOut(netAmount, path);
     const minOut = (amountsOut[1] * 85n) / 100n; // 15% slippage tolerance
 
-    // Execute swap with net amount
-    const tx = await this.router.swapExactETHForTokens(
+    // Encode the swap transaction data
+    const routerInterface = new ethers.Interface(ROUTER_ABI);
+    const swapData = routerInterface.encodeFunctionData('swapExactETHForTokens', [
       minOut,
       path,
       this.wallet.address,
       deadline,
-      { value: netAmount, gasLimit: 300000n }
-    );
+    ]);
 
-    const receipt = await tx.wait();
-    if (!receipt) throw new Error('Transaction failed');
+    // Estimate gas dynamically
+    const gasEstimate = await this.provider.estimateGas({
+      to: this.config.dexes[0].router,
+      data: swapData,
+      value: netAmount,
+      from: this.wallet.address,
+    });
+    const gasLimit = (gasEstimate * 120n) / 100n; // Add 20% buffer
+
+    // Execute swap via private RPC if enabled
+    let receipt: TransactionReceipt;
+    if (this.privateRpc.isEnabled()) {
+      console.log(`[${this.config.name}] Executing buy via private RPC...`);
+      const result = await this.privateRpc.executeTransaction({
+        to: this.config.dexes[0].router,
+        data: swapData,
+        value: netAmount,
+        gasLimit,
+      });
+
+      if (!result.success || !result.txHash) {
+        throw new Error(result.error || 'Private RPC transaction failed');
+      }
+
+      // Wait for confirmation
+      const txReceipt = await this.provider.waitForTransaction(result.txHash, 1, 60000);
+      if (!txReceipt) throw new Error('Transaction not confirmed');
+      receipt = txReceipt;
+    } else {
+      // Fallback to direct execution
+      const tx = await this.router.swapExactETHForTokens(
+        minOut,
+        path,
+        this.wallet.address,
+        deadline,
+        { value: netAmount, gasLimit }
+      );
+      const txReceipt = await tx.wait();
+      if (!txReceipt) throw new Error('Transaction failed');
+      receipt = txReceipt;
+    }
 
     // Get actual tokens received
     const tokenContract = new Contract(token, ERC20_ABI, this.provider);
@@ -241,18 +290,56 @@ export class ChainExecutor {
     const path = [token, this.config.wrappedNative];
     const deadline = Math.floor(Date.now() / 1000) + 300;
 
-    // Execute swap
-    const tx = await this.router.swapExactTokensForETH(
+    // Encode the swap transaction data
+    const routerInterface = new ethers.Interface(ROUTER_ABI);
+    const swapData = routerInterface.encodeFunctionData('swapExactTokensForETH', [
       tokensHeld,
       0n, // Accept any amount (emergency exit)
       path,
       this.wallet.address,
       deadline,
-      { gasLimit: 300000n }
-    );
+    ]);
 
-    const receipt = await tx.wait();
-    if (!receipt) throw new Error('Transaction failed');
+    // Estimate gas dynamically
+    const gasEstimate = await this.provider.estimateGas({
+      to: this.config.dexes[0].router,
+      data: swapData,
+      from: this.wallet.address,
+    });
+    const gasLimit = (gasEstimate * 120n) / 100n; // Add 20% buffer
+
+    // Execute swap via private RPC if enabled
+    let receipt: TransactionReceipt;
+    if (this.privateRpc.isEnabled()) {
+      console.log(`[${this.config.name}] Executing sell via private RPC...`);
+      const result = await this.privateRpc.executeTransaction({
+        to: this.config.dexes[0].router,
+        data: swapData,
+        gasLimit,
+      });
+
+      if (!result.success || !result.txHash) {
+        throw new Error(result.error || 'Private RPC transaction failed');
+      }
+
+      // Wait for confirmation
+      const txReceipt = await this.provider.waitForTransaction(result.txHash, 1, 60000);
+      if (!txReceipt) throw new Error('Transaction not confirmed');
+      receipt = txReceipt;
+    } else {
+      // Fallback to direct execution
+      const tx = await this.router.swapExactTokensForETH(
+        tokensHeld,
+        0n, // Accept any amount (emergency exit)
+        path,
+        this.wallet.address,
+        deadline,
+        { gasLimit }
+      );
+      const txReceipt = await tx.wait();
+      if (!txReceipt) throw new Error('Transaction failed');
+      receipt = txReceipt;
+    }
 
     // Get amount received from swap
     const amountOut = await this.getAmountFromReceipt(receipt);

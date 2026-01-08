@@ -87,6 +87,13 @@ export interface Opportunity {
   expires_at: number;
 }
 
+export interface PrivateRpcConfig {
+  enabled: boolean;
+  type: 'flashbots' | 'bloxroute' | 'mevblocker' | 'custom';
+  endpoint: string;
+  authHeader?: string;
+}
+
 export interface ChainConfig {
   chainId: number;
   name: string;
@@ -101,6 +108,7 @@ export interface ChainConfig {
   maxPoolPercent: number;
   launchpads: LaunchpadConfig[];
   dexes: DexConfig[];
+  privateRpc?: PrivateRpcConfig;
 }
 
 export interface LaunchpadConfig {
