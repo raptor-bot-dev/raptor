@@ -68,13 +68,15 @@ function formatAlert(alert: Alert): string {
         `Lost: ${data.pnl} ${data.chain === 'bsc' ? 'BNB' : 'ETH'}`
       );
 
-    case 'DEPOSIT_CONFIRMED':
+    case 'DEPOSIT_CONFIRMED': {
+      const depositSymbol = data.symbol || (data.chain === 'bsc' ? 'BNB' : data.chain === 'sol' ? 'SOL' : 'ETH');
       return (
         `✅ *Deposit Confirmed*\n\n` +
-        `Amount: ${data.amount} ${data.chain === 'bsc' ? 'BNB' : 'ETH'}\n` +
+        `Amount: ${data.amount} ${depositSymbol}\n` +
         `Chain: ${String(data.chain).toUpperCase()}\n\n` +
         `Funds are now active and hunting.`
       );
+    }
 
     case 'WITHDRAWAL_SENT':
       return (

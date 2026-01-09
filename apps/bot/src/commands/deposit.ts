@@ -1,5 +1,7 @@
 import { InlineKeyboard } from 'grammy';
 import type { MyContext } from '../types.js';
+import type { Chain, TradingMode } from '@raptor/shared';
+import { getOrCreateDepositAddress } from '../services/wallet.js';
 
 export async function depositCommand(ctx: MyContext) {
   const user = ctx.from;
@@ -75,9 +77,12 @@ export async function handleChainSelection(
     return;
   }
 
-  // Generate or get deposit address
-  // In production, this would be derived from user ID or fetched from DB
-  const depositAddress = generateDepositAddress(user.id, chain, mode);
+  // Generate or get deposit address from wallet service
+  const depositAddress = await getOrCreateDepositAddress(
+    user.id,
+    chain as Chain,
+    mode as TradingMode
+  );
 
   const modeEmoji = mode === 'pool' ? '🏊' : mode === 'solo' ? '👤' : '🎯';
   const modeName = mode.charAt(0).toUpperCase() + mode.slice(1);
@@ -99,16 +104,4 @@ export async function handleChainSelection(
   );
 
   await ctx.answerCallbackQuery();
-}
-
-// Generate deposit address based on user, chain, and mode
-// In production, this would use HD wallet derivation or a proper address system
-function generateDepositAddress(userId: number, chain: string, mode: string): string {
-  // Placeholder - in production, derive from master wallet or use dedicated addresses
-  if (chain === 'sol') {
-    // Solana address format
-    return `RAPTOR${userId}${mode}SOL...`; // Placeholder
-  }
-  // EVM address format
-  return `0x${userId.toString(16).padStart(8, '0')}${mode}...`; // Placeholder
 }

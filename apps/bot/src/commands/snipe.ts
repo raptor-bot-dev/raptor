@@ -1,12 +1,21 @@
-// /snipe command - Manual sniping of tokens
-// Usage: /snipe <contract> <amount> <chain>
+/**
+ * Snipe Command - Manual token sniping for RAPTOR v2.2
+ *
+ * Enhanced with:
+ * - Full token analysis before confirmation
+ * - 7-category score display
+ * - Hard stop warnings
+ * - Confirm/cancel flow
+ *
+ * Usage: /snipe <contract> <amount> <chain>
+ */
 
-import { CommandContext, Context } from 'grammy';
-import {
-  createSnipeRequest,
-  getUserBalancesByMode,
-  type Chain,
-} from '@raptor/shared';
+import { InlineKeyboard } from 'grammy';
+import type { MyContext } from '../types.js';
+import type { Chain } from '@raptor/shared';
+import { createSnipeRequest, getUserBalancesByMode, analyzeToken as runTokenAnalysis } from '@raptor/shared';
+import { snipeConfirmKeyboard, backKeyboard, CHAIN_EMOJI, CHAIN_NAME } from '../utils/keyboards.js';
+import { formatAddress } from '../utils/formatters.js';
 
 const CHAIN_NAMES: Record<string, Chain> = {
   bsc: 'bsc',
@@ -32,7 +41,44 @@ const MIN_AMOUNTS: Record<Chain, number> = {
   sol: 0.1,
 };
 
-export async function snipeCommand(ctx: CommandContext<Context>): Promise<void> {
+// Pending snipes awaiting confirmation
+interface PendingSnipe {
+  tokenAddress: string;
+  amount: number;
+  chain: Chain;
+  analysis?: TokenAnalysis;
+  createdAt: number;
+}
+
+interface TokenAnalysis {
+  total: number;
+  decision: string;
+  categories: {
+    sellability: number;
+    supplyIntegrity: number;
+    liquidityControl: number;
+    distribution: number;
+    deployerProvenance: number;
+    postLaunchControls: number;
+    executionRisk: number;
+  };
+  hardStops: { triggered: boolean; reasons: string[] };
+  reasons: string[];
+  tokenInfo: {
+    name: string;
+    symbol: string;
+    liquidity: string;
+    holders: number;
+    age: string;
+  };
+}
+
+const pendingSnipes = new Map<number, PendingSnipe>();
+
+/**
+ * Main snipe command
+ */
+export async function snipeCommand(ctx: MyContext): Promise<void> {
   const tgId = ctx.from?.id;
   if (!tgId) {
     await ctx.reply('Could not identify user.');
@@ -40,21 +86,20 @@ export async function snipeCommand(ctx: CommandContext<Context>): Promise<void> 
   }
 
   // Parse arguments: /snipe <contract> <amount> <chain>
-  const args = ctx.match?.toString().trim().split(/\s+/) || [];
+  const text = ctx.message?.text || '';
+  const parts = text.split(/\s+/);
+  const args = parts.slice(1); // Remove command
+
+  if (args.length === 0) {
+    await showSnipeHelp(ctx);
+    return;
+  }
 
   if (args.length < 3) {
     await ctx.reply(
-      `*Manual Snipe*\n\n` +
-        `Usage: \`/snipe <contract> <amount> <chain>\`\n\n` +
-        `*Example:*\n` +
-        `\`/snipe 0x1234...abcd 0.5 bsc\`\n` +
-        `\`/snipe 6EF8...xyz 1.0 sol\`\n\n` +
-        `*Supported chains:*\n` +
-        `• bsc (BNB Smart Chain)\n` +
-        `• base (Base)\n` +
-        `• eth (Ethereum)\n` +
-        `• sol (Solana)\n\n` +
-        `*Note:* 1% fee is applied to all trades.`,
+      '❌ Missing arguments.\n\n' +
+      'Usage: `/snipe <contract> <amount> <chain>`\n\n' +
+      'Example: `/snipe 0x1234...abcd 0.5 bsc`',
       { parse_mode: 'Markdown' }
     );
     return;
@@ -66,7 +111,8 @@ export async function snipeCommand(ctx: CommandContext<Context>): Promise<void> 
   const chain = CHAIN_NAMES[chainInput.toLowerCase()];
   if (!chain) {
     await ctx.reply(
-      `Invalid chain. Supported: bsc, base, eth, sol`
+      '❌ Invalid chain.\n\nSupported: `bsc`, `base`, `eth`, `sol`',
+      { parse_mode: 'Markdown' }
     );
     return;
   }
@@ -74,7 +120,7 @@ export async function snipeCommand(ctx: CommandContext<Context>): Promise<void> 
   // Validate amount
   const amount = parseFloat(amountStr);
   if (isNaN(amount) || amount <= 0) {
-    await ctx.reply('Invalid amount. Please enter a positive number.');
+    await ctx.reply('❌ Invalid amount. Please enter a positive number.');
     return;
   }
 
@@ -82,164 +128,392 @@ export async function snipeCommand(ctx: CommandContext<Context>): Promise<void> 
   const minAmount = MIN_AMOUNTS[chain];
   const symbol = CHAIN_SYMBOLS[chain];
   if (amount < minAmount) {
-    await ctx.reply(
-      `Minimum snipe amount is ${minAmount} ${symbol}`
-    );
+    await ctx.reply(`❌ Minimum snipe amount is ${minAmount} ${symbol}`);
     return;
   }
 
   // Validate token address format
-  if (chain === 'sol') {
-    // Solana base58 address
-    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(tokenAddress)) {
-      await ctx.reply(
-        'Invalid Solana token address. Must be a valid base58 address.'
-      );
-      return;
-    }
-  } else {
-    // EVM address
-    if (!/^0x[a-fA-F0-9]{40}$/.test(tokenAddress)) {
-      await ctx.reply(
-        'Invalid token address. Must be a valid EVM address (0x...).'
-      );
-      return;
-    }
+  if (!isValidAddress(tokenAddress, chain)) {
+    await ctx.reply(
+      chain === 'sol'
+        ? '❌ Invalid Solana token address.'
+        : '❌ Invalid EVM token address (must start with 0x).'
+    );
+    return;
   }
 
-  // Check user balance in snipe mode
+  // Check user balance
   try {
     const balances = await getUserBalancesByMode(tgId, 'snipe');
     const chainBalance = balances.find((b) => b.chain === chain);
-    const currentBalance = chainBalance
-      ? parseFloat(chainBalance.current_value)
-      : 0;
+    const currentBalance = chainBalance ? parseFloat(chainBalance.current_value) : 0;
 
     if (currentBalance < amount) {
       await ctx.reply(
-        `Insufficient balance.\n\n` +
-          `Your snipe balance: ${currentBalance.toFixed(4)} ${symbol}\n` +
-          `Required: ${amount} ${symbol}\n\n` +
-          `Use /deposit to add funds to your snipe wallet.`
+        `❌ *Insufficient Balance*\n\n` +
+        `Your snipe balance: ${currentBalance.toFixed(4)} ${symbol}\n` +
+        `Required: ${amount} ${symbol}\n\n` +
+        `Use /deposit to add funds.`,
+        { parse_mode: 'Markdown' }
       );
       return;
     }
 
-    // Create snipe request
-    await ctx.reply(`Creating snipe request...`);
-
-    const request = await createSnipeRequest({
-      tg_id: tgId,
-      chain,
-      token_address: tokenAddress,
-      amount: amount.toString(),
-      take_profit_percent: 50, // Default 50%
-      stop_loss_percent: 30, // Default 30%
-      skip_safety_check: false,
-    });
-
+    // Show analyzing message
     await ctx.reply(
-      `*Snipe Request Created*\n\n` +
-        `Request ID: \`${request.id}\`\n` +
-        `Token: \`${tokenAddress}\`\n` +
-        `Amount: ${amount} ${symbol}\n` +
-        `Chain: ${chain.toUpperCase()}\n` +
-        `Status: PENDING\n\n` +
-        `Your snipe will be executed shortly.\n` +
-        `Use /positions to track your positions.`,
+      `🔍 *Analyzing Token...*\n\n` +
+      `${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}\n` +
+      `\`${formatAddress(tokenAddress)}\`\n\n` +
+      `_Running full analysis..._`,
       { parse_mode: 'Markdown' }
     );
+
+    // Run full analysis (FULL tier for manual snipes)
+    const analysis = await analyzeToken(tokenAddress, chain);
+
+    // Store pending snipe
+    pendingSnipes.set(tgId, {
+      tokenAddress,
+      amount,
+      chain,
+      analysis,
+      createdAt: Date.now(),
+    });
+
+    // Format analysis message
+    const message = formatSnipeAnalysis(tokenAddress, chain, amount, symbol, analysis);
+
+    // Build confirmation keyboard based on analysis
+    const keyboard = buildSnipeKeyboard(tokenAddress, analysis);
+
+    await ctx.reply(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+
   } catch (error) {
-    console.error('Snipe error:', error);
-    await ctx.reply(
-      'Failed to create snipe request. Please try again later.'
-    );
+    console.error('[Snipe] Error:', error);
+    await ctx.reply('❌ Failed to analyze token. Please try again.');
   }
 }
 
-// Advanced snipe with custom TP/SL
-export async function snipeAdvancedCommand(
-  ctx: CommandContext<Context>
-): Promise<void> {
+/**
+ * Handle snipe confirmation
+ */
+export async function handleSnipeConfirm(ctx: MyContext) {
   const tgId = ctx.from?.id;
-  if (!tgId) {
-    await ctx.reply('Could not identify user.');
+  if (!tgId) return;
+
+  const pending = pendingSnipes.get(tgId);
+  if (!pending) {
+    await ctx.answerCallbackQuery({ text: 'No pending snipe found' });
     return;
   }
 
-  // Parse: /snipe_advanced <contract> <amount> <chain> <tp%> <sl%> [--skip-safety]
-  const args = ctx.match?.toString().trim().split(/\s+/) || [];
-
-  if (args.length < 5) {
-    await ctx.reply(
-      `*Advanced Snipe*\n\n` +
-        `Usage: \`/snipe_advanced <contract> <amount> <chain> <tp%> <sl%> [--skip-safety]\`\n\n` +
-        `*Example:*\n` +
-        `\`/snipe_advanced 0x123...abc 0.5 bsc 100 20\`\n` +
-        `(Take profit at +100%, stop loss at -20%)\n\n` +
-        `Add \`--skip-safety\` to bypass safety checks (risky!).`,
-      { parse_mode: 'Markdown' }
+  // Check if too old (5 minute timeout)
+  if (Date.now() - pending.createdAt > 5 * 60 * 1000) {
+    pendingSnipes.delete(tgId);
+    await ctx.editMessageText(
+      '❌ Snipe request expired. Please try again.',
+      { reply_markup: backKeyboard('menu') }
     );
-    return;
-  }
-
-  const [tokenAddress, amountStr, chainInput, tpStr, slStr, ...flags] = args;
-  const skipSafety = flags.includes('--skip-safety');
-
-  // Validate chain
-  const chain = CHAIN_NAMES[chainInput.toLowerCase()];
-  if (!chain) {
-    await ctx.reply('Invalid chain. Supported: bsc, base, eth, sol');
-    return;
-  }
-
-  // Validate amount
-  const amount = parseFloat(amountStr);
-  if (isNaN(amount) || amount <= 0) {
-    await ctx.reply('Invalid amount.');
-    return;
-  }
-
-  // Validate TP/SL
-  const takeProfitPercent = parseInt(tpStr, 10);
-  const stopLossPercent = parseInt(slStr, 10);
-
-  if (isNaN(takeProfitPercent) || takeProfitPercent < 10) {
-    await ctx.reply('Take profit must be at least 10%.');
-    return;
-  }
-
-  if (isNaN(stopLossPercent) || stopLossPercent < 5 || stopLossPercent > 90) {
-    await ctx.reply('Stop loss must be between 5% and 90%.');
+    await ctx.answerCallbackQuery();
     return;
   }
 
   try {
-    const request = await createSnipeRequest({
-      tg_id: tgId,
-      chain,
-      token_address: tokenAddress,
-      amount: amount.toString(),
-      take_profit_percent: takeProfitPercent,
-      stop_loss_percent: stopLossPercent,
-      skip_safety_check: skipSafety,
-    });
-
-    const symbol = CHAIN_SYMBOLS[chain];
-
-    await ctx.reply(
-      `*Advanced Snipe Request Created*\n\n` +
-        `Request ID: \`${request.id}\`\n` +
-        `Token: \`${tokenAddress}\`\n` +
-        `Amount: ${amount} ${symbol}\n` +
-        `Take Profit: +${takeProfitPercent}%\n` +
-        `Stop Loss: -${stopLossPercent}%\n` +
-        `Safety Check: ${skipSafety ? 'SKIPPED ⚠️' : 'Enabled'}\n` +
-        `Status: PENDING`,
+    await ctx.editMessageText(
+      '⏳ *Executing Snipe...*\n\n' +
+      '_Submitting transaction..._',
       { parse_mode: 'Markdown' }
     );
+
+    const request = await createSnipeRequest({
+      tg_id: tgId,
+      chain: pending.chain,
+      token_address: pending.tokenAddress,
+      amount: pending.amount.toString(),
+      take_profit_percent: 50,
+      stop_loss_percent: 30,
+      skip_safety_check: false,
+    });
+
+    const symbol = CHAIN_SYMBOLS[pending.chain];
+
+    await ctx.editMessageText(
+      `✅ *Snipe Submitted*\n\n` +
+      `🔖 Request: \`${request.id}\`\n` +
+      `📦 Token: \`${formatAddress(pending.tokenAddress)}\`\n` +
+      `💰 Amount: ${pending.amount} ${symbol}\n` +
+      `${CHAIN_EMOJI[pending.chain]} Chain: ${CHAIN_NAME[pending.chain]}\n\n` +
+      `_Execution in progress..._\n` +
+      `Use /positions to track.`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: backKeyboard('menu'),
+      }
+    );
+
+    pendingSnipes.delete(tgId);
   } catch (error) {
-    console.error('Advanced snipe error:', error);
-    await ctx.reply('Failed to create snipe request.');
+    console.error('[Snipe] Execution error:', error);
+    await ctx.editMessageText(
+      '❌ *Snipe Failed*\n\n' +
+      'Could not execute snipe. Please try again.',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: backKeyboard('menu'),
+      }
+    );
   }
+
+  await ctx.answerCallbackQuery();
+}
+
+/**
+ * Handle snipe cancellation
+ */
+export async function handleSnipeCancel(ctx: MyContext) {
+  const tgId = ctx.from?.id;
+  if (!tgId) return;
+
+  pendingSnipes.delete(tgId);
+
+  await ctx.editMessageText(
+    '❌ Snipe cancelled.',
+    { reply_markup: backKeyboard('menu') }
+  );
+
+  await ctx.answerCallbackQuery();
+}
+
+/**
+ * Handle snipe amount adjustment
+ */
+export async function handleSnipeAdjust(ctx: MyContext, adjustment: string) {
+  const tgId = ctx.from?.id;
+  if (!tgId) return;
+
+  const pending = pendingSnipes.get(tgId);
+  if (!pending) {
+    await ctx.answerCallbackQuery({ text: 'No pending snipe' });
+    return;
+  }
+
+  // Adjust amount based on button
+  switch (adjustment) {
+    case 'half':
+      pending.amount = pending.amount / 2;
+      break;
+    case 'double':
+      pending.amount = pending.amount * 2;
+      break;
+  }
+
+  const symbol = CHAIN_SYMBOLS[pending.chain];
+  const message = formatSnipeAnalysis(
+    pending.tokenAddress,
+    pending.chain,
+    pending.amount,
+    symbol,
+    pending.analysis!
+  );
+
+  const keyboard = buildSnipeKeyboard(pending.tokenAddress, pending.analysis!);
+
+  await ctx.editMessageText(message, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
+
+  await ctx.answerCallbackQuery({ text: `Amount: ${pending.amount} ${symbol}` });
+}
+
+/**
+ * Show snipe help
+ */
+async function showSnipeHelp(ctx: MyContext) {
+  await ctx.reply(
+    '🎯 *Manual Snipe*\n\n' +
+    'Snipe a token with full analysis.\n\n' +
+    '*Usage:* `/snipe <contract> <amount> <chain>`\n\n' +
+    '*Examples:*\n' +
+    '`/snipe 0x1234...abcd 0.5 bsc`\n' +
+    '`/snipe 6EF8...xyz 1.0 sol`\n\n' +
+    '*Supported chains:*\n' +
+    `${CHAIN_EMOJI.sol} sol - Solana\n` +
+    `${CHAIN_EMOJI.bsc} bsc - BNB Smart Chain\n` +
+    `${CHAIN_EMOJI.base} base - Base\n` +
+    `${CHAIN_EMOJI.eth} eth - Ethereum\n\n` +
+    '*Process:*\n' +
+    '1. Token is analyzed (FULL check)\n' +
+    '2. Score and risks are shown\n' +
+    '3. You confirm or cancel\n' +
+    '4. Trade is executed\n\n' +
+    '_1% fee on all trades_',
+    { parse_mode: 'Markdown' }
+  );
+}
+
+/**
+ * Validate address format
+ */
+function isValidAddress(address: string, chain: Chain): boolean {
+  if (chain === 'sol') {
+    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+  }
+  return /^0x[a-fA-F0-9]{40}$/.test(address);
+}
+
+/**
+ * Analyze token using the real analysis service
+ */
+async function analyzeToken(address: string, chain: Chain): Promise<TokenAnalysis> {
+  try {
+    // Call the real token analysis service
+    const result = await runTokenAnalysis(address, chain);
+
+    return {
+      total: result.total,
+      decision: result.decision,
+      categories: result.categories,
+      hardStops: result.hardStops,
+      reasons: result.reasons,
+      tokenInfo: result.tokenInfo,
+    };
+  } catch (error) {
+    console.error('[Snipe] Analysis error:', error);
+    // Return failed analysis on error
+    return {
+      total: 0,
+      decision: 'SKIP',
+      categories: {
+        sellability: 0,
+        supplyIntegrity: 0,
+        liquidityControl: 0,
+        distribution: 0,
+        deployerProvenance: 0,
+        postLaunchControls: 0,
+        executionRisk: 0,
+      },
+      hardStops: {
+        triggered: true,
+        reasons: ['Analysis failed - please try again'],
+      },
+      reasons: ['Analysis failed'],
+      tokenInfo: {
+        name: 'Unknown',
+        symbol: '???',
+        liquidity: '0',
+        holders: 0,
+        age: 'Unknown',
+      },
+    };
+  }
+}
+
+/**
+ * Format snipe analysis message
+ */
+function formatSnipeAnalysis(
+  address: string,
+  chain: Chain,
+  amount: number,
+  symbol: string,
+  analysis: TokenAnalysis
+): string {
+  const decisionEmoji: Record<string, string> = {
+    SKIP: '🚫',
+    TINY: '🔸',
+    TRADABLE: '✅',
+    BEST: '🌟',
+  };
+
+  let message = `🎯 *Snipe Analysis*\n\n`;
+
+  // Token info
+  message += `${CHAIN_EMOJI[chain]} *${analysis.tokenInfo.name}* (${analysis.tokenInfo.symbol})\n`;
+  message += `\`${formatAddress(address)}\`\n\n`;
+
+  // Your trade
+  message += `💰 *Your Trade:* ${amount} ${symbol}\n`;
+  message += `💧 *Liquidity:* ${analysis.tokenInfo.liquidity}\n`;
+  message += `👥 *Holders:* ${analysis.tokenInfo.holders}\n`;
+  message += `⏱️ *Age:* ${analysis.tokenInfo.age}\n\n`;
+
+  // Score and decision
+  message += `━━━━━━━━━━━━━━━━━━\n`;
+  message += `*Score:* ${analysis.total}/35 ${decisionEmoji[analysis.decision]} *${analysis.decision}*\n`;
+  message += `━━━━━━━━━━━━━━━━━━\n\n`;
+
+  // Category breakdown
+  const cats = analysis.categories;
+  message += `📊 *Analysis:*\n`;
+  message += `Sellability: ${'█'.repeat(cats.sellability)}${'░'.repeat(5 - cats.sellability)} ${cats.sellability}/5\n`;
+  message += `Supply: ${'█'.repeat(cats.supplyIntegrity)}${'░'.repeat(5 - cats.supplyIntegrity)} ${cats.supplyIntegrity}/5\n`;
+  message += `Liquidity: ${'█'.repeat(cats.liquidityControl)}${'░'.repeat(5 - cats.liquidityControl)} ${cats.liquidityControl}/5\n`;
+  message += `Distribution: ${'█'.repeat(cats.distribution)}${'░'.repeat(5 - cats.distribution)} ${cats.distribution}/5\n`;
+  message += `Deployer: ${'█'.repeat(cats.deployerProvenance)}${'░'.repeat(5 - cats.deployerProvenance)} ${cats.deployerProvenance}/5\n`;
+  message += `Controls: ${'█'.repeat(cats.postLaunchControls)}${'░'.repeat(5 - cats.postLaunchControls)} ${cats.postLaunchControls}/5\n`;
+  message += `Execution: ${'█'.repeat(cats.executionRisk)}${'░'.repeat(5 - cats.executionRisk)} ${cats.executionRisk}/5\n`;
+
+  // Hard stops warning
+  if (analysis.hardStops.triggered) {
+    message += '\n🚨 *HARD STOPS TRIGGERED:*\n';
+    for (const reason of analysis.hardStops.reasons) {
+      message += `  ⛔ ${reason}\n`;
+    }
+    message += '\n⚠️ *This token has critical issues!*\n';
+  }
+
+  // Issues
+  if (analysis.reasons.length > 0 && !analysis.hardStops.triggered) {
+    message += '\n⚠️ *Issues:*\n';
+    for (const reason of analysis.reasons) {
+      message += `  • ${reason}\n`;
+    }
+  }
+
+  return message;
+}
+
+/**
+ * Build snipe confirmation keyboard
+ */
+function buildSnipeKeyboard(address: string, analysis: TokenAnalysis): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+
+  if (analysis.hardStops.triggered) {
+    // Hard stop - only allow cancel or force
+    keyboard
+      .text('⚠️ Force Snipe (RISKY)', `snipe_force_${address}`)
+      .row()
+      .text('❌ Cancel', 'snipe_cancel');
+  } else if (analysis.decision === 'SKIP') {
+    // Skip recommendation
+    keyboard
+      .text('⚠️ Snipe Anyway', `snipe_confirm`)
+      .row()
+      .text('❌ Cancel (Recommended)', 'snipe_cancel');
+  } else {
+    // Normal confirmation
+    keyboard
+      .text('✅ Confirm Snipe', 'snipe_confirm')
+      .text('❌ Cancel', 'snipe_cancel')
+      .row()
+      .text('➗ Half', 'snipe_adjust_half')
+      .text('✖️ Double', 'snipe_adjust_double');
+  }
+
+  return keyboard;
+}
+
+// Legacy advanced snipe command (kept for compatibility)
+export async function snipeAdvancedCommand(ctx: MyContext): Promise<void> {
+  await ctx.reply(
+    '⚠️ Advanced snipe is deprecated.\n\n' +
+    'Use `/snipe <contract> <amount> <chain>` instead.\n' +
+    'Custom TP/SL can be set in Settings.',
+    { parse_mode: 'Markdown' }
+  );
 }

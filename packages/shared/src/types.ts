@@ -48,6 +48,14 @@ export interface Position {
   program_id?: string; // Solana program ID (pump.fun, Raydium, etc.)
   created_at: string;
   closed_at: string | null;
+  // v2.2 strategy fields
+  strategy?: 'MICRO_SCALP' | 'STANDARD' | 'MOON_BAG' | 'DCA_EXIT' | 'TRAILING';
+  peak_price?: string;
+  trailing_stop_price?: string;
+  partial_exit_taken?: boolean;
+  exit_levels_hit?: number;
+  moon_bag_amount?: string;
+  deployer_address?: string;
 }
 
 export interface Trade {
@@ -129,9 +137,16 @@ export type AlertType =
   | 'POSITION_OPENED'
   | 'TAKE_PROFIT'
   | 'STOP_LOSS'
+  | 'TRAILING_STOP'
+  | 'DCA_EXIT'
+  | 'MOON_BAG_EXIT'
+  | 'MAX_HOLD_TIME'
   | 'DEPOSIT_CONFIRMED'
   | 'WITHDRAWAL_SENT'
-  | 'DAILY_SUMMARY';
+  | 'DAILY_SUMMARY'
+  | 'HONEYPOT_ALERT'
+  | 'LOW_SCORE_WARNING'
+  | 'GRADUATION';
 
 export interface Alert {
   type: AlertType;

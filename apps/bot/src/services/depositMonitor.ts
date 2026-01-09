@@ -77,7 +77,7 @@ export class DepositMonitor {
   private async loadWatchedAddresses(): Promise<void> {
     try {
       const { data: balances, error } = await supabase
-        .from('balances')
+        .from('user_balances')
         .select('*')
         .not('deposit_address', 'is', null);
 
@@ -195,7 +195,7 @@ export class DepositMonitor {
     // Update balance in database
     try {
       const { data: balance } = await supabase
-        .from('balances')
+        .from('user_balances')
         .select('current_value')
         .eq('tg_id', tgId)
         .eq('chain', chain)

@@ -2,11 +2,23 @@
   "name": "@raptor/database",
   "version": "1.0.0",
   "private": true,
-  "main": "./types.ts",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
-    "generate": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > types.ts"
+    "build": "tsc",
+    "generate": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > types.ts",
+    "migrate": "node --loader ts-node/esm src/migrate.ts",
+    "migrate:dry-run": "node --loader ts-node/esm src/migrate.ts --dry-run",
+    "migrate:v22": "node --loader ts-node/esm src/migrate.ts --file=003_v22"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0"
   },
   "devDependencies": {
-    "supabase": "^1.120.0"
+    "@types/node": "^20.10.0",
+    "supabase": "^1.120.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
   }
 }

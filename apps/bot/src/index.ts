@@ -11,6 +11,18 @@ import { helpCommand } from './commands/help.js';
 import { snipeCommand } from './commands/snipe.js';
 import { sellCommand } from './commands/sell.js';
 import { chainsCommand } from './commands/chains.js';
+// v2.2 new commands
+import { menuCommand } from './commands/menu.js';
+import { walletCommand } from './commands/wallet.js';
+import { balanceCommand } from './commands/balance.js';
+import { huntCommand } from './commands/hunt.js';
+import { historyCommand } from './commands/history.js';
+import { scoreCommand } from './commands/score.js';
+import { strategyCommand } from './commands/strategy.js';
+import { gasCommand } from './commands/gas.js';
+import { slippageCommand } from './commands/slippage.js';
+// v2.3 self-custodial
+import { backupCommand } from './commands/backup.js';
 import { handleCallbackQuery } from './handlers/callbacks.js';
 import { handleTextMessage } from './handlers/messages.js';
 import { depositMonitor } from './services/depositMonitor.js';
@@ -39,6 +51,15 @@ bot.use(sequentialize((ctx) => ctx.from?.id.toString()));
 
 // Register commands
 bot.command('start', startCommand);
+bot.command('menu', menuCommand);  // v2.2 main hub
+bot.command('wallet', walletCommand);  // v2.2 wallet management
+bot.command('balance', balanceCommand);  // v2.2 quick balance check
+bot.command('hunt', huntCommand);  // v2.2 auto-hunt settings
+bot.command('history', historyCommand);  // v2.2 trade history
+bot.command('score', scoreCommand);  // v2.2 token analysis
+bot.command('strategy', strategyCommand);  // v2.2 trading strategy
+bot.command('gas', gasCommand);  // v2.2 per-chain gas
+bot.command('slippage', slippageCommand);  // v2.2 per-chain slippage
 bot.command('deposit', depositCommand);
 bot.command('withdraw', withdrawCommand);
 bot.command('status', statusCommand);
@@ -48,6 +69,7 @@ bot.command('help', helpCommand);
 bot.command('snipe', snipeCommand);
 bot.command('sell', sellCommand);
 bot.command('chains', chainsCommand);
+bot.command('backup', backupCommand);  // v2.3 private key backup
 
 // Handle callback queries (inline button presses)
 bot.on('callback_query:data', handleCallbackQuery);
