@@ -8,7 +8,12 @@
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test:solana": "tsx src/tests/testSolanaFlow.ts",
+    "test:solana:mainnet": "tsx src/tests/testSolanaFlow.ts --mainnet",
+    "test:solana:trade": "tsx src/tests/testSolanaFlow.ts --mainnet --trade",
+    "test:websocket": "tsx src/tests/testWebSocket.ts",
+    "test:websocket:mainnet": "tsx src/tests/testWebSocket.ts --mainnet"
   },
   "dependencies": {
     "@raptor/shared": "workspace:*",

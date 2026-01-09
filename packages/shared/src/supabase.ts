@@ -13,10 +13,30 @@ import type {
   UserModePreference,
 } from './types.js';
 
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY || '';
+// Lazy-load Supabase client to allow tests without credentials
+let _supabase: SupabaseClient | null = null;
 
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey);
+function getSupabaseClient(): SupabaseClient {
+  if (!_supabase) {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY must be set');
+    }
+
+    _supabase = createClient(supabaseUrl, supabaseKey);
+  }
+  return _supabase;
+}
+
+// Export getter for supabase client (backwards compatibility)
+export const supabase = new Proxy({} as SupabaseClient, {
+  get(_, prop) {
+    const client = getSupabaseClient();
+    return (client as unknown as Record<string | symbol, unknown>)[prop];
+  },
+});
 
 // User functions
 export async function getUser(tgId: number): Promise<User | null> {
