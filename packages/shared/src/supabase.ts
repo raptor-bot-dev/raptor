@@ -198,6 +198,14 @@ export async function updatePosition(
     current_price?: string;
     unrealized_pnl?: string;
     unrealized_pnl_percent?: number;
+    // v2.2 strategy fields
+    peak_price?: string;
+    trailing_stop_price?: string;
+    partial_exit_taken?: boolean;
+    exit_levels_hit?: number;
+    moon_bag_amount?: string;
+    tokens_held?: string;
+    status?: 'ACTIVE' | 'CLOSED' | 'PENDING';
   }
 ): Promise<Position> {
   const { data, error } = await supabase
@@ -605,6 +613,53 @@ export async function getPositionByToken(
   return data;
 }
 
+/**
+ * Get all active positions for a user
+ */
+export async function getUserPositions(tgId: number): Promise<Position[]> {
+  const { data, error } = await supabase
+    .from('positions')
+    .select('*')
+    .eq('tg_id', tgId)
+    .eq('status', 'ACTIVE')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get a single position by ID
+ */
+export async function getPosition(positionId: number): Promise<Position | null> {
+  const { data, error } = await supabase
+    .from('positions')
+    .select('*')
+    .eq('id', positionId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Update TP/SL for a position
+ */
+export async function updatePositionTpSl(
+  positionId: number,
+  updates: { take_profit_percent?: number; stop_loss_percent?: number }
+): Promise<void> {
+  const { error } = await supabase
+    .from('positions')
+    .update(updates)
+    .eq('id', positionId);
+
+  if (error) throw error;
+}
+
 // ============================================================================
 // Balance Functions by Mode
 // ============================================================================
@@ -621,4 +676,472 @@ export async function getUserBalancesByMode(
 
   if (error) throw error;
   return data || [];
+}
+
+// ============================================================================
+// User Wallet Functions (Self-Custodial v2.3 - Multi-Wallet Support)
+// ============================================================================
+
+export interface UserWallet {
+  id: number;
+  tg_id: number;
+  chain: Chain;
+  wallet_index: number;
+  wallet_label: string | null;
+  is_active: boolean;
+  solana_address: string;
+  solana_private_key_encrypted: Record<string, unknown>;
+  evm_address: string;
+  evm_private_key_encrypted: Record<string, unknown>;
+  created_at: string;
+  backup_exported_at: string | null;
+}
+
+export interface CustomStrategy {
+  // Core settings
+  take_profit_percent: number;
+  stop_loss_percent: number;
+  max_hold_minutes: number;
+  // Trailing stop
+  trailing_enabled: boolean;
+  trailing_activation_percent: number;
+  trailing_distance_percent: number;
+  // DCA Ladder
+  dca_enabled: boolean;
+  dca_levels: Array<{ sell_percent: number; at_profit_percent: number }>;
+  // Moon bag
+  moon_bag_percent: number;
+  // Filters
+  min_liquidity_usd: number;
+  max_market_cap_usd: number;
+  min_score: number;
+  max_buy_tax_percent: number;
+  max_sell_tax_percent: number;
+  // Protection
+  anti_rug_enabled: boolean;
+  anti_mev_enabled: boolean;
+  auto_approve_enabled: boolean;
+  // Execution
+  slippage_percent: number;
+  gas_priority: 'low' | 'medium' | 'high' | 'turbo';
+  retry_failed: boolean;
+  // Notifications
+  entry_alert: boolean;
+  exit_alert: boolean;
+  tp_sl_alert: boolean;
+}
+
+/**
+ * Get all wallets for a user
+ */
+export async function getUserWallets(tgId: number): Promise<UserWallet[]> {
+  const { data, error } = await supabase
+    .from('user_wallets')
+    .select('*')
+    .eq('tg_id', tgId)
+    .order('chain')
+    .order('wallet_index');
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get all wallets for a user on a specific chain
+ */
+export async function getUserWalletsForChain(tgId: number, chain: Chain): Promise<UserWallet[]> {
+  const { data, error } = await supabase
+    .from('user_wallets')
+    .select('*')
+    .eq('tg_id', tgId)
+    .eq('chain', chain)
+    .order('wallet_index');
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get active wallet for a user on a specific chain
+ */
+export async function getActiveWallet(tgId: number, chain: Chain): Promise<UserWallet | null> {
+  const { data, error } = await supabase
+    .from('user_wallets')
+    .select('*')
+    .eq('tg_id', tgId)
+    .eq('chain', chain)
+    .eq('is_active', true)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Get a specific wallet by chain and index
+ */
+export async function getWalletByIndex(
+  tgId: number,
+  chain: Chain,
+  walletIndex: number
+): Promise<UserWallet | null> {
+  const { data, error } = await supabase
+    .from('user_wallets')
+    .select('*')
+    .eq('tg_id', tgId)
+    .eq('chain', chain)
+    .eq('wallet_index', walletIndex)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Check if user has any wallet on any chain
+ */
+export async function userHasWallet(tgId: number): Promise<boolean> {
+  const { count, error } = await supabase
+    .from('user_wallets')
+    .select('*', { count: 'exact', head: true })
+    .eq('tg_id', tgId);
+
+  if (error) throw error;
+  return (count || 0) > 0;
+}
+
+/**
+ * Get wallet count for a user on a specific chain
+ */
+export async function getWalletCount(tgId: number, chain: Chain): Promise<number> {
+  const { count, error } = await supabase
+    .from('user_wallets')
+    .select('*', { count: 'exact', head: true })
+    .eq('tg_id', tgId)
+    .eq('chain', chain);
+
+  if (error) throw error;
+  return count || 0;
+}
+
+/**
+ * Create a new wallet for a user on a specific chain
+ * Automatically assigns the next available wallet_index
+ */
+export async function createWallet(wallet: {
+  tg_id: number;
+  chain: Chain;
+  address: string;
+  private_key_encrypted: Record<string, unknown>;
+  wallet_label?: string;
+}): Promise<UserWallet> {
+  // Get the count of existing wallets for this chain
+  const existingCount = await getWalletCount(wallet.tg_id, wallet.chain);
+
+  if (existingCount >= 5) {
+    throw new Error(`Maximum 5 wallets per chain reached for ${wallet.chain}`);
+  }
+
+  const walletIndex = existingCount + 1;
+  const isFirstWallet = existingCount === 0;
+  const isSolana = wallet.chain === 'sol';
+
+  const { data, error } = await supabase
+    .from('user_wallets')
+    .insert({
+      tg_id: wallet.tg_id,
+      chain: wallet.chain,
+      wallet_index: walletIndex,
+      wallet_label: wallet.wallet_label || `Wallet #${walletIndex}`,
+      is_active: isFirstWallet, // First wallet is active by default
+      solana_address: isSolana ? wallet.address : '',
+      solana_private_key_encrypted: isSolana ? wallet.private_key_encrypted : {},
+      evm_address: isSolana ? '' : wallet.address,
+      evm_private_key_encrypted: isSolana ? {} : wallet.private_key_encrypted,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Delete a wallet (with validation)
+ */
+export async function deleteWallet(
+  tgId: number,
+  chain: Chain,
+  walletIndex: number
+): Promise<void> {
+  // First check if wallet exists and belongs to user
+  const wallet = await getWalletByIndex(tgId, chain, walletIndex);
+  if (!wallet) {
+    throw new Error('Wallet not found');
+  }
+
+  // Don't allow deleting the only active wallet
+  const allWallets = await getUserWalletsForChain(tgId, chain);
+  if (allWallets.length === 1) {
+    throw new Error('Cannot delete the only wallet on this chain');
+  }
+
+  // If deleting active wallet, set another one as active
+  if (wallet.is_active) {
+    const newActive = allWallets.find((w) => w.wallet_index !== walletIndex);
+    if (newActive) {
+      await setActiveWallet(tgId, chain, newActive.wallet_index);
+    }
+  }
+
+  const { error } = await supabase
+    .from('user_wallets')
+    .delete()
+    .eq('tg_id', tgId)
+    .eq('chain', chain)
+    .eq('wallet_index', walletIndex);
+
+  if (error) throw error;
+}
+
+/**
+ * Set a wallet as the active wallet for a chain
+ */
+export async function setActiveWallet(
+  tgId: number,
+  chain: Chain,
+  walletIndex: number
+): Promise<void> {
+  // First, deactivate all wallets for this chain
+  const { error: deactivateError } = await supabase
+    .from('user_wallets')
+    .update({ is_active: false })
+    .eq('tg_id', tgId)
+    .eq('chain', chain);
+
+  if (deactivateError) throw deactivateError;
+
+  // Then activate the selected wallet
+  const { error: activateError } = await supabase
+    .from('user_wallets')
+    .update({ is_active: true })
+    .eq('tg_id', tgId)
+    .eq('chain', chain)
+    .eq('wallet_index', walletIndex);
+
+  if (activateError) throw activateError;
+}
+
+/**
+ * Update wallet label
+ */
+export async function updateWalletLabel(
+  tgId: number,
+  chain: Chain,
+  walletIndex: number,
+  label: string
+): Promise<UserWallet> {
+  const { data, error } = await supabase
+    .from('user_wallets')
+    .update({ wallet_label: label })
+    .eq('tg_id', tgId)
+    .eq('chain', chain)
+    .eq('wallet_index', walletIndex)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Mark that a user has exported their backup keys for a specific wallet
+ */
+export async function markWalletBackupExported(
+  tgId: number,
+  chain: Chain,
+  walletIndex: number
+): Promise<void> {
+  const { error } = await supabase
+    .from('user_wallets')
+    .update({ backup_exported_at: new Date().toISOString() })
+    .eq('tg_id', tgId)
+    .eq('chain', chain)
+    .eq('wallet_index', walletIndex);
+
+  if (error) throw error;
+}
+
+/**
+ * Get or create a user's first wallet for a chain
+ * Used for initial wallet setup during onboarding
+ */
+export async function getOrCreateFirstWallet(
+  tgId: number,
+  chain: Chain,
+  createKeypair: () => { publicKey: string; privateKeyEncrypted: Record<string, unknown> }
+): Promise<{ wallet: UserWallet; isNew: boolean }> {
+  // Check for existing wallets on this chain
+  const existingWallets = await getUserWalletsForChain(tgId, chain);
+  if (existingWallets.length > 0) {
+    // Return active wallet or first wallet
+    const activeWallet = existingWallets.find((w) => w.is_active) || existingWallets[0];
+    return { wallet: activeWallet, isNew: false };
+  }
+
+  // Generate new keypair
+  const keypair = createKeypair();
+
+  // Create wallet
+  const wallet = await createWallet({
+    tg_id: tgId,
+    chain,
+    address: keypair.publicKey,
+    private_key_encrypted: keypair.privateKeyEncrypted,
+    wallet_label: 'Wallet #1',
+  });
+
+  return { wallet, isNew: true };
+}
+
+/**
+ * Get wallet by Solana address
+ */
+export async function getWalletBySolanaAddress(address: string): Promise<UserWallet | null> {
+  const { data, error } = await supabase
+    .from('user_wallets')
+    .select('*')
+    .eq('solana_address', address)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Get wallet by EVM address (checks all EVM chains)
+ */
+export async function getWalletByEvmAddress(address: string): Promise<UserWallet | null> {
+  const { data, error } = await supabase
+    .from('user_wallets')
+    .select('*')
+    .eq('evm_address', address)
+    .limit(1)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+// ============================================================================
+// Legacy function for backwards compatibility (deprecated)
+// ============================================================================
+
+/**
+ * @deprecated Use getUserWallets or getActiveWallet instead
+ */
+export async function getUserWallet(tgId: number): Promise<UserWallet | null> {
+  // Returns the first active wallet found (Solana preferred for backwards compat)
+  const solWallet = await getActiveWallet(tgId, 'sol');
+  if (solWallet) return solWallet;
+
+  const wallets = await getUserWallets(tgId);
+  return wallets[0] || null;
+}
+
+/**
+ * @deprecated Use createWallet instead
+ */
+export async function createUserWallet(wallet: {
+  tg_id: number;
+  solana_address: string;
+  solana_private_key_encrypted: Record<string, unknown>;
+  evm_address: string;
+  evm_private_key_encrypted: Record<string, unknown>;
+}): Promise<UserWallet> {
+  // Create Solana wallet
+  const solWallet = await createWallet({
+    tg_id: wallet.tg_id,
+    chain: 'sol',
+    address: wallet.solana_address,
+    private_key_encrypted: wallet.solana_private_key_encrypted,
+  });
+
+  // Create EVM wallets for all EVM chains using the same address/key
+  for (const chain of ['bsc', 'base', 'eth'] as Chain[]) {
+    await createWallet({
+      tg_id: wallet.tg_id,
+      chain,
+      address: wallet.evm_address,
+      private_key_encrypted: wallet.evm_private_key_encrypted,
+    });
+  }
+
+  return solWallet;
+}
+
+/**
+ * @deprecated Use getOrCreateFirstWallet for each chain instead
+ */
+export async function getOrCreateUserWallet(
+  tgId: number,
+  createKeypairs: () => {
+    solana: { publicKey: string; privateKeyEncrypted: Record<string, unknown> };
+    evm: { publicKey: string; privateKeyEncrypted: Record<string, unknown> };
+  }
+): Promise<{ wallet: UserWallet; isNew: boolean }> {
+  // Check for existing wallets
+  const hasWallet = await userHasWallet(tgId);
+  if (hasWallet) {
+    const wallet = await getUserWallet(tgId);
+    return { wallet: wallet!, isNew: false };
+  }
+
+  // Generate keypairs and create wallets
+  const keypairs = createKeypairs();
+
+  // Create Solana wallet
+  const solWallet = await createWallet({
+    tg_id: tgId,
+    chain: 'sol',
+    address: keypairs.solana.publicKey,
+    private_key_encrypted: keypairs.solana.privateKeyEncrypted,
+  });
+
+  // Create EVM wallets for all chains
+  for (const chain of ['bsc', 'base', 'eth'] as Chain[]) {
+    await createWallet({
+      tg_id: tgId,
+      chain,
+      address: keypairs.evm.publicKey,
+      private_key_encrypted: keypairs.evm.privateKeyEncrypted,
+    });
+  }
+
+  return { wallet: solWallet, isNew: true };
+}
+
+/**
+ * @deprecated Use markWalletBackupExported instead
+ */
+export async function markBackupExported(tgId: number): Promise<void> {
+  // Mark all wallets as exported
+  const { error } = await supabase
+    .from('user_wallets')
+    .update({ backup_exported_at: new Date().toISOString() })
+    .eq('tg_id', tgId);
+
+  if (error) throw error;
 }
