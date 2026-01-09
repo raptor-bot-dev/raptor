@@ -13,7 +13,11 @@
     "test:solana:mainnet": "tsx src/tests/testSolanaFlow.ts --mainnet",
     "test:solana:trade": "tsx src/tests/testSolanaFlow.ts --mainnet --trade",
     "test:websocket": "tsx src/tests/testWebSocket.ts",
-    "test:websocket:mainnet": "tsx src/tests/testWebSocket.ts --mainnet"
+    "test:websocket:mainnet": "tsx src/tests/testWebSocket.ts --mainnet",
+    "test:evm": "tsx src/tests/testEVMFlow.ts",
+    "test:evm:bsc": "tsx src/tests/testEVMFlow.ts --chain bsc",
+    "test:evm:base": "tsx src/tests/testEVMFlow.ts --chain base",
+    "test:evm:eth": "tsx src/tests/testEVMFlow.ts --chain eth"
   },
   "dependencies": {
     "@raptor/shared": "workspace:*",
