@@ -84,6 +84,7 @@ async function handleSessionFlow(ctx: MyContext, text: string): Promise<boolean>
 
 /**
  * Detect if text is a wallet address or contract address
+ * For a trading bot, we assume addresses are token contracts by default
  */
 function detectAddress(text: string): {
   type: 'solana_wallet' | 'solana_token' | 'evm_wallet' | 'evm_token';
@@ -92,10 +93,10 @@ function detectAddress(text: string): {
 } | null {
   // Check Solana address
   if (SOLANA_ADDRESS_REGEX.test(text)) {
-    // Determine if it's a known token or likely a wallet
-    const isKnownToken = KNOWN_TOKEN_MINTS.has(text);
+    // For trading bot, assume all pasted addresses are token CAs
+    // Users can send via wallet menu if they need to
     return {
-      type: isKnownToken ? 'solana_token' : 'solana_wallet',
+      type: 'solana_token',
       address: text,
       chain: 'sol',
     };
@@ -103,8 +104,7 @@ function detectAddress(text: string): {
 
   // Check EVM address
   if (EVM_ADDRESS_REGEX.test(text)) {
-    // For EVM, we can't easily distinguish wallet vs token
-    // Assume it's a token/CA - user can use wallet menu for sends
+    // For EVM, assume it's a token CA for trading
     return {
       type: 'evm_token',
       address: text,
@@ -142,15 +142,18 @@ async function handleAddressInput(
     return;
   }
 
-  if (addressInfo.type === 'solana_wallet') {
-    // Show send options for Solana
-    await showSendOptions(ctx, addressInfo.address, 'sol');
-  } else if (addressInfo.type === 'evm_wallet' || addressInfo.type === 'evm_token') {
-    // For EVM, show chain selection first
-    await showEvmChainSelection(ctx, addressInfo.address);
-  } else if (addressInfo.type === 'solana_token') {
+  if (addressInfo.type === 'solana_token') {
     // Show token info + buy options
     await showTokenCard(ctx, addressInfo.address, 'sol');
+  } else if (addressInfo.type === 'evm_token') {
+    // For EVM tokens, show chain selection for trading
+    await showEvmChainSelectionForTrade(ctx, addressInfo.address);
+  } else if (addressInfo.type === 'solana_wallet') {
+    // Show send options for Solana (rarely used now)
+    await showSendOptions(ctx, addressInfo.address, 'sol');
+  } else if (addressInfo.type === 'evm_wallet') {
+    // For EVM wallets, show chain selection for sending
+    await showEvmChainSelection(ctx, addressInfo.address);
   }
 }
 
@@ -192,6 +195,35 @@ ${LINE}`;
     .text(`${CHAIN_EMOJI.base} Base`, `address_chain_base_${address}`)
     .row()
     .text(`${CHAIN_EMOJI.eth} Ethereum`, `address_chain_eth_${address}`)
+    .row()
+    .text('❌ Cancel', 'back_to_menu');
+
+  await ctx.reply(message, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
+}
+
+/**
+ * Show EVM chain selection for trading (token CA detected)
+ */
+async function showEvmChainSelectionForTrade(ctx: MyContext, address: string) {
+  const message = `${LINE}
+📊 *TOKEN DETECTED*
+${LINE}
+
+Contract address:
+\`${address.slice(0, 10)}...${address.slice(-8)}\`
+
+Select the chain to view token info:
+
+${LINE}`;
+
+  const keyboard = new InlineKeyboard()
+    .text(`${CHAIN_EMOJI.bsc} BSC`, `trade_chain_bsc_${address}`)
+    .text(`${CHAIN_EMOJI.base} Base`, `trade_chain_base_${address}`)
+    .row()
+    .text(`${CHAIN_EMOJI.eth} Ethereum`, `trade_chain_eth_${address}`)
     .row()
     .text('❌ Cancel', 'back_to_menu');
 

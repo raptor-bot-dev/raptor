@@ -295,6 +295,18 @@ export async function handleCallbackQuery(ctx: MyContext) {
       }
     }
 
+    // Chain selection for trading token CA (trade_chain_bsc_0x..., etc.)
+    if (data.startsWith('trade_chain_')) {
+      const rest = data.replace('trade_chain_', '');
+      const firstUnderscore = rest.indexOf('_');
+      if (firstUnderscore > 0) {
+        const chain = rest.substring(0, firstUnderscore) as Chain;
+        const address = rest.substring(firstUnderscore + 1);
+        await handleTradeChainSelected(ctx, chain, address);
+        return;
+      }
+    }
+
     // Send options (send_sol_0.1, send_bsc_0.5, etc.)
     if (data.startsWith('send_')) {
       const parts = data.replace('send_', '').split('_');
@@ -358,12 +370,12 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    if (data === 'back_to_wallet' || data === 'menu_wallet') {
+    if (data === 'back_to_wallet' || data === 'menu_wallet' || data === 'wallets') {
       await showWallets(ctx);
       return;
     }
 
-    if (data === 'back_to_hunt' || data === 'menu_hunt') {
+    if (data === 'back_to_hunt' || data === 'menu_hunt' || data === 'hunt') {
       await showHunt(ctx);
       return;
     }
@@ -373,19 +385,54 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    if (data === 'menu_snipe') {
-      // TODO: Show snipe interface
-      await ctx.answerCallbackQuery({ text: 'Use /snipe <token>' });
+    if (data === 'menu_snipe' || data === 'quick_trade') {
+      await ctx.answerCallbackQuery({ text: 'Paste a token address to trade' });
       return;
     }
 
-    if (data === 'menu_settings') {
+    if (data === 'menu_settings' || data === 'settings') {
       await showSettings(ctx);
       return;
     }
 
     if (data === 'menu_help' || data === 'help') {
       await showHelpMenu(ctx);
+      return;
+    }
+
+    // Coming soon features
+    if (data === 'chains') {
+      await ctx.answerCallbackQuery({ text: 'Chain selection coming soon' });
+      return;
+    }
+
+    if (data === 'copytrade') {
+      await ctx.answerCallbackQuery({ text: 'Copytrade coming soon' });
+      return;
+    }
+
+    if (data === 'orders') {
+      await ctx.answerCallbackQuery({ text: 'Limit orders coming soon' });
+      return;
+    }
+
+    if (data === 'premium') {
+      await ctx.answerCallbackQuery({ text: 'Premium features coming soon' });
+      return;
+    }
+
+    if (data === 'bridge') {
+      await ctx.answerCallbackQuery({ text: 'Bridge coming soon' });
+      return;
+    }
+
+    if (data === 'cashback') {
+      await ctx.answerCallbackQuery({ text: 'Cashback coming soon' });
+      return;
+    }
+
+    if (data === 'referral') {
+      await ctx.answerCallbackQuery({ text: 'Referral program coming soon' });
       return;
     }
 
@@ -1069,6 +1116,48 @@ Select amount to send:
   });
 
   await ctx.answerCallbackQuery();
+}
+
+async function handleTradeChainSelected(ctx: MyContext, chain: Chain, address: string) {
+  const user = ctx.from;
+  if (!user) return;
+
+  await ctx.answerCallbackQuery({ text: 'Loading token info...' });
+
+  const chainName = chain === 'sol' ? 'Solana' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'Base' : 'Ethereum';
+  const chainEmoji = chain === 'sol' ? '🟢' : chain === 'bsc' ? '🟡' : chain === 'base' ? '🔵' : '🟣';
+  const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+
+  // TODO: Fetch real token info from API
+  const message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${chainEmoji} *TOKEN* — ${chainName}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 *Token Info*
+Loading from chain...
+
+\`${address}\`
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+_Select an amount to buy:_
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+  const keyboard = new InlineKeyboard()
+    .text(`0.01 ${symbol}`, `buy_${chain}_${address}_0.01`)
+    .text(`0.05 ${symbol}`, `buy_${chain}_${address}_0.05`)
+    .row()
+    .text(`0.1 ${symbol}`, `buy_${chain}_${address}_0.1`)
+    .text(`0.5 ${symbol}`, `buy_${chain}_${address}_0.5`)
+    .row()
+    .text('🔍 Analyze', `analyze_${chain}_${address}`)
+    .text('🔄 Refresh', `refresh_${chain}_${address}`)
+    .row()
+    .text('« Back', 'back_to_menu');
+
+  await ctx.editMessageText(message, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
 }
 
 async function handleSendAmount(ctx: MyContext, chain: Chain, amount: string) {
