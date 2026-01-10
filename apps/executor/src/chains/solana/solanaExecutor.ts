@@ -23,6 +23,7 @@ import { PublicKey, Connection, Keypair } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import bs58 from 'bs58';
 import { JupiterClient, jupiter } from './jupiter.js';
+import { fetchWithTimeout } from '../../utils/fetchWithTimeout.js';
 import {
   calculateBuyOutput,
   calculateSellOutput,
@@ -91,9 +92,8 @@ export class SolanaExecutor {
     console.log('[SolanaExecutor] Starting...');
     this.running = true;
 
-    // Verify RPC connection
     try {
-      const response = await fetch(this.rpcUrl, {
+      const response = await fetchWithTimeout(this.rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -101,7 +101,8 @@ export class SolanaExecutor {
           id: 1,
           method: 'getHealth',
         }),
-      });
+      }, 5000);
+
       const data = (await response.json()) as { result?: string };
       if (data.result === 'ok') {
         console.log('[SolanaExecutor] RPC connection healthy');
@@ -109,7 +110,12 @@ export class SolanaExecutor {
         console.warn('[SolanaExecutor] RPC health check returned:', data);
       }
     } catch (error) {
-      console.error('[SolanaExecutor] Failed to connect to RPC:', error);
+      const errorName = (error as Error).name;
+      if (errorName === 'AbortError') {
+        console.error('[SolanaExecutor] RPC connection timeout');
+      } else {
+        console.error('[SolanaExecutor] Failed to connect to RPC:', error);
+      }
     }
 
     console.log('[SolanaExecutor] Started successfully');

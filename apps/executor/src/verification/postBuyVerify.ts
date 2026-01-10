@@ -16,6 +16,12 @@ import { speedCache, getChainConfig, SOLANA_CONFIG } from '@raptor/shared';
 import { ethers, Contract, Interface } from 'ethers';
 import { runFullAnalysis } from '../analysis/fullAnalysis.js';
 
+const DEFAULT_VERIFICATION_SLIPPAGE_BPS = 500; // 5%
+
+function getVerificationSlippageBps(): number {
+  return parseInt(process.env.VERIFICATION_SLIPPAGE_BPS || String(DEFAULT_VERIFICATION_SLIPPAGE_BPS), 10);
+}
+
 // Verification result
 export interface VerificationResult {
   positionId: number;
@@ -72,8 +78,8 @@ const ROUTER_ABI = [
   'function swapExactTokensForETHSupportingFeeOnTransferTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external',
 ];
 
-// Simulation wallet address (doesn't need to exist, just for simulation)
-const SIMULATION_WALLET = '0x1234567890123456789012345678901234567890';
+// Simulation wallet address - use well-known dead address for safety
+const SIMULATION_WALLET = '0x000000000000000000000000000000000000dEaD';
 
 /**
  * Register notification callbacks
@@ -299,7 +305,9 @@ async function simulateSolanaSell(tokenAddress: string): Promise<SellSimulationR
     quoteUrl.searchParams.set('inputMint', tokenAddress);
     quoteUrl.searchParams.set('outputMint', SOL_MINT);
     quoteUrl.searchParams.set('amount', testAmount.toString());
-    quoteUrl.searchParams.set('slippageBps', '1000'); // 10% slippage for test
+
+    const verificationSlippageBps = getVerificationSlippageBps();
+    quoteUrl.searchParams.set('slippageBps', verificationSlippageBps.toString());
 
     const response = await fetch(quoteUrl.toString(), {
       method: 'GET',

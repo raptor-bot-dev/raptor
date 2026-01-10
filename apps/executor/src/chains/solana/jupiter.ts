@@ -2,6 +2,7 @@
 // Used for post-graduation trading when tokens move to Raydium
 
 import { PROGRAM_IDS, solToLamports, lamportsToSol } from '@raptor/shared';
+import { fetchWithTimeout } from '../../utils/fetchWithTimeout.js';
 
 const JUPITER_API_BASE = 'https://quote-api.jup.ag/v6';
 
@@ -66,14 +67,21 @@ export class JupiterClient {
       asLegacyTransaction: 'false',
     });
 
-    const response = await fetch(`${this.apiBase}/quote?${params}`);
+    try {
+      const response = await fetchWithTimeout(`${this.apiBase}/quote?${params}`, {}, 5000);
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Jupiter quote failed: ${error}`);
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Jupiter quote failed: ${error}`);
+      }
+
+      return response.json() as Promise<JupiterQuote>;
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        throw new Error('Jupiter API timeout after 5s');
+      }
+      throw error;
     }
-
-    return response.json() as Promise<JupiterQuote>;
   }
 
   /**
@@ -85,26 +93,33 @@ export class JupiterClient {
     quote: JupiterQuote,
     userPublicKey: string
   ): Promise<JupiterSwapResponse> {
-    const response = await fetch(`${this.apiBase}/swap`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey,
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: 'auto',
-      }),
-    });
+    try {
+      const response = await fetchWithTimeout(`${this.apiBase}/swap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          quoteResponse: quote,
+          userPublicKey,
+          wrapAndUnwrapSol: true,
+          dynamicComputeUnitLimit: true,
+          prioritizationFeeLamports: 'auto',
+        }),
+      }, 5000);
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Jupiter swap failed: ${error}`);
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Jupiter swap failed: ${error}`);
+      }
+
+      return response.json() as Promise<JupiterSwapResponse>;
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        throw new Error('Jupiter swap API timeout after 5s');
+      }
+      throw error;
     }
-
-    return response.json() as Promise<JupiterSwapResponse>;
   }
 
   /**
@@ -118,14 +133,22 @@ export class JupiterClient {
       vsToken: PROGRAM_IDS.WSOL,
     });
 
-    const response = await fetch(`https://price.jup.ag/v6/price?${params}`);
+    try {
+      const response = await fetchWithTimeout(`https://price.jup.ag/v6/price?${params}`, {}, 3000);
 
-    if (!response.ok) {
-      throw new Error('Failed to get token price');
+      if (!response.ok) {
+        throw new Error('Failed to get token price');
+      }
+
+      const data = (await response.json()) as { data?: Record<string, { price?: number }> };
+      return data.data?.[tokenMint]?.price || 0;
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        console.warn('[Jupiter] Price API timeout, returning 0');
+        return 0;
+      }
+      throw error;
     }
-
-    const data = (await response.json()) as { data?: Record<string, { price?: number }> };
-    return data.data?.[tokenMint]?.price || 0;
   }
 
   /**
