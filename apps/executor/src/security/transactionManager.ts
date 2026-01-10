@@ -1,13 +1,15 @@
 /**
  * Transaction Manager for RAPTOR v2.3.1
  *
- * SECURITY: M-003, M-007, M-008 - Transaction lifecycle management
+ * SECURITY: M-003, M-007, M-008, P0-3 - Transaction lifecycle management
  * - Transaction timeout handling
  * - Position size limits
  * - Trade cooldown enforcement
+ * - Transaction idempotency (P0-3)
  */
 
 import { ethers } from 'ethers';
+import crypto from 'crypto';
 
 /**
  * Transaction timeout configuration per chain (milliseconds)
@@ -347,4 +349,277 @@ export async function executeWithTimeout<T>(
     clearTimeout(timeoutId!);
     throw error;
   }
+}
+
+// =============================================================================
+// SECURITY: P0-3 - Transaction Idempotency System
+// Prevents duplicate transactions by tracking unique request keys
+// =============================================================================
+
+/**
+ * Idempotency entry tracking completed/pending transactions
+ */
+interface IdempotencyEntry {
+  key: string;
+  status: 'pending' | 'completed' | 'failed';
+  txHash?: string;
+  result?: unknown;
+  error?: string;
+  timestamp: number;
+  expiresAt: number;
+}
+
+// Store idempotency keys with their results
+const idempotencyStore = new Map<string, IdempotencyEntry>();
+
+// Default TTL for idempotency keys (10 minutes)
+const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Generate a unique idempotency key from transaction parameters
+ * SECURITY: P0-3 - Creates deterministic key from trade parameters
+ */
+export function generateIdempotencyKey(params: {
+  tgId: number;
+  chain: string;
+  operation: 'buy' | 'sell';
+  token: string;
+  amount: string | bigint;
+  nonce?: number;
+}): string {
+  const data = `${params.tgId}:${params.chain}:${params.operation}:${params.token.toLowerCase()}:${params.amount}:${params.nonce || 0}`;
+  return crypto.createHash('sha256').update(data).digest('hex').slice(0, 32);
+}
+
+/**
+ * Check if a transaction with this idempotency key is already pending or completed
+ * Returns the cached result if available
+ */
+export function checkIdempotency(key: string): {
+  exists: boolean;
+  status?: 'pending' | 'completed' | 'failed';
+  txHash?: string;
+  result?: unknown;
+  error?: string;
+} {
+  const entry = idempotencyStore.get(key);
+
+  if (!entry) {
+    return { exists: false };
+  }
+
+  // Check if expired
+  if (Date.now() > entry.expiresAt) {
+    idempotencyStore.delete(key);
+    return { exists: false };
+  }
+
+  return {
+    exists: true,
+    status: entry.status,
+    txHash: entry.txHash,
+    result: entry.result,
+    error: entry.error,
+  };
+}
+
+/**
+ * Reserve an idempotency key (mark as pending)
+ * Returns false if key is already in use
+ */
+export function reserveIdempotencyKey(key: string): boolean {
+  const existing = checkIdempotency(key);
+
+  if (existing.exists) {
+    console.warn(`[Idempotency] Key already exists with status: ${existing.status}`);
+    return false;
+  }
+
+  idempotencyStore.set(key, {
+    key,
+    status: 'pending',
+    timestamp: Date.now(),
+    expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+  });
+
+  console.log(`[Idempotency] Reserved key: ${key.slice(0, 8)}...`);
+  return true;
+}
+
+/**
+ * Complete an idempotency key with success result
+ */
+export function completeIdempotencyKey(
+  key: string,
+  txHash: string,
+  result?: unknown
+): void {
+  const entry = idempotencyStore.get(key);
+
+  if (entry) {
+    entry.status = 'completed';
+    entry.txHash = txHash;
+    entry.result = result;
+    console.log(`[Idempotency] Completed key: ${key.slice(0, 8)}... -> ${txHash}`);
+  }
+}
+
+/**
+ * Fail an idempotency key with error
+ */
+export function failIdempotencyKey(key: string, error: string): void {
+  const entry = idempotencyStore.get(key);
+
+  if (entry) {
+    entry.status = 'failed';
+    entry.error = error;
+    // Reduce TTL on failure so retry is possible sooner
+    entry.expiresAt = Date.now() + 60000; // 1 minute
+    console.log(`[Idempotency] Failed key: ${key.slice(0, 8)}... -> ${error}`);
+  }
+}
+
+/**
+ * Release an idempotency key (remove from store)
+ * Use when transaction definitively failed and should be retried
+ */
+export function releaseIdempotencyKey(key: string): void {
+  idempotencyStore.delete(key);
+  console.log(`[Idempotency] Released key: ${key.slice(0, 8)}...`);
+}
+
+/**
+ * Execute a transaction with idempotency protection
+ * SECURITY: P0-3 - Prevents duplicate transactions
+ */
+export async function executeWithIdempotency<T>(
+  params: {
+    tgId: number;
+    chain: string;
+    operation: 'buy' | 'sell';
+    token: string;
+    amount: string | bigint;
+  },
+  executor: () => Promise<{ txHash: string; result: T }>
+): Promise<{ success: boolean; txHash?: string; result?: T; error?: string; wasDuplicate?: boolean }> {
+  const key = generateIdempotencyKey(params);
+
+  // Check for existing transaction
+  const existing = checkIdempotency(key);
+
+  if (existing.exists) {
+    if (existing.status === 'pending') {
+      return {
+        success: false,
+        error: 'Transaction already in progress',
+        wasDuplicate: true,
+      };
+    }
+
+    if (existing.status === 'completed') {
+      return {
+        success: true,
+        txHash: existing.txHash,
+        result: existing.result as T,
+        wasDuplicate: true,
+      };
+    }
+
+    if (existing.status === 'failed') {
+      // Allow retry after failure
+      console.log(`[Idempotency] Retrying previously failed transaction`);
+    }
+  }
+
+  // Reserve the key
+  if (!reserveIdempotencyKey(key)) {
+    return {
+      success: false,
+      error: 'Failed to acquire idempotency lock',
+      wasDuplicate: true,
+    };
+  }
+
+  try {
+    // Execute the transaction
+    const { txHash, result } = await executor();
+
+    // Mark as completed
+    completeIdempotencyKey(key, txHash, result);
+
+    return {
+      success: true,
+      txHash,
+      result,
+      wasDuplicate: false,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+    // Mark as failed
+    failIdempotencyKey(key, errorMessage);
+
+    return {
+      success: false,
+      error: errorMessage,
+      wasDuplicate: false,
+    };
+  }
+}
+
+/**
+ * Cleanup expired idempotency entries
+ */
+function cleanupIdempotencyStore(): void {
+  const now = Date.now();
+  let cleaned = 0;
+
+  for (const [key, entry] of idempotencyStore) {
+    if (now > entry.expiresAt) {
+      idempotencyStore.delete(key);
+      cleaned++;
+    }
+  }
+
+  if (cleaned > 0) {
+    console.log(`[Idempotency] Cleaned up ${cleaned} expired entries`);
+  }
+}
+
+// Cleanup idempotency store every 5 minutes
+setInterval(cleanupIdempotencyStore, 5 * 60 * 1000);
+
+/**
+ * Get idempotency store stats for monitoring
+ */
+export function getIdempotencyStats(): {
+  total: number;
+  pending: number;
+  completed: number;
+  failed: number;
+} {
+  let pending = 0;
+  let completed = 0;
+  let failed = 0;
+
+  for (const entry of idempotencyStore.values()) {
+    switch (entry.status) {
+      case 'pending':
+        pending++;
+        break;
+      case 'completed':
+        completed++;
+        break;
+      case 'failed':
+        failed++;
+        break;
+    }
+  }
+
+  return {
+    total: idempotencyStore.size,
+    pending,
+    completed,
+    failed,
+  };
 }

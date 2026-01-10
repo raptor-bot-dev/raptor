@@ -379,6 +379,7 @@ export async function calculateScore(
 
 /**
  * Calculate position size based on score decision
+ * SECURITY: P1-6 - Uses pure BigInt arithmetic to prevent precision loss
  */
 export function calculatePositionSize(
   userAllocation: bigint,
@@ -386,16 +387,17 @@ export function calculatePositionSize(
   config: ChainConfig,
   decision?: ScoreDecision
 ): bigint {
-  // Decision-based multiplier
-  const decisionMultiplier: Record<ScoreDecision, number> = {
-    SKIP: 0,
-    TINY: 0.25,
-    TRADABLE: 0.75,
-    BEST: 1.0,
+  // Decision-based multiplier in basis points (10000 = 100%)
+  // SECURITY: P1-6 - Use basis points for precision-safe BigInt math
+  const decisionMultiplierBps: Record<ScoreDecision, bigint> = {
+    SKIP: 0n,
+    TINY: 2500n,     // 25% = 2500 bps
+    TRADABLE: 7500n, // 75% = 7500 bps
+    BEST: 10000n,    // 100% = 10000 bps
   };
 
-  const multiplier = decision ? decisionMultiplier[decision] : 1.0;
-  if (multiplier === 0) return 0n;
+  const multiplierBps = decision ? decisionMultiplierBps[decision] : 10000n;
+  if (multiplierBps === 0n) return 0n;
 
   // Don't invest more than maxPoolPercent of liquidity
   const maxFromPool = (liquidity * BigInt(config.maxPoolPercent)) / 100n;
@@ -405,9 +407,12 @@ export function calculatePositionSize(
     ? config.maxPositionSize
     : userAllocation;
 
-  // Take the smaller and apply multiplier
-  let positionSize = maxFromPool < maxFromUser ? maxFromPool : maxFromUser;
-  positionSize = BigInt(Math.floor(Number(positionSize) * multiplier));
+  // Take the smaller
+  const baseSize = maxFromPool < maxFromUser ? maxFromPool : maxFromUser;
+
+  // Apply multiplier using basis points (no precision loss)
+  // SECURITY: P1-6 - Pure BigInt arithmetic: (size * bps) / 10000
+  const positionSize = (baseSize * multiplierBps) / 10000n;
 
   // Ensure minimum position size
   if (positionSize < config.minPositionSize) {

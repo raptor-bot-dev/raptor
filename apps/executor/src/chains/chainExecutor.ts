@@ -23,6 +23,19 @@ import {
   validateSwapParams,
 } from '../security/tradeGuards.js';
 
+// SECURITY: P1-3 - Confirmation requirements per chain
+// Higher confirmation counts for chains with faster block times or reorg risk
+const CONFIRMATION_REQUIREMENTS: Record<string, { confirmations: number; timeout: number }> = {
+  bsc: { confirmations: 3, timeout: 90000 },    // BSC: 3 confirmations, 90s timeout
+  base: { confirmations: 3, timeout: 60000 },   // Base: 3 confirmations, 60s timeout
+  eth: { confirmations: 12, timeout: 300000 },  // ETH: 12 confirmations, 5min timeout (slow blocks)
+};
+
+function getConfirmationConfig(chainName: string): { confirmations: number; timeout: number } {
+  const name = chainName.toLowerCase();
+  return CONFIRMATION_REQUIREMENTS[name] || CONFIRMATION_REQUIREMENTS.bsc;
+}
+
 const ROUTER_ABI = [
   'function swapExactETHForTokens(uint amountOutMin, address[] path, address to, uint deadline) payable returns (uint[] amounts)',
   'function swapExactTokensForETH(uint amountIn, uint amountOutMin, address[] path, address to, uint deadline) returns (uint[] amounts)',
@@ -236,8 +249,13 @@ export class ChainExecutor {
           throw new Error(result.error || 'Private RPC transaction failed');
         }
 
-        // Wait for confirmation
-        const txReceipt = await this.provider.waitForTransaction(result.txHash, 1, 60000);
+        // SECURITY: P1-3 - Wait for proper number of confirmations per chain
+        const confirmConfig = getConfirmationConfig(this.config.name);
+        const txReceipt = await this.provider.waitForTransaction(
+          result.txHash,
+          confirmConfig.confirmations,
+          confirmConfig.timeout
+        );
         if (!txReceipt) throw new Error('Transaction not confirmed');
         receipt = txReceipt;
       } else {
@@ -415,8 +433,13 @@ export class ChainExecutor {
           throw new Error(result.error || 'Private RPC transaction failed');
         }
 
-        // Wait for confirmation
-        const txReceipt = await this.provider.waitForTransaction(result.txHash, 1, 60000);
+        // SECURITY: P1-3 - Wait for proper number of confirmations per chain
+        const confirmConfig = getConfirmationConfig(this.config.name);
+        const txReceipt = await this.provider.waitForTransaction(
+          result.txHash,
+          confirmConfig.confirmations,
+          confirmConfig.timeout
+        );
         if (!txReceipt) throw new Error('Transaction not confirmed');
         receipt = txReceipt;
       } else {

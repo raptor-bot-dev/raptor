@@ -516,6 +516,7 @@ export class SolanaExecutor {
 
   /**
    * Buy via Jupiter aggregator
+   * SECURITY: P0-1 - Now properly executes swap transaction instead of returning fake hash
    */
   private async buyViaJupiter(
     tokenMint: string,
@@ -524,14 +525,60 @@ export class SolanaExecutor {
     console.log(`[SolanaExecutor] Getting Jupiter quote for ${solAmount} SOL`);
 
     try {
-      const quote = await this.jupiterClient.quoteBuy(tokenMint, solAmount);
-      const tokensReceived = Number(quote.outAmount) / 1e6; // Adjust decimals as needed
+      // Get quote with 5% slippage
+      const quote = await this.jupiterClient.quoteBuy(tokenMint, solAmount, 500);
+      const expectedTokens = Number(quote.outAmount);
 
-      // In production, would sign and submit the swap transaction
-      console.log(`[SolanaExecutor] Jupiter quote: ${tokensReceived} tokens`);
+      console.log(`[SolanaExecutor] Jupiter quote: ${expectedTokens / 1e6} tokens (slippage: ${quote.slippageBps}bps)`);
+
+      // Get the swap transaction from Jupiter
+      const client = this.getPumpFunClient();
+      const userPublicKey = client.getPublicKey().toBase58();
+      const swapResponse = await this.jupiterClient.getSwapTransaction(quote, userPublicKey);
+
+      // Deserialize and sign the transaction
+      const { VersionedTransaction } = await import('@solana/web3.js');
+      const transactionBuffer = Buffer.from(swapResponse.swapTransaction, 'base64');
+      const transaction = VersionedTransaction.deserialize(transactionBuffer);
+
+      // Get the wallet keypair for signing
+      const privateKey = process.env.SOLANA_EXECUTOR_PRIVATE_KEY;
+      if (!privateKey) {
+        throw new Error('SOLANA_EXECUTOR_PRIVATE_KEY not set');
+      }
+      const { Keypair } = await import('@solana/web3.js');
+      const wallet = Keypair.fromSecretKey(bs58.decode(privateKey));
+
+      // Sign the transaction
+      transaction.sign([wallet]);
+
+      // Send the transaction
+      const rawTransaction = transaction.serialize();
+      const txHash = await this.connection.sendRawTransaction(rawTransaction, {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+        maxRetries: 3,
+      });
+
+      // Wait for confirmation
+      const confirmation = await this.connection.confirmTransaction(
+        {
+          signature: txHash,
+          blockhash: transaction.message.recentBlockhash,
+          lastValidBlockHeight: swapResponse.lastValidBlockHeight,
+        },
+        'confirmed'
+      );
+
+      if (confirmation.value.err) {
+        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      }
+
+      const tokensReceived = expectedTokens / 1e6; // Adjust decimals
+      console.log(`[SolanaExecutor] Jupiter buy successful: ${txHash}`);
 
       return {
-        txHash: `sim_jup_${Date.now().toString(36)}`,
+        txHash,
         tokensReceived,
       };
     } catch (error) {
@@ -542,6 +589,7 @@ export class SolanaExecutor {
 
   /**
    * Sell via Jupiter aggregator
+   * SECURITY: P0-1 - Now properly executes swap transaction instead of returning fake hash
    */
   private async sellViaJupiter(
     tokenMint: string,
@@ -550,17 +598,64 @@ export class SolanaExecutor {
     console.log(`[SolanaExecutor] Getting Jupiter quote for ${tokenAmount} tokens`);
 
     try {
+      // Get quote with 5% slippage
       const quote = await this.jupiterClient.quoteSell(
         tokenMint,
-        BigInt(Math.floor(tokenAmount * 1e6))
+        BigInt(Math.floor(tokenAmount * 1e6)),
+        500
       );
-      const solReceived = lamportsToSol(BigInt(quote.outAmount));
+      const expectedSol = lamportsToSol(BigInt(quote.outAmount));
 
-      console.log(`[SolanaExecutor] Jupiter quote: ${solReceived} SOL`);
+      console.log(`[SolanaExecutor] Jupiter quote: ${expectedSol} SOL (slippage: ${quote.slippageBps}bps)`);
+
+      // Get the swap transaction from Jupiter
+      const client = this.getPumpFunClient();
+      const userPublicKey = client.getPublicKey().toBase58();
+      const swapResponse = await this.jupiterClient.getSwapTransaction(quote, userPublicKey);
+
+      // Deserialize and sign the transaction
+      const { VersionedTransaction } = await import('@solana/web3.js');
+      const transactionBuffer = Buffer.from(swapResponse.swapTransaction, 'base64');
+      const transaction = VersionedTransaction.deserialize(transactionBuffer);
+
+      // Get the wallet keypair for signing
+      const privateKey = process.env.SOLANA_EXECUTOR_PRIVATE_KEY;
+      if (!privateKey) {
+        throw new Error('SOLANA_EXECUTOR_PRIVATE_KEY not set');
+      }
+      const { Keypair } = await import('@solana/web3.js');
+      const wallet = Keypair.fromSecretKey(bs58.decode(privateKey));
+
+      // Sign the transaction
+      transaction.sign([wallet]);
+
+      // Send the transaction
+      const rawTransaction = transaction.serialize();
+      const txHash = await this.connection.sendRawTransaction(rawTransaction, {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+        maxRetries: 3,
+      });
+
+      // Wait for confirmation
+      const confirmation = await this.connection.confirmTransaction(
+        {
+          signature: txHash,
+          blockhash: transaction.message.recentBlockhash,
+          lastValidBlockHeight: swapResponse.lastValidBlockHeight,
+        },
+        'confirmed'
+      );
+
+      if (confirmation.value.err) {
+        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      }
+
+      console.log(`[SolanaExecutor] Jupiter sell successful: ${txHash}`);
 
       return {
-        txHash: `sim_jup_${Date.now().toString(36)}`,
-        solReceived,
+        txHash,
+        solReceived: expectedSol,
       };
     } catch (error) {
       console.error('[SolanaExecutor] Jupiter sell failed:', error);

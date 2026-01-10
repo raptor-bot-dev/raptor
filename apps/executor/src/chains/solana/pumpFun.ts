@@ -478,6 +478,8 @@ export class PumpFunClient {
     }
 
     // Build buy instruction
+    // SECURITY: P0-4 - Use minTokens (with slippage) instead of expectedTokens
+    // This protects against MEV sandwich attacks by setting a minimum acceptable output
     const buyInstruction = new TransactionInstruction({
       programId: PUMP_FUN_PROGRAM,
       keys: [
@@ -494,7 +496,7 @@ export class PumpFunClient {
         { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
       ],
-      data: encodeBuyData(expectedTokens, solAmount),
+      data: encodeBuyData(minTokens, solAmount),
     });
 
     transaction.add(buyInstruction);

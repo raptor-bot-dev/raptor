@@ -145,7 +145,8 @@ export class SolanaAnalyzer {
           reason = 'Mint authority not renounced';
         } else if (liquidity < 1) {
           reason = 'Insufficient liquidity';
-        } else if (score < 40) {
+        } else if (score < 15) {
+          // SECURITY: P1-1 - Updated threshold for 0-35 scale
           reason = 'Low safety score';
         }
       }
@@ -240,11 +241,115 @@ export class SolanaAnalyzer {
   }
 
   /**
-   * Get approximate holder count for a token
+   * Get holder count for a token
+   * SECURITY: P1-2 - Uses multiple data sources for accurate count
    */
   async getHolderCount(mintAddress: string): Promise<number> {
+    // Try Birdeye API first for accurate count
+    const birdeyeCount = await this.getHolderCountFromBirdeye(mintAddress);
+    if (birdeyeCount > 0) {
+      return birdeyeCount;
+    }
+
+    // Fallback to RPC-based estimation using getProgramAccounts
     try {
-      // Use getTokenLargestAccounts as a proxy for holder count
+      // Use getTokenAccountsByMint for more accurate count
+      const response = await fetch(this.rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getTokenAccountsByMint',
+          params: [
+            mintAddress,
+            { encoding: 'jsonParsed' },
+          ],
+        }),
+      });
+
+      interface TokenAccountsResponse {
+        result?: {
+          value?: Array<{
+            account: {
+              data: {
+                parsed: {
+                  info: {
+                    tokenAmount: { amount: string };
+                  };
+                };
+              };
+            };
+          }>;
+        };
+      }
+      const data = (await response.json()) as TokenAccountsResponse;
+      const accounts = data.result?.value || [];
+
+      // Filter out zero balances
+      const nonZeroHolders = accounts.filter(
+        (acc) => acc.account.data.parsed.info.tokenAmount.amount !== '0'
+      );
+
+      return nonZeroHolders.length;
+    } catch {
+      // Final fallback to getTokenLargestAccounts (capped at 20)
+      return this.getHolderCountFallback(mintAddress);
+    }
+  }
+
+  /**
+   * Get holder count from Birdeye API
+   * SECURITY: P1-2 - External API for accurate holder counts
+   */
+  private async getHolderCountFromBirdeye(mintAddress: string): Promise<number> {
+    const apiKey = process.env.BIRDEYE_API_KEY;
+    if (!apiKey) {
+      return 0; // No API key configured
+    }
+
+    try {
+      const response = await fetch(
+        `https://public-api.birdeye.so/defi/token_overview?address=${mintAddress}`,
+        {
+          headers: {
+            'X-API-KEY': apiKey,
+            'Accept': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        return 0;
+      }
+
+      interface BirdeyeResponse {
+        success: boolean;
+        data?: {
+          holder?: number;
+          uniqueWallet24h?: number;
+        };
+      }
+      const data = (await response.json()) as BirdeyeResponse;
+
+      if (data.success && data.data?.holder) {
+        console.log(`[SolanaAnalyzer] Birdeye holder count: ${data.data.holder}`);
+        return data.data.holder;
+      }
+
+      return 0;
+    } catch (error) {
+      console.warn('[SolanaAnalyzer] Birdeye API error:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Fallback holder count using getTokenLargestAccounts
+   * Note: This is capped at 20, use only as last resort
+   */
+  private async getHolderCountFallback(mintAddress: string): Promise<number> {
+    try {
       const response = await fetch(this.rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -264,13 +369,13 @@ export class SolanaAnalyzer {
       const data = (await response.json()) as HolderResponse;
       const accounts = data.result?.value || [];
 
-      // Filter out zero balances
-      const nonZeroHolders = accounts.filter(
-        (acc) => acc.amount !== '0'
-      );
+      const nonZeroHolders = accounts.filter((acc) => acc.amount !== '0');
 
-      // This returns up to 20 largest holders
-      // In production, would use a proper indexer for accurate count
+      // Log warning if we hit the 20 cap
+      if (nonZeroHolders.length >= 20) {
+        console.warn(`[SolanaAnalyzer] Holder count may be underestimated (capped at 20)`);
+      }
+
       return nonZeroHolders.length;
     } catch (error) {
       console.error('[SolanaAnalyzer] Error getting holder count:', error);
@@ -279,7 +384,17 @@ export class SolanaAnalyzer {
   }
 
   /**
-   * Calculate token safety score (0-100)
+   * Calculate token safety score (0-35)
+   * SECURITY: P1-1 - Normalized to match EVM 7-category scoring (0-35 scale)
+   *
+   * Categories (5 points each):
+   * 1. Sellability (5) - Authority checks
+   * 2. Supply Integrity (5) - Mint authority
+   * 3. Liquidity Control (5) - Liquidity depth
+   * 4. Distribution (5) - Holder count
+   * 5. Deployer Provenance (5) - Bonding curve progress
+   * 6. Post-Launch Controls (5) - Freeze authority
+   * 7. Execution Risk (5) - Graduated status
    */
   private calculateScore(params: {
     isRenounced: boolean;
@@ -292,39 +407,52 @@ export class SolanaAnalyzer {
   }): number {
     let score = 0;
 
-    // Authority checks (40 points max)
-    if (params.isMintAuthorityNull) score += 20;
-    if (params.isFreezeAuthorityNull) score += 20;
+    // Category 1: Sellability (5 points) - based on freeze authority
+    if (params.isFreezeAuthorityNull) score += 5;
+    else score += 0; // Can't sell if freeze authority exists
 
-    // Liquidity (25 points max)
-    if (params.liquidity >= 10) score += 25;
-    else if (params.liquidity >= 5) score += 20;
-    else if (params.liquidity >= 2) score += 15;
-    else if (params.liquidity >= 1) score += 10;
-    else if (params.liquidity >= 0.5) score += 5;
+    // Category 2: Supply Integrity (5 points) - based on mint authority
+    if (params.isMintAuthorityNull) score += 5;
+    else if (params.bondingCurveProgress < 100) score += 3; // Pre-graduation tokens have mint authority
+    else score += 0;
 
-    // Bonding curve progress (15 points max)
-    // Higher progress = more community interest
-    if (params.bondingCurveProgress >= 80) score += 15;
-    else if (params.bondingCurveProgress >= 60) score += 12;
-    else if (params.bondingCurveProgress >= 40) score += 8;
-    else if (params.bondingCurveProgress >= 20) score += 4;
+    // Category 3: Liquidity Control (5 points)
+    if (params.liquidity >= 10) score += 5;
+    else if (params.liquidity >= 5) score += 4;
+    else if (params.liquidity >= 2) score += 3;
+    else if (params.liquidity >= 1) score += 2;
+    else if (params.liquidity >= 0.5) score += 1;
 
-    // Holders (10 points max)
-    if (params.holders >= 100) score += 10;
-    else if (params.holders >= 50) score += 8;
-    else if (params.holders >= 20) score += 5;
-    else if (params.holders >= 10) score += 3;
+    // Category 4: Distribution (5 points) - based on holder count
+    if (params.holders >= 100) score += 5;
+    else if (params.holders >= 50) score += 4;
+    else if (params.holders >= 20) score += 3;
+    else if (params.holders >= 10) score += 2;
+    else if (params.holders >= 5) score += 1;
 
-    // Graduation bonus (10 points)
-    // Graduated tokens have proven some level of success
-    if (params.graduated) score += 10;
+    // Category 5: Deployer Provenance (5 points) - based on bonding curve progress
+    if (params.bondingCurveProgress >= 80) score += 5;
+    else if (params.bondingCurveProgress >= 60) score += 4;
+    else if (params.bondingCurveProgress >= 40) score += 3;
+    else if (params.bondingCurveProgress >= 20) score += 2;
+    else if (params.bondingCurveProgress >= 10) score += 1;
 
-    return Math.min(100, score);
+    // Category 6: Post-Launch Controls (5 points) - renounced = safer
+    if (params.isRenounced) score += 5;
+    else if (params.isMintAuthorityNull) score += 3;
+    else if (params.isFreezeAuthorityNull) score += 2;
+
+    // Category 7: Execution Risk (5 points) - graduated = proven
+    if (params.graduated) score += 5;
+    else if (params.bondingCurveProgress >= 70) score += 3;
+    else if (params.liquidity >= 2) score += 2;
+
+    return Math.min(35, score);
   }
 
   /**
    * Determine if token is safe to trade
+   * SECURITY: P1-1 - Updated thresholds for 0-35 scale
    */
   private isSafe(params: {
     isFreezeAuthorityNull: boolean;
@@ -346,8 +474,9 @@ export class SolanaAnalyzer {
       return false;
     }
 
-    // Need minimum score
-    if (params.score < 30) {
+    // Need minimum score (15/35 = ~42%, equivalent to old 30/100)
+    // Using SCORE_SKIP threshold from scorer.ts
+    if (params.score < 15) {
       return false;
     }
 

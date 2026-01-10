@@ -88,14 +88,52 @@ export function calculateMinOutput(
 /**
  * Re-entrancy guard for trading operations
  * Prevents concurrent transactions for the same user/token pair
+ * SECURITY: P1-4 - Now uses database persistence for cross-instance coordination
  */
 class ReentrancyGuard {
+  // In-memory cache for fast checks (primary)
   private locks = new Map<string, { timestamp: number; operation: string }>();
   private readonly LOCK_TIMEOUT_MS = 60000; // 1 minute max lock
 
+  // Database persistence flag
+  private useDatabase = !!process.env.SUPABASE_URL;
+  private instanceId = `executor-${process.pid}-${Date.now()}`;
+
   /**
    * Acquire lock for a trading operation
+   * SECURITY: P1-4 - Uses both in-memory and database locks
    * @returns true if lock acquired, false if already locked
+   */
+  async acquireAsync(tgId: number, tokenAddress: string, operation: string): Promise<boolean> {
+    const key = this.getKey(tgId, tokenAddress);
+    const now = Date.now();
+
+    // First check in-memory (fast path)
+    const existing = this.locks.get(key);
+    if (existing && now - existing.timestamp < this.LOCK_TIMEOUT_MS) {
+      console.warn(
+        `[ReentrancyGuard] Blocked concurrent ${operation} for user ${tgId} on ${tokenAddress.slice(0, 10)}... ` +
+        `(existing: ${existing.operation})`
+      );
+      return false;
+    }
+
+    // Try to acquire database lock for cross-instance coordination
+    if (this.useDatabase) {
+      const dbLockAcquired = await this.acquireDbLock(key, operation, now);
+      if (!dbLockAcquired) {
+        return false;
+      }
+    }
+
+    // Acquire in-memory lock
+    this.locks.set(key, { timestamp: now, operation });
+    return true;
+  }
+
+  /**
+   * Synchronous acquire for backward compatibility
+   * SECURITY: Uses in-memory only; use acquireAsync for full protection
    */
   acquire(tgId: number, tokenAddress: string, operation: string): boolean {
     const key = this.getKey(tgId, tokenAddress);
@@ -104,7 +142,6 @@ class ReentrancyGuard {
     // Check existing lock
     const existing = this.locks.get(key);
     if (existing) {
-      // Check if lock has expired
       if (now - existing.timestamp < this.LOCK_TIMEOUT_MS) {
         console.warn(
           `[ReentrancyGuard] Blocked concurrent ${operation} for user ${tgId} on ${tokenAddress.slice(0, 10)}... ` +
@@ -112,21 +149,42 @@ class ReentrancyGuard {
         );
         return false;
       }
-      // Lock expired, allow override
       console.warn(`[ReentrancyGuard] Overriding expired lock for user ${tgId}`);
     }
 
-    // Acquire lock
     this.locks.set(key, { timestamp: now, operation });
+
+    // Fire-and-forget database lock (for cross-instance visibility)
+    if (this.useDatabase) {
+      this.acquireDbLock(key, operation, now).catch(() => {});
+    }
+
     return true;
   }
 
   /**
    * Release lock after operation completes
    */
+  async releaseAsync(tgId: number, tokenAddress: string): Promise<void> {
+    const key = this.getKey(tgId, tokenAddress);
+    this.locks.delete(key);
+
+    if (this.useDatabase) {
+      await this.releaseDbLock(key);
+    }
+  }
+
+  /**
+   * Synchronous release for backward compatibility
+   */
   release(tgId: number, tokenAddress: string): void {
     const key = this.getKey(tgId, tokenAddress);
     this.locks.delete(key);
+
+    // Fire-and-forget database release
+    if (this.useDatabase) {
+      this.releaseDbLock(key).catch(() => {});
+    }
   }
 
   /**
@@ -137,7 +195,6 @@ class ReentrancyGuard {
     const existing = this.locks.get(key);
     if (!existing) return false;
 
-    // Check if expired
     if (Date.now() - existing.timestamp >= this.LOCK_TIMEOUT_MS) {
       this.locks.delete(key);
       return false;
@@ -151,6 +208,70 @@ class ReentrancyGuard {
   }
 
   /**
+   * Acquire database lock for cross-instance coordination
+   * SECURITY: P1-4 - Persistent locks survive restarts
+   */
+  private async acquireDbLock(key: string, operation: string, timestamp: number): Promise<boolean> {
+    try {
+      const { supabase } = await import('@raptor/shared');
+
+      // Check for existing lock
+      const { data: existing } = await supabase
+        .from('trade_locks')
+        .select('*')
+        .eq('lock_key', key)
+        .single();
+
+      if (existing) {
+        // Check if lock is expired
+        const lockTime = new Date(existing.created_at).getTime();
+        if (Date.now() - lockTime < this.LOCK_TIMEOUT_MS) {
+          console.warn(`[ReentrancyGuard] Database lock exists for ${key} (instance: ${existing.instance_id})`);
+          return false;
+        }
+        // Delete expired lock
+        await supabase.from('trade_locks').delete().eq('lock_key', key);
+      }
+
+      // Insert new lock
+      const { error } = await supabase.from('trade_locks').insert({
+        lock_key: key,
+        operation,
+        instance_id: this.instanceId,
+        created_at: new Date(timestamp).toISOString(),
+      });
+
+      if (error) {
+        // Unique constraint violation = another instance got the lock
+        if (error.code === '23505') {
+          console.warn(`[ReentrancyGuard] Lost lock race for ${key}`);
+          return false;
+        }
+        console.error('[ReentrancyGuard] Database lock error:', error);
+        return true; // Allow operation on DB error (fallback to in-memory)
+      }
+
+      return true;
+    } catch (error) {
+      console.error('[ReentrancyGuard] Database connection error:', error);
+      return true; // Allow operation if database unavailable
+    }
+  }
+
+  /**
+   * Release database lock
+   */
+  private async releaseDbLock(key: string): Promise<void> {
+    try {
+      const { supabase } = await import('@raptor/shared');
+
+      await supabase.from('trade_locks').delete().eq('lock_key', key);
+    } catch (error) {
+      console.error('[ReentrancyGuard] Failed to release database lock:', error);
+    }
+  }
+
+  /**
    * Clean up expired locks (call periodically)
    */
   cleanup(): void {
@@ -161,13 +282,40 @@ class ReentrancyGuard {
       }
     }
   }
+
+  /**
+   * Clean up expired database locks (call periodically)
+   */
+  async cleanupDbLocks(): Promise<void> {
+    if (!this.useDatabase) return;
+
+    try {
+      const { supabase } = await import('@raptor/shared');
+
+      const expiredTime = new Date(Date.now() - this.LOCK_TIMEOUT_MS).toISOString();
+      const { data } = await supabase
+        .from('trade_locks')
+        .delete()
+        .lt('created_at', expiredTime)
+        .select();
+
+      if (data && data.length > 0) {
+        console.log(`[ReentrancyGuard] Cleaned up ${data.length} expired database locks`);
+      }
+    } catch (error) {
+      console.error('[ReentrancyGuard] Database cleanup error:', error);
+    }
+  }
 }
 
 // Singleton instance
 export const reentrancyGuard = new ReentrancyGuard();
 
-// Cleanup expired locks every 5 minutes
+// Cleanup expired in-memory locks every 5 minutes
 setInterval(() => reentrancyGuard.cleanup(), 5 * 60 * 1000);
+
+// Cleanup expired database locks every 10 minutes
+setInterval(() => reentrancyGuard.cleanupDbLocks(), 10 * 60 * 1000);
 
 /**
  * Transaction simulation result
