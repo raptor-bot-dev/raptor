@@ -52,16 +52,16 @@ export async function scoreCommand(ctx: MyContext) {
     return;
   }
 
-  // Detect chain from address format
-  const chain = detectChain(tokenAddress);
-
+  // Send initial loading message
   await ctx.reply(
-    `🔍 *Analyzing token...*\n\n` +
-    `${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}\n` +
+    `🔍 *Detecting chain & analyzing...*\n\n` +
     `\`${formatAddress(tokenAddress)}\`\n\n` +
     `_This may take a few seconds..._`,
     { parse_mode: 'Markdown' }
   );
+
+  // Detect chain from address format (with async detection for EVM)
+  const chain = await detectChainAsync(tokenAddress);
 
   try {
     // Perform analysis
@@ -110,18 +110,33 @@ function isValidAddress(address: string): boolean {
 }
 
 /**
- * Detect chain from address format
+ * Detect chain from address format - with auto-detection for EVM
+ */
+async function detectChainAsync(address: string): Promise<Chain> {
+  if (!address.startsWith('0x')) {
+    return 'sol';
+  }
+
+  // For EVM addresses, try to detect the chain
+  const { chainDetector } = await import('@raptor/shared');
+  const result = await chainDetector.detectChain(address);
+
+  // Return first detected chain, or default to ETH
+  return result.primaryChain || 'eth';
+}
+
+/**
+ * Detect chain from address format (sync version)
  */
 function detectChain(address: string): Chain {
   if (address.startsWith('0x')) {
-    // Default to BSC for EVM, could be improved with chain detection
-    return 'bsc';
+    return 'eth'; // Default, will be overridden by async detection
   }
   return 'sol';
 }
 
 /**
- * Analyze a token (placeholder - would call real analyzer)
+ * Analyze a token using real APIs and analysis
  */
 async function analyzeToken(
   address: string,
@@ -148,34 +163,152 @@ async function analyzeToken(
     age: string;
   };
 }> {
-  // Simulated delay for analysis
-  await new Promise(resolve => setTimeout(resolve, 1500));
+  // Import real APIs
+  const { tokenData, birdeye, analyzeToken: runAnalysis } = await import('@raptor/shared');
 
-  // Placeholder analysis result
-  // In production, this would call the actual analyzer
+  // Fetch token data from DexScreener/Birdeye in parallel
+  const [tokenInfo, birdeyeSecurity] = await Promise.all([
+    tokenData.getTokenInfo(address, chain),
+    chain === 'sol' && birdeye.isConfigured()
+      ? birdeye.analyzeTokenRisk(address)
+      : Promise.resolve(null),
+  ]);
+
+  // Calculate scores based on real data
+  const categories = {
+    sellability: 3,
+    supplyIntegrity: 3,
+    liquidityControl: 3,
+    distribution: 3,
+    deployerProvenance: 3,
+    postLaunchControls: 3,
+    executionRisk: 3,
+  };
+
+  const reasons: string[] = [];
+  const hardStopReasons: string[] = [];
+
+  // Calculate liquidity score
+  const liquidity = tokenInfo?.liquidity ?? 0;
+  if (liquidity >= 100000) {
+    categories.liquidityControl = 5;
+  } else if (liquidity >= 50000) {
+    categories.liquidityControl = 4;
+  } else if (liquidity >= 10000) {
+    categories.liquidityControl = 3;
+  } else if (liquidity >= 1000) {
+    categories.liquidityControl = 2;
+    reasons.push(`Low liquidity: ${tokenData.formatLargeNumber(liquidity)}`);
+  } else {
+    categories.liquidityControl = 1;
+    reasons.push(`Very low liquidity: ${tokenData.formatLargeNumber(liquidity)}`);
+  }
+
+  // Use Birdeye security data if available (Solana)
+  if (birdeyeSecurity) {
+    // Incorporate Birdeye risk score
+    if (birdeyeSecurity.score < 30) {
+      categories.sellability = 1;
+      hardStopReasons.push('High risk token (Birdeye score < 30)');
+    } else if (birdeyeSecurity.score < 50) {
+      categories.sellability = 2;
+      reasons.push(`Moderate risk (score: ${birdeyeSecurity.score})`);
+    } else if (birdeyeSecurity.score >= 80) {
+      categories.sellability = 5;
+    } else {
+      categories.sellability = 3;
+    }
+
+    // Add security flags as reasons
+    for (const flag of birdeyeSecurity.flags.slice(0, 5)) {
+      reasons.push(flag);
+    }
+  } else if (tokenInfo?.securityFlags.length) {
+    // Use DexScreener security flags
+    for (const flag of tokenInfo.securityFlags.slice(0, 3)) {
+      reasons.push(flag);
+    }
+  }
+
+  // Check holders
+  const holders = tokenInfo?.holders ?? 0;
+  if (holders >= 1000) {
+    categories.distribution = 5;
+  } else if (holders >= 500) {
+    categories.distribution = 4;
+  } else if (holders >= 100) {
+    categories.distribution = 3;
+  } else if (holders >= 50) {
+    categories.distribution = 2;
+    reasons.push(`Low holder count: ${holders}`);
+  } else {
+    categories.distribution = 1;
+    reasons.push(`Very few holders: ${holders}`);
+  }
+
+  // Check volume
+  const volume = tokenInfo?.volume24h ?? 0;
+  if (volume >= 100000) {
+    categories.executionRisk = 5;
+  } else if (volume >= 10000) {
+    categories.executionRisk = 4;
+  } else if (volume >= 1000) {
+    categories.executionRisk = 3;
+  } else {
+    categories.executionRisk = 2;
+    reasons.push(`Low 24h volume: ${tokenData.formatLargeNumber(volume)}`);
+  }
+
+  // Calculate total score
+  const total = Object.values(categories).reduce((sum, val) => sum + val, 0);
+
+  // Determine decision
+  let decision: string;
+  if (hardStopReasons.length > 0 || total < 15) {
+    decision = 'SKIP';
+  } else if (total < 20) {
+    decision = 'TINY';
+  } else if (total < 28) {
+    decision = 'TRADABLE';
+  } else {
+    decision = 'BEST';
+  }
+
+  // Calculate age if pair creation time available
+  let age = 'Unknown';
+  if (tokenInfo?.pairCreatedAt) {
+    const ageMs = Date.now() - tokenInfo.pairCreatedAt;
+    const hours = Math.floor(ageMs / (1000 * 60 * 60));
+    const mins = Math.floor((ageMs % (1000 * 60 * 60)) / (1000 * 60));
+    if (hours > 24) {
+      const days = Math.floor(hours / 24);
+      age = `${days}d ${hours % 24}h`;
+    } else {
+      age = `${hours}h ${mins}m`;
+    }
+  }
+
+  // Format liquidity string
+  const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+  const liqString = tokenInfo?.liquidity
+    ? tokenData.formatLargeNumber(tokenInfo.liquidity)
+    : 'Unknown';
+
   return {
-    total: 24,
-    decision: 'TRADABLE',
-    categories: {
-      sellability: 4,
-      supplyIntegrity: 4,
-      liquidityControl: 3,
-      distribution: 3,
-      deployerProvenance: 3,
-      postLaunchControls: 4,
-      executionRisk: 3,
-    },
+    total,
+    decision,
+    categories,
     hardStops: {
-      triggered: false,
-      reasons: [],
+      triggered: hardStopReasons.length > 0,
+      reasons: hardStopReasons,
     },
-    reasons: ['LP not locked', 'Top holder: 25%'],
+    reasons: reasons.slice(0, 6),
     tokenInfo: {
-      name: 'Sample Token',
-      symbol: 'SAMPLE',
-      liquidity: '50 SOL',
-      holders: 150,
-      age: '2h 30m',
+      name: tokenInfo?.name || 'Unknown Token',
+      symbol: tokenInfo?.symbol || '???',
+      liquidity: liqString,
+      holders: tokenInfo?.holders ?? 0,
+      age,
     },
   };
 }
@@ -262,15 +395,16 @@ function formatTokenAnalysis(
  * Handle score callback for quick analysis from menu
  */
 export async function handleScoreRequest(ctx: MyContext, tokenAddress: string) {
-  const chain = detectChain(tokenAddress);
-
   await ctx.editMessageText(
     `🔍 *Analyzing...*\n\n` +
-    `\`${formatAddress(tokenAddress)}\``,
+    `\`${formatAddress(tokenAddress)}\`\n\n` +
+    `_Detecting chain and fetching data..._`,
     { parse_mode: 'Markdown' }
   );
 
   try {
+    // Use async chain detection for EVM addresses
+    const chain = await detectChainAsync(tokenAddress);
     const analysis = await analyzeToken(tokenAddress, chain);
     const message = formatTokenAnalysis(tokenAddress, chain, analysis);
 
@@ -283,6 +417,7 @@ export async function handleScoreRequest(ctx: MyContext, tokenAddress: string) {
       reply_markup: keyboard,
     });
   } catch (error) {
+    console.error('[Score] Analysis callback error:', error);
     await ctx.editMessageText(
       '❌ Analysis failed. Please try again.',
       { reply_markup: backKeyboard('menu') }

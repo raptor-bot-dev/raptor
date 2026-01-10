@@ -56,8 +56,11 @@ export async function huntCommand(ctx: MyContext) {
   const settings = getUserHuntSettings(user.id);
 
   // Build status message
-  let message = '🦅 *Auto-Hunt Settings*\n\n';
-  message += 'Select a chain to configure:\n\n';
+  let message = '🦅 *RAPTOR Hunt*\n\n';
+  message += '*Browse Opportunities:*\n';
+  message += '🌱 New Launches - Fresh tokens on bonding curves\n';
+  message += '🔥 Trending - Top performing tokens\n\n';
+  message += '*Auto-Hunt Status:*\n';
 
   for (const chain of ['sol', 'bsc', 'base', 'eth'] as Chain[]) {
     const s = settings[chain];
@@ -65,9 +68,19 @@ export async function huntCommand(ctx: MyContext) {
     message += `${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}: ${status}\n`;
   }
 
-  message += '\n_Auto-hunt finds and trades new tokens automatically._';
+  message += '\n_Configure auto-hunt to trade new tokens automatically._';
 
-  const keyboard = chainsWithBackKeyboard('hunt_chain', 'menu');
+  const keyboard = new InlineKeyboard()
+    .text('🌱 New Launches', 'hunt_new')
+    .text('🔥 Trending', 'hunt_trending')
+    .row()
+    .text(`${CHAIN_EMOJI.sol} Solana`, 'hunt_chain_sol')
+    .text(`${CHAIN_EMOJI.bsc} BSC`, 'hunt_chain_bsc')
+    .row()
+    .text(`${CHAIN_EMOJI.base} Base`, 'hunt_chain_base')
+    .text(`${CHAIN_EMOJI.eth} Ethereum`, 'hunt_chain_eth')
+    .row()
+    .text('« Back', 'menu');
 
   await ctx.reply(message, {
     parse_mode: 'Markdown',
@@ -84,8 +97,11 @@ export async function showHunt(ctx: MyContext) {
 
   const settings = getUserHuntSettings(user.id);
 
-  let message = '🦅 *Auto-Hunt Settings*\n\n';
-  message += 'Select a chain to configure:\n\n';
+  let message = '🦅 *RAPTOR Hunt*\n\n';
+  message += '*Browse Opportunities:*\n';
+  message += '🌱 New Launches - Fresh tokens on bonding curves\n';
+  message += '🔥 Trending - Top performing tokens\n\n';
+  message += '*Auto-Hunt Status:*\n';
 
   for (const chain of ['sol', 'bsc', 'base', 'eth'] as Chain[]) {
     const s = settings[chain];
@@ -93,9 +109,19 @@ export async function showHunt(ctx: MyContext) {
     message += `${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}: ${status}\n`;
   }
 
-  message += '\n_Auto-hunt finds and trades new tokens automatically._';
+  message += '\n_Configure auto-hunt to trade new tokens automatically._';
 
-  const keyboard = chainsWithBackKeyboard('hunt_chain', 'menu');
+  const keyboard = new InlineKeyboard()
+    .text('🌱 New Launches', 'hunt_new')
+    .text('🔥 Trending', 'hunt_trending')
+    .row()
+    .text(`${CHAIN_EMOJI.sol} Solana`, 'hunt_chain_sol')
+    .text(`${CHAIN_EMOJI.bsc} BSC`, 'hunt_chain_bsc')
+    .row()
+    .text(`${CHAIN_EMOJI.base} Base`, 'hunt_chain_base')
+    .text(`${CHAIN_EMOJI.eth} Ethereum`, 'hunt_chain_eth')
+    .row()
+    .text('« Back', 'menu');
 
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',
@@ -379,4 +405,92 @@ export async function disableAllLaunchpads(ctx: MyContext, chain: Chain) {
 
   await ctx.answerCallbackQuery({ text: 'All launchpads disabled' });
   await showLaunchpadSelection(ctx, chain);
+}
+
+/**
+ * Show live opportunities from all launchpads
+ */
+export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending') {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    const { launchpadDetector } = await import('@raptor/shared');
+
+    const tokens = type === 'new'
+      ? await launchpadDetector.getNewLaunches(10)
+      : await launchpadDetector.getTrending(10);
+
+    if (tokens.length === 0) {
+      await ctx.editMessageText(
+        `🦅 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n` +
+        `No tokens found at the moment.\n` +
+        `Try again in a few minutes.`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: new InlineKeyboard()
+            .text('🔄 Refresh', `hunt_${type}`)
+            .text('« Back', 'hunt'),
+        }
+      );
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    let message = `🦅 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n`;
+
+    const keyboard = new InlineKeyboard();
+
+    for (let i = 0; i < Math.min(tokens.length, 8); i++) {
+      const t = tokens[i];
+      const lpEmoji = launchpadDetector.getLaunchpadEmoji(t.launchpad.launchpad);
+      const lpName = launchpadDetector.getLaunchpadName(t.launchpad.launchpad);
+
+      // Format price
+      const priceStr = t.priceInSol > 0
+        ? `${t.priceInSol.toFixed(6)} SOL`
+        : 'N/A';
+
+      // Status
+      const statusEmoji = t.launchpad.status === 'bonding'
+        ? (t.launchpad.bondingProgress >= 90 ? '🔥' : t.launchpad.bondingProgress >= 50 ? '📈' : '🌱')
+        : '🎓';
+
+      message += `${lpEmoji} *${t.symbol}* — ${lpName}\n`;
+      message += `${statusEmoji} ${t.launchpad.bondingProgress.toFixed(0)}% | 💰 ${priceStr}\n`;
+      if (t.security) {
+        const secEmoji = t.security.riskScore >= 70 ? '✅' : t.security.riskScore >= 40 ? '🟡' : '⚠️';
+        message += `${secEmoji} Security: ${t.security.riskScore}/100\n`;
+      }
+      message += '\n';
+
+      // Add button for each token
+      keyboard.text(`${lpEmoji} ${t.symbol}`, `analyze_sol_${t.mint}`);
+      if ((i + 1) % 2 === 0) keyboard.row();
+    }
+
+    keyboard
+      .row()
+      .text('🔄 Refresh', `hunt_${type}`)
+      .text('« Back', 'hunt');
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  } catch (error) {
+    console.error('[Hunt] Opportunities error:', error);
+    await ctx.editMessageText(
+      `🦅 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n` +
+      `⚠️ Error fetching data. Try again later.`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: new InlineKeyboard()
+          .text('🔄 Retry', `hunt_${type}`)
+          .text('« Back', 'hunt'),
+      }
+    );
+  }
+
+  await ctx.answerCallbackQuery();
 }
