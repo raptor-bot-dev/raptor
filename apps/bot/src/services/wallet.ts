@@ -3,6 +3,8 @@
  *
  * Users generate their own keypairs. Private keys are encrypted
  * and stored in the database. Users can export keys for backup.
+ *
+ * SECURITY: v2.3.1 - Added comprehensive withdrawal validation
  */
 
 import {
@@ -11,6 +13,7 @@ import {
   getUserWallet,
   createUserWallet,
   getOrCreateUserWallet,
+  getUserBalance,
   type Chain,
   type TradingMode,
   type UserWallet,
@@ -19,6 +22,12 @@ import {
   type EncryptedData,
 } from '@raptor/shared';
 import { depositMonitor } from './depositMonitor.js';
+// v2.3.1 Security imports
+import {
+  validateWithdrawal,
+  checkWithdrawalRateLimit,
+  recordWithdrawal,
+} from '../utils/withdrawalValidation.js';
 
 /**
  * Initialize user wallet - generates keypairs if new user
@@ -114,6 +123,8 @@ export async function hasWallet(tgId: number): Promise<boolean> {
 /**
  * Process withdrawal from user's wallet
  * In self-custodial mode, we sign the transaction with user's key
+ *
+ * SECURITY: v2.3.1 - Added comprehensive validation
  */
 export async function processWithdrawal(
   tgId: number,
@@ -128,13 +139,46 @@ export async function processWithdrawal(
     throw new Error('User wallet not found');
   }
 
+  // SECURITY: H-007 - Get current balance for validation
+  const balanceRecord = await getUserBalance(tgId, chain);
+  const availableBalance = balanceRecord ? parseFloat(balanceRecord.current_value || '0') : 0;
+
+  // SECURITY: H-007 - Validate withdrawal parameters
+  const validation = validateWithdrawal(chain, amount, toAddress, availableBalance);
+  if (!validation.valid) {
+    throw new Error(validation.error || 'Withdrawal validation failed');
+  }
+
+  // Log warnings if any
+  if (validation.warnings) {
+    console.warn(`[Wallet] Withdrawal warnings for user ${tgId}:`, validation.warnings);
+  }
+
+  // SECURITY: Check withdrawal rate limit (estimate $100 per unit for rate limit)
+  const estimatedUsd = parseFloat(amount) * 100; // Rough estimate
+  const rateLimit = checkWithdrawalRateLimit(tgId, estimatedUsd);
+  if (!rateLimit.allowed) {
+    throw new Error(rateLimit.error || 'Withdrawal rate limit exceeded');
+  }
+
+  // Use sanitized values
+  const sanitizedAmount = validation.sanitizedAmount || amount;
+  const sanitizedAddress = validation.sanitizedAddress || toAddress;
+
+  let result: { hash: string };
+
   if (chain === 'sol') {
     // Solana withdrawal
-    return await processSolanaWithdrawal(wallet, amount, toAddress);
+    result = await processSolanaWithdrawal(wallet, sanitizedAmount, sanitizedAddress);
   } else {
     // EVM withdrawal (BSC, Base, ETH)
-    return await processEvmWithdrawal(wallet, chain, amount, toAddress);
+    result = await processEvmWithdrawal(wallet, chain, sanitizedAmount, sanitizedAddress);
   }
+
+  // SECURITY: Record withdrawal for rate limiting
+  recordWithdrawal(tgId, estimatedUsd);
+
+  return result;
 }
 
 /**

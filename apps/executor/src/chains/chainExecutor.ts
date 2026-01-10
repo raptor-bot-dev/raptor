@@ -14,6 +14,14 @@ import {
 import { TokenAnalyzer } from '../analyzers/tokenAnalyzer.js';
 import { calculatePositionSize } from '../scoring/scorer.js';
 import { PrivateRpcClient, createPrivateRpcClient } from '../rpc/privateRpc.js';
+// v2.3.1 Security imports
+import {
+  getSlippage,
+  calculateMinOutput,
+  reentrancyGuard,
+  simulateTransaction,
+  validateSwapParams,
+} from '../security/tradeGuards.js';
 
 const ROUTER_ABI = [
   'function swapExactETHForTokens(uint amountOutMin, address[] path, address to, uint deadline) payable returns (uint[] amounts)',
@@ -149,117 +157,154 @@ export class ChainExecutor {
     score: number,
     mode: TradingMode = 'pool'
   ): Promise<{ position: Position; receipt: TransactionReceipt }> {
-    // Apply 1% fee
-    const { netAmount, fee } = applyBuyFee(amount);
-    console.log(`[${this.config.name}] Buy fee: ${ethers.formatEther(fee)} ${this.config.nativeToken}`);
+    const chain = this.getChainKey();
 
-    const path = [this.config.wrappedNative, token];
-    const deadline = Math.floor(Date.now() / 1000) + 300;
+    // SECURITY: Re-entrancy guard - prevent concurrent buys for same user/token
+    if (!reentrancyGuard.acquire(tgId, token, 'buy')) {
+      throw new Error('Transaction already in progress for this token');
+    }
 
-    // Get expected output using net amount
-    const amountsOut = await this.router.getAmountsOut(netAmount, path);
-    const minOut = (amountsOut[1] * 85n) / 100n; // 15% slippage tolerance
+    try {
+      // Apply 1% fee
+      const { netAmount, fee } = applyBuyFee(amount);
+      console.log(`[${this.config.name}] Buy fee: ${ethers.formatEther(fee)} ${this.config.nativeToken}`);
 
-    // Encode the swap transaction data
-    const routerInterface = new ethers.Interface(ROUTER_ABI);
-    const swapData = routerInterface.encodeFunctionData('swapExactETHForTokens', [
-      minOut,
-      path,
-      this.wallet.address,
-      deadline,
-    ]);
+      const path = [this.config.wrappedNative, token];
+      const deadline = Math.floor(Date.now() / 1000) + 300;
 
-    // Estimate gas dynamically
-    const gasEstimate = await this.provider.estimateGas({
-      to: this.config.dexes[0].router,
-      data: swapData,
-      value: netAmount,
-      from: this.wallet.address,
-    });
-    const gasLimit = (gasEstimate * 120n) / 100n; // Add 20% buffer
+      // Get expected output using net amount
+      const amountsOut = await this.router.getAmountsOut(netAmount, path);
 
-    // Execute swap via private RPC if enabled
-    let receipt: TransactionReceipt;
-    if (this.privateRpc.isEnabled()) {
-      console.log(`[${this.config.name}] Executing buy via private RPC...`);
-      const result = await this.privateRpc.executeTransaction({
-        to: this.config.dexes[0].router,
-        data: swapData,
-        value: netAmount,
-        gasLimit,
+      // SECURITY: H-001 - Use configurable slippage
+      const slippage = getSlippage(chain, 'buy', tgId);
+      const minOut = calculateMinOutput(amountsOut[1], slippage, 'buy');
+
+      // SECURITY: Validate swap parameters
+      const validation = validateSwapParams({
+        tokenAddress: token,
+        amount: netAmount,
+        minOutput: minOut,
+        slippage,
+        operation: 'buy',
       });
-
-      if (!result.success || !result.txHash) {
-        throw new Error(result.error || 'Private RPC transaction failed');
+      if (!validation.valid) {
+        throw new Error(`Swap validation failed: ${validation.error}`);
       }
 
-      // Wait for confirmation
-      const txReceipt = await this.provider.waitForTransaction(result.txHash, 1, 60000);
-      if (!txReceipt) throw new Error('Transaction not confirmed');
-      receipt = txReceipt;
-    } else {
-      // Fallback to direct execution
-      const tx = await this.router.swapExactETHForTokens(
+      // Encode the swap transaction data
+      const routerInterface = new ethers.Interface(ROUTER_ABI);
+      const swapData = routerInterface.encodeFunctionData('swapExactETHForTokens', [
         minOut,
         path,
         this.wallet.address,
         deadline,
-        { value: netAmount, gasLimit }
-      );
-      const txReceipt = await tx.wait();
-      if (!txReceipt) throw new Error('Transaction failed');
-      receipt = txReceipt;
+      ]);
+
+      // SECURITY: H-002 - Simulate transaction before execution
+      const simulation = await simulateTransaction(this.provider, {
+        to: this.config.dexes[0].router,
+        data: swapData,
+        value: netAmount,
+        from: this.wallet.address,
+      });
+
+      if (!simulation.success) {
+        throw new Error(`Transaction simulation failed: ${simulation.revertReason || simulation.error}`);
+      }
+
+      // Estimate gas dynamically (use simulation result if available)
+      const gasEstimate = simulation.gasUsed || await this.provider.estimateGas({
+        to: this.config.dexes[0].router,
+        data: swapData,
+        value: netAmount,
+        from: this.wallet.address,
+      });
+      const gasLimit = (gasEstimate * 120n) / 100n; // Add 20% buffer
+
+      // Execute swap via private RPC if enabled
+      let receipt: TransactionReceipt;
+      if (this.privateRpc.isEnabled()) {
+        console.log(`[${this.config.name}] Executing buy via private RPC...`);
+        const result = await this.privateRpc.executeTransaction({
+          to: this.config.dexes[0].router,
+          data: swapData,
+          value: netAmount,
+          gasLimit,
+        });
+
+        if (!result.success || !result.txHash) {
+          throw new Error(result.error || 'Private RPC transaction failed');
+        }
+
+        // Wait for confirmation
+        const txReceipt = await this.provider.waitForTransaction(result.txHash, 1, 60000);
+        if (!txReceipt) throw new Error('Transaction not confirmed');
+        receipt = txReceipt;
+      } else {
+        // Fallback to direct execution
+        const tx = await this.router.swapExactETHForTokens(
+          minOut,
+          path,
+          this.wallet.address,
+          deadline,
+          { value: netAmount, gasLimit }
+        );
+        const txReceipt = await tx.wait();
+        if (!txReceipt) throw new Error('Transaction failed');
+        receipt = txReceipt;
+      }
+
+      // Get actual tokens received
+      const tokenContract = new Contract(token, ERC20_ABI, this.provider);
+      const tokensReceived = await tokenContract.balanceOf(this.wallet.address);
+      const entryPrice = Number(netAmount) / Number(tokensReceived);
+
+      // Record fee
+      await recordFee({
+        tg_id: tgId,
+        chain,
+        amount: ethers.formatEther(fee),
+        token: this.config.nativeToken,
+      });
+
+      // Record in database
+      const position = await createPosition({
+        tg_id: tgId,
+        chain,
+        mode,
+        token_address: token,
+        token_symbol: symbol,
+        amount_in: ethers.formatEther(netAmount),
+        tokens_held: tokensReceived.toString(),
+        entry_price: entryPrice.toString(),
+        take_profit_percent: DEFAULT_TAKE_PROFIT,
+        stop_loss_percent: DEFAULT_STOP_LOSS,
+        source,
+        score,
+      });
+
+      await recordTrade({
+        tg_id: tgId,
+        position_id: position.id,
+        chain,
+        mode,
+        token_address: token,
+        token_symbol: symbol,
+        type: 'BUY',
+        amount_in: ethers.formatEther(netAmount),
+        amount_out: tokensReceived.toString(),
+        price: entryPrice.toString(),
+        fee_amount: ethers.formatEther(fee),
+        source,
+        tx_hash: receipt.hash,
+        status: 'CONFIRMED',
+      });
+
+      return { position, receipt };
+    } finally {
+      // SECURITY: Always release the re-entrancy lock
+      reentrancyGuard.release(tgId, token);
     }
-
-    // Get actual tokens received
-    const tokenContract = new Contract(token, ERC20_ABI, this.provider);
-    const tokensReceived = await tokenContract.balanceOf(this.wallet.address);
-    const entryPrice = Number(netAmount) / Number(tokensReceived);
-
-    const chain = this.getChainKey();
-
-    // Record fee
-    await recordFee({
-      tg_id: tgId,
-      chain,
-      amount: ethers.formatEther(fee),
-      token: this.config.nativeToken,
-    });
-
-    // Record in database
-    const position = await createPosition({
-      tg_id: tgId,
-      chain,
-      mode,
-      token_address: token,
-      token_symbol: symbol,
-      amount_in: ethers.formatEther(netAmount),
-      tokens_held: tokensReceived.toString(),
-      entry_price: entryPrice.toString(),
-      take_profit_percent: DEFAULT_TAKE_PROFIT,
-      stop_loss_percent: DEFAULT_STOP_LOSS,
-      source,
-      score,
-    });
-
-    await recordTrade({
-      tg_id: tgId,
-      position_id: position.id,
-      chain,
-      mode,
-      token_address: token,
-      token_symbol: symbol,
-      type: 'BUY',
-      amount_in: ethers.formatEther(netAmount),
-      amount_out: tokensReceived.toString(),
-      price: entryPrice.toString(),
-      fee_amount: ethers.formatEther(fee),
-      source,
-      tx_hash: receipt.hash,
-      status: 'CONFIRMED',
-    });
-
-    return { position, receipt };
   }
 
   /**
@@ -280,117 +325,167 @@ export class ChainExecutor {
     tokensHeld: bigint,
     tgId: number,
     entryPrice: string,
-    mode: TradingMode = 'pool'
+    mode: TradingMode = 'pool',
+    isEmergency: boolean = false
   ): Promise<TransactionReceipt> {
-    // Approve router
-    const tokenContract = new Contract(token, ERC20_ABI, this.wallet);
-    const approveTx = await tokenContract.approve(this.router.target, tokensHeld);
-    await approveTx.wait();
+    const chain = this.getChainKey();
 
-    const path = [token, this.config.wrappedNative];
-    const deadline = Math.floor(Date.now() / 1000) + 300;
+    // SECURITY: Re-entrancy guard - prevent concurrent sells for same user/token
+    if (!reentrancyGuard.acquire(tgId, token, 'sell')) {
+      throw new Error('Transaction already in progress for this token');
+    }
 
-    // Encode the swap transaction data
-    const routerInterface = new ethers.Interface(ROUTER_ABI);
-    const swapData = routerInterface.encodeFunctionData('swapExactTokensForETH', [
-      tokensHeld,
-      0n, // Accept any amount (emergency exit)
-      path,
-      this.wallet.address,
-      deadline,
-    ]);
+    try {
+      // SECURITY: H-003 - Approve only exact amount needed, not MaxUint256
+      const tokenContract = new Contract(token, ERC20_ABI, this.wallet);
+      const approveTx = await tokenContract.approve(this.router.target, tokensHeld);
+      await approveTx.wait();
 
-    // Estimate gas dynamically
-    const gasEstimate = await this.provider.estimateGas({
-      to: this.config.dexes[0].router,
-      data: swapData,
-      from: this.wallet.address,
-    });
-    const gasLimit = (gasEstimate * 120n) / 100n; // Add 20% buffer
+      const path = [token, this.config.wrappedNative];
+      const deadline = Math.floor(Date.now() / 1000) + 300;
 
-    // Execute swap via private RPC if enabled
-    let receipt: TransactionReceipt;
-    if (this.privateRpc.isEnabled()) {
-      console.log(`[${this.config.name}] Executing sell via private RPC...`);
-      const result = await this.privateRpc.executeTransaction({
-        to: this.config.dexes[0].router,
-        data: swapData,
-        gasLimit,
-      });
-
-      if (!result.success || !result.txHash) {
-        throw new Error(result.error || 'Private RPC transaction failed');
+      // SECURITY: H-006 - Get expected output and calculate minOut with slippage
+      // Never use 0 for minOut to prevent sandwich attacks
+      let minOut: bigint;
+      try {
+        const amountsOut = await this.router.getAmountsOut(tokensHeld, path);
+        const slippage = getSlippage(chain, isEmergency ? 'emergencyExit' : 'sell', tgId);
+        minOut = calculateMinOutput(amountsOut[1], slippage, isEmergency ? 'emergencyExit' : 'sell');
+      } catch {
+        // If we can't get quote, use emergency exit with high slippage
+        console.warn(`[${this.config.name}] Could not get sell quote, using emergency slippage`);
+        const slippage = getSlippage(chain, 'emergencyExit', tgId);
+        // Estimate based on entry price (rough)
+        const estimatedOut = BigInt(Math.floor(Number(tokensHeld) * parseFloat(entryPrice)));
+        minOut = calculateMinOutput(estimatedOut, slippage, 'emergencyExit');
       }
 
-      // Wait for confirmation
-      const txReceipt = await this.provider.waitForTransaction(result.txHash, 1, 60000);
-      if (!txReceipt) throw new Error('Transaction not confirmed');
-      receipt = txReceipt;
-    } else {
-      // Fallback to direct execution
-      const tx = await this.router.swapExactTokensForETH(
+      // SECURITY: Validate sell parameters
+      const validation = validateSwapParams({
+        tokenAddress: token,
+        amount: tokensHeld,
+        minOutput: minOut,
+        slippage: getSlippage(chain, isEmergency ? 'emergencyExit' : 'sell', tgId),
+        operation: 'sell',
+      });
+      if (!validation.valid) {
+        throw new Error(`Sell validation failed: ${validation.error}`);
+      }
+
+      // Encode the swap transaction data
+      const routerInterface = new ethers.Interface(ROUTER_ABI);
+      const swapData = routerInterface.encodeFunctionData('swapExactTokensForETH', [
         tokensHeld,
-        0n, // Accept any amount (emergency exit)
+        minOut, // SECURITY: Never 0 - use calculated slippage
         path,
         this.wallet.address,
         deadline,
-        { gasLimit }
-      );
-      const txReceipt = await tx.wait();
-      if (!txReceipt) throw new Error('Transaction failed');
-      receipt = txReceipt;
+      ]);
+
+      // SECURITY: H-002 - Simulate transaction before execution
+      const simulation = await simulateTransaction(this.provider, {
+        to: this.config.dexes[0].router,
+        data: swapData,
+        from: this.wallet.address,
+      });
+
+      if (!simulation.success && !isEmergency) {
+        throw new Error(`Sell simulation failed: ${simulation.revertReason || simulation.error}`);
+      }
+
+      // Estimate gas dynamically
+      const gasEstimate = simulation.gasUsed || await this.provider.estimateGas({
+        to: this.config.dexes[0].router,
+        data: swapData,
+        from: this.wallet.address,
+      });
+      const gasLimit = (gasEstimate * 120n) / 100n; // Add 20% buffer
+
+      // Execute swap via private RPC if enabled
+      let receipt: TransactionReceipt;
+      if (this.privateRpc.isEnabled()) {
+        console.log(`[${this.config.name}] Executing sell via private RPC...`);
+        const result = await this.privateRpc.executeTransaction({
+          to: this.config.dexes[0].router,
+          data: swapData,
+          gasLimit,
+        });
+
+        if (!result.success || !result.txHash) {
+          throw new Error(result.error || 'Private RPC transaction failed');
+        }
+
+        // Wait for confirmation
+        const txReceipt = await this.provider.waitForTransaction(result.txHash, 1, 60000);
+        if (!txReceipt) throw new Error('Transaction not confirmed');
+        receipt = txReceipt;
+      } else {
+        // Fallback to direct execution
+        const tx = await this.router.swapExactTokensForETH(
+          tokensHeld,
+          minOut, // SECURITY: Use calculated minimum, never 0
+          path,
+          this.wallet.address,
+          deadline,
+          { gasLimit }
+        );
+        const txReceipt = await tx.wait();
+        if (!txReceipt) throw new Error('Transaction failed');
+        receipt = txReceipt;
+      }
+
+      // Get amount received from swap
+      const amountOut = await this.getAmountFromReceipt(receipt);
+
+      // Apply 1% fee to output
+      const { netAmount, fee } = applySellFee(amountOut);
+      console.log(`[${this.config.name}] Sell fee: ${ethers.formatEther(fee)} ${this.config.nativeToken}`);
+
+      // Record fee
+      await recordFee({
+        tg_id: tgId,
+        chain,
+        amount: ethers.formatEther(fee),
+        token: this.config.nativeToken,
+      });
+
+      // Calculate PnL based on net amount after fee
+      const exitPrice = Number(netAmount) / Number(tokensHeld);
+      const entryPriceNum = parseFloat(entryPrice);
+      const pnlPercent = ((exitPrice - entryPriceNum) / entryPriceNum) * 100;
+
+      // Close position in database
+      await closePosition(positionId, {
+        exit_price: exitPrice.toString(),
+        pnl: ethers.formatEther(netAmount),
+        pnl_percent: pnlPercent,
+      });
+
+      // Record sell trade
+      await recordTrade({
+        tg_id: tgId,
+        position_id: positionId,
+        chain,
+        mode,
+        token_address: token,
+        token_symbol: symbol,
+        type: 'SELL',
+        amount_in: tokensHeld.toString(),
+        amount_out: ethers.formatEther(netAmount),
+        price: exitPrice.toString(),
+        pnl: ethers.formatEther(netAmount),
+        pnl_percent: pnlPercent,
+        fee_amount: ethers.formatEther(fee),
+        source: isEmergency ? 'EMERGENCY_EXIT' : 'AUTO_EXIT',
+        tx_hash: receipt.hash,
+        status: 'CONFIRMED',
+      });
+
+      return receipt;
+    } finally {
+      // SECURITY: Always release the re-entrancy lock
+      reentrancyGuard.release(tgId, token);
     }
-
-    // Get amount received from swap
-    const amountOut = await this.getAmountFromReceipt(receipt);
-
-    // Apply 1% fee to output
-    const { netAmount, fee } = applySellFee(amountOut);
-    console.log(`[${this.config.name}] Sell fee: ${ethers.formatEther(fee)} ${this.config.nativeToken}`);
-
-    const chain = this.getChainKey();
-
-    // Record fee
-    await recordFee({
-      tg_id: tgId,
-      chain,
-      amount: ethers.formatEther(fee),
-      token: this.config.nativeToken,
-    });
-
-    // Calculate PnL based on net amount after fee
-    const exitPrice = Number(netAmount) / Number(tokensHeld);
-    const entryPriceNum = parseFloat(entryPrice);
-    const pnlPercent = ((exitPrice - entryPriceNum) / entryPriceNum) * 100;
-
-    // Close position in database
-    await closePosition(positionId, {
-      exit_price: exitPrice.toString(),
-      pnl: ethers.formatEther(netAmount),
-      pnl_percent: pnlPercent,
-    });
-
-    // Record sell trade
-    await recordTrade({
-      tg_id: tgId,
-      position_id: positionId,
-      chain,
-      mode,
-      token_address: token,
-      token_symbol: symbol,
-      type: 'SELL',
-      amount_in: tokensHeld.toString(),
-      amount_out: ethers.formatEther(netAmount),
-      price: exitPrice.toString(),
-      pnl: ethers.formatEther(netAmount),
-      pnl_percent: pnlPercent,
-      fee_amount: ethers.formatEther(fee),
-      source: 'AUTO_EXIT',
-      tx_hash: receipt.hash,
-      status: 'CONFIRMED',
-    });
-
-    return receipt;
   }
 
   private async getAmountFromReceipt(receipt: TransactionReceipt): Promise<bigint> {

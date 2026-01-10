@@ -83,6 +83,24 @@ export async function getUserBalances(tgId: number): Promise<UserBalance[]> {
   return data || [];
 }
 
+/**
+ * Get user balance for a specific chain
+ * SECURITY: v2.3.1 - Used for withdrawal validation
+ */
+export async function getUserBalance(tgId: number, chain: Chain): Promise<UserBalance | null> {
+  const { data, error } = await supabase
+    .from('user_balances')
+    .select('*')
+    .eq('tg_id', tgId)
+    .eq('chain', chain)
+    .single();
+
+  if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+    throw error;
+  }
+  return data || null;
+}
+
 export async function getOrCreateBalance(
   tgId: number,
   chain: Chain,
