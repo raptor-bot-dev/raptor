@@ -29,9 +29,10 @@ export async function initializeUserWallet(tgId: number): Promise<{
   evm: { address: string };
   isNew: boolean;
 }> {
+  // Pass tgId to enable per-user key derivation (v2 encryption)
   const { wallet, isNew } = await getOrCreateUserWallet(tgId, () => ({
-    solana: generateSolanaKeypair(),
-    evm: generateEvmKeypair(),
+    solana: generateSolanaKeypair(tgId),
+    evm: generateEvmKeypair(tgId),
   }));
 
   return {
@@ -50,10 +51,10 @@ export async function getOrCreateDepositAddress(
   chain: Chain,
   mode: TradingMode = 'snipe'
 ): Promise<string> {
-  // Ensure user wallet exists
+  // Ensure user wallet exists - pass tgId for v2 encryption
   const { wallet } = await getOrCreateUserWallet(tgId, () => ({
-    solana: generateSolanaKeypair(),
-    evm: generateEvmKeypair(),
+    solana: generateSolanaKeypair(tgId),
+    evm: generateEvmKeypair(tgId),
   }));
 
   // Get the appropriate address for chain
@@ -148,8 +149,8 @@ async function processSolanaWithdrawal(
   const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
   const { loadSolanaKeypair } = await import('@raptor/shared');
 
-  // Load user's keypair
-  const keypair = loadSolanaKeypair(wallet.solana_private_key_encrypted as EncryptedData);
+  // Load user's keypair with tgId for v2 decryption
+  const keypair = loadSolanaKeypair(wallet.solana_private_key_encrypted as EncryptedData, wallet.tg_id);
 
   // Connect to Solana
   const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
@@ -198,9 +199,10 @@ async function processEvmWithdrawal(
   // Create provider
   const provider = new ethers.JsonRpcProvider(config.rpcUrl);
 
-  // Load user's wallet
+  // Load user's wallet with tgId for v2 decryption
   const userWallet = loadEvmWallet(
     wallet.evm_private_key_encrypted as EncryptedData,
+    wallet.tg_id,
     provider
   );
 

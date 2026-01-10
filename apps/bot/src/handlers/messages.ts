@@ -146,8 +146,8 @@ async function handleAddressInput(
     // Show token info + buy options
     await showTokenCard(ctx, addressInfo.address, 'sol');
   } else if (addressInfo.type === 'evm_token') {
-    // For EVM tokens, show chain selection for trading
-    await showEvmChainSelectionForTrade(ctx, addressInfo.address);
+    // For EVM tokens, try to auto-detect chain first
+    await handleEvmTokenWithAutoDetect(ctx, addressInfo.address);
   } else if (addressInfo.type === 'solana_wallet') {
     // Show send options for Solana (rarely used now)
     await showSendOptions(ctx, addressInfo.address, 'sol');
@@ -155,6 +155,116 @@ async function handleAddressInput(
     // For EVM wallets, show chain selection for sending
     await showEvmChainSelection(ctx, addressInfo.address);
   }
+}
+
+/**
+ * Auto-detect chain for EVM token - uses DexScreener + RPC fallback
+ * Never asks user to select chain if we can detect it
+ */
+async function handleEvmTokenWithAutoDetect(ctx: MyContext, address: string) {
+  try {
+    const { dexscreener, chainDetector } = await import('@raptor/shared');
+
+    // Step 1: Try DexScreener first (fast, has price data)
+    const { data, chains } = await dexscreener.getTokenByAddress(address);
+
+    if (data && chains.length === 1) {
+      // Single chain found on DexScreener - show token card immediately
+      await showTokenCard(ctx, address, chains[0]);
+      return;
+    }
+
+    if (data && chains.length > 1) {
+      // Multiple chains on DexScreener - show selection
+      await showEvmChainSelectionForTradeWithDetected(ctx, address, chains);
+      return;
+    }
+
+    // Step 2: Not on DexScreener - check on-chain via RPC
+    const detection = await chainDetector.detectChain(address);
+
+    if (detection.chains.length === 1 && detection.confidence !== 'low') {
+      // Found on exactly one chain - show token card
+      await showTokenCard(ctx, address, detection.chains[0]);
+      return;
+    }
+
+    if (detection.chains.length > 1 && detection.addressType === 'token') {
+      // Contract exists on multiple chains - ask user
+      await showEvmChainSelectionForTradeWithDetected(ctx, address, detection.chains);
+      return;
+    }
+
+    if (detection.addressType === 'wallet' || detection.confidence === 'low') {
+      // Wallet address or can't detect - default to ETH for new tokens
+      // Most new token launches are on ETH/Base, try ETH first
+      await showTokenCard(ctx, address, 'eth');
+      return;
+    }
+
+    // Fallback: show chain selection only if really needed
+    await showEvmChainSelectionForTrade(ctx, address);
+  } catch (error) {
+    console.error('[Messages] Token lookup error:', error);
+    // On error, default to ETH (most common for new tokens)
+    await showTokenCard(ctx, address, 'eth');
+  }
+}
+
+/**
+ * Show EVM chain selection with detected chains highlighted
+ */
+async function showEvmChainSelectionForTradeWithDetected(
+  ctx: MyContext,
+  address: string,
+  detectedChains: Chain[]
+) {
+  const bscDetected = detectedChains.includes('bsc');
+  const baseDetected = detectedChains.includes('base');
+  const ethDetected = detectedChains.includes('eth');
+
+  const message = `${LINE}
+📊 *TOKEN FOUND ON ${detectedChains.length} CHAINS*
+${LINE}
+
+Contract address:
+\`${address.slice(0, 10)}...${address.slice(-8)}\`
+
+✅ Found on: ${detectedChains.map(c => c.toUpperCase()).join(', ')}
+
+Select chain to view token info:
+
+${LINE}`;
+
+  const keyboard = new InlineKeyboard();
+
+  // Show detected chains first with checkmark
+  if (bscDetected) {
+    keyboard.text(`✅ ${CHAIN_EMOJI.bsc} BSC`, `trade_chain_bsc_${address}`);
+  } else {
+    keyboard.text(`${CHAIN_EMOJI.bsc} BSC`, `trade_chain_bsc_${address}`);
+  }
+
+  if (baseDetected) {
+    keyboard.text(`✅ ${CHAIN_EMOJI.base} Base`, `trade_chain_base_${address}`);
+  } else {
+    keyboard.text(`${CHAIN_EMOJI.base} Base`, `trade_chain_base_${address}`);
+  }
+
+  keyboard.row();
+
+  if (ethDetected) {
+    keyboard.text(`✅ ${CHAIN_EMOJI.eth} Ethereum`, `trade_chain_eth_${address}`);
+  } else {
+    keyboard.text(`${CHAIN_EMOJI.eth} Ethereum`, `trade_chain_eth_${address}`);
+  }
+
+  keyboard.row().text('❌ Cancel', 'back_to_menu');
+
+  await ctx.reply(message, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
 }
 
 /**
@@ -234,33 +344,286 @@ ${LINE}`;
 }
 
 /**
- * Show token card with buy options
+ * Show token card with buy options - comprehensive data from all sources
+ * Uses fast DexScreener first, then launchpad APIs as fallback
  */
 async function showTokenCard(ctx: MyContext, tokenAddress: string, chain: Chain) {
-  // TODO: Fetch token info from API
   const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
 
-  const message = `${LINE}
-🪙 *TOKEN DETECTED*
+  let message: string;
+
+  if (chain === 'sol') {
+    // Fast path: Try DexScreener first (2s timeout), then launchpad detector
+    const { dexscreener, launchpadDetector, tokenData, goplus } = await import('@raptor/shared');
+
+    // Quick DexScreener check with short timeout
+    const quickDexResult = await Promise.race([
+      dexscreener.getTokenByAddress(tokenAddress),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+    ]).catch(() => null);
+
+    // If found on DexScreener, use that data with parallel security fetch
+    if (quickDexResult?.data) {
+      const [security] = await Promise.allSettled([
+        goplus.getTokenSecurity(tokenAddress, 'sol'),
+      ]);
+      const securityData = security.status === 'fulfilled' ? security.value : null;
+
+      const dex = quickDexResult.data;
+      const priceStr = tokenData.formatPrice(dex.priceUsd);
+      const mcapStr = tokenData.formatLargeNumber(dex.marketCap);
+      const liqStr = tokenData.formatLargeNumber(dex.liquidity);
+      const volStr = tokenData.formatLargeNumber(dex.volume24h);
+
+      let securitySection = '';
+      if (securityData) {
+        const secBadge = goplus.getRiskBadge(securityData);
+        securitySection = `\n*Security:* ${secBadge.emoji} ${secBadge.label}`;
+        if (securityData.risks.length > 0) {
+          securitySection += `\n${securityData.risks.slice(0, 2).join('\n')}`;
+        }
+      }
+
+      message = `${LINE}
+☀️ *${dex.symbol}* — Solana
 ${LINE}
 
-${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}*
+*${dex.name}*
 
-*Address:*
-\`${tokenAddress}\`
+💰 *Price:* ${priceStr}
+📊 *MCap:* ${mcapStr}
+💧 *Liq:* ${liqStr}
+📈 *Vol:* ${volStr}
+${securitySection}
 
-⏳ Loading token info...
+${LINE}
+🔗 [DexScreener](https://dexscreener.com/solana/${tokenAddress}) • [Birdeye](https://birdeye.so/token/${tokenAddress}) • [Solscan](https://solscan.io/token/${tokenAddress})
+${LINE}
+\`${tokenAddress}\``;
+    } else {
+      // Not on DexScreener - try launchpad detector (may be bonding curve token)
+      const tokenInfo = await launchpadDetector.detectAndFetch(tokenAddress).catch(() => null);
 
-${LINE}`;
+    if (tokenInfo) {
+      const lpEmoji = launchpadDetector.getLaunchpadEmoji(tokenInfo.launchpad.launchpad);
+      const lpName = launchpadDetector.getLaunchpadName(tokenInfo.launchpad.launchpad);
 
-  const keyboard = new InlineKeyboard()
-    .text(`🛒 Buy 0.1 ${symbol}`, `buy_${chain}_${tokenAddress}_0.1`)
-    .text(`🛒 Buy 0.5 ${symbol}`, `buy_${chain}_${tokenAddress}_0.5`)
+      // Is it a bonding curve token?
+      const isBonding = tokenInfo.launchpad.status === 'bonding' || tokenInfo.launchpad.status === 'migrating';
+
+      if (isBonding) {
+        // Bonding curve display (PumpFun, Moonshot, Bonk.fun)
+        const progressBar = launchpadDetector.formatBondingBar(tokenInfo.launchpad.bondingProgress);
+        const statusEmoji = tokenInfo.launchpad.bondingProgress >= 90 ? '🔥' :
+          tokenInfo.launchpad.bondingProgress >= 50 ? '📈' : '🌱';
+
+        const priceStr = tokenInfo.priceInSol > 0
+          ? `${tokenInfo.priceInSol.toFixed(9)} SOL`
+          : 'N/A';
+
+        // Security section
+        let securitySection = '';
+        if (tokenInfo.security) {
+          const secEmoji = tokenInfo.security.riskScore >= 80 ? '✅' :
+            tokenInfo.security.riskScore >= 60 ? '🟢' :
+            tokenInfo.security.riskScore >= 40 ? '🟡' :
+            tokenInfo.security.riskScore >= 20 ? '🟠' : '🔴';
+          securitySection = `\n*Security:* ${secEmoji} ${tokenInfo.security.riskLevel} (${tokenInfo.security.riskScore}/100)`;
+          securitySection += `\n${tokenInfo.security.lpStatus}`;
+          if (tokenInfo.security.isMintable) securitySection += '\n⚠️ Mintable';
+          if (tokenInfo.security.isFreezable) securitySection += '\n⚠️ Freezable';
+        }
+
+        message = `${LINE}
+${lpEmoji} *${tokenInfo.symbol}* — ${lpName}
+${LINE}
+
+*${tokenInfo.name}*
+${statusEmoji} ${tokenInfo.launchpad.bondingProgress >= 90 ? 'Almost There!' : tokenInfo.launchpad.bondingProgress >= 50 ? 'Growing' : 'New Launch'}
+
+💰 *Price:* ${priceStr}
+📊 *MCap:* ${tokenInfo.marketCapSol.toFixed(2)} SOL
+${tokenInfo.holders > 0 ? `👥 *Holders:* ${tokenInfo.holders}` : ''}
+
+*Bonding Curve:*
+${progressBar} ${tokenInfo.launchpad.bondingProgress.toFixed(1)}%
+💎 ${tokenInfo.launchpad.solRaised.toFixed(2)} / ~${tokenInfo.launchpad.targetSol} SOL to graduate
+${securitySection}
+
+${LINE}
+🔗 [${lpName}](${tokenInfo.links.launchpad}) • [DexScreener](${tokenInfo.links.dexscreener}) • [Solscan](${tokenInfo.links.solscan})
+${LINE}
+\`${tokenAddress}\``;
+      } else {
+        // Graduated/trading token
+        const priceStr = tokenInfo.priceInUsd
+          ? `$${tokenInfo.priceInUsd.toFixed(6)}`
+          : tokenInfo.priceInSol > 0 ? `${tokenInfo.priceInSol.toFixed(9)} SOL` : 'N/A';
+        const mcapStr = tokenInfo.marketCapUsd
+          ? tokenData.formatLargeNumber(tokenInfo.marketCapUsd)
+          : `${tokenInfo.marketCapSol.toFixed(2)} SOL`;
+        const liqStr = tokenData.formatLargeNumber(tokenInfo.liquidity);
+        const volStr = tokenData.formatLargeNumber(tokenInfo.volume24h);
+
+        // Security section
+        let securitySection = '';
+        if (tokenInfo.security) {
+          const secEmoji = tokenInfo.security.riskScore >= 80 ? '✅' :
+            tokenInfo.security.riskScore >= 60 ? '🟢' :
+            tokenInfo.security.riskScore >= 40 ? '🟡' :
+            tokenInfo.security.riskScore >= 20 ? '🟠' : '🔴';
+          securitySection = `\n*Security:* ${secEmoji} ${tokenInfo.security.riskLevel} (${tokenInfo.security.riskScore}/100)`;
+          securitySection += `\n${tokenInfo.security.lpStatus}`;
+          if (tokenInfo.security.risks.length > 0) {
+            securitySection += `\n${tokenInfo.security.risks.slice(0, 2).join('\n')}`;
+          }
+        }
+
+        const graduatedFrom = tokenInfo.launchpad.launchpad !== 'raydium' && tokenInfo.launchpad.launchpad !== 'unknown'
+          ? `\n🎓 Graduated from ${lpName}`
+          : '';
+
+        message = `${LINE}
+☀️ *${tokenInfo.symbol}* — Solana
+${LINE}
+
+*${tokenInfo.name}*${graduatedFrom}
+
+💰 *Price:* ${priceStr}
+📊 *MCap:* ${mcapStr}
+💧 *Liq:* ${liqStr}
+📈 *Vol:* ${volStr}
+${tokenInfo.holders > 0 ? `👥 *Holders:* ${tokenInfo.holders}` : ''}
+${securitySection}
+
+${LINE}
+🔗 [DexScreener](${tokenInfo.links.dexscreener}) • [Birdeye](${tokenInfo.links.birdeye}) • [Solscan](${tokenInfo.links.solscan})
+${LINE}
+\`${tokenAddress}\``;
+      }
+    } else {
+      // Token not found on any launchpad
+      message = `${LINE}
+☀️ *TOKEN* — Solana
+${LINE}
+
+⚠️ *New/Unlisted Token*
+
+Not found on any known launchpad.
+Proceed with extreme caution.
+
+${LINE}
+\`${tokenAddress}\``;
+    }
+  }
+  } else {
+    // EVM chains - use existing logic with GoPlus
+    const { tokenData, goplus } = await import('@raptor/shared');
+
+    const [tokenInfo, security] = await Promise.all([
+      tokenData.getTokenInfo(tokenAddress, chain).catch(() => null),
+      goplus.getTokenSecurity(tokenAddress, chain).catch(() => null),
+    ]);
+
+    if (tokenInfo) {
+      const priceStr = tokenData.formatPrice(tokenInfo.priceUsd);
+      const mcapStr = tokenData.formatLargeNumber(tokenInfo.marketCap);
+      const liqStr = tokenData.formatLargeNumber(tokenInfo.liquidity);
+      const volStr = tokenData.formatLargeNumber(tokenInfo.volume24h);
+      const changeStr = tokenData.formatPercentage(tokenInfo.priceChange24h);
+      const changeEmoji = (tokenInfo.priceChange24h ?? 0) >= 0 ? '🟢' : '🔴';
+
+      const securityBadge = security
+        ? goplus.getRiskBadge(security)
+        : tokenData.getSecurityBadge(tokenInfo.riskScore);
+
+      let securitySection = '';
+      if (security) {
+        securitySection = `\n*Security:* ${securityBadge.emoji} ${securityBadge.label}`;
+        if (security.buyTax > 0 || security.sellTax > 0) {
+          securitySection += `\n💸 Tax: ${security.buyTax.toFixed(1)}% buy / ${security.sellTax.toFixed(1)}% sell`;
+        }
+        if (security.isHoneypot) {
+          securitySection += '\n🚨 HONEYPOT DETECTED';
+        }
+        if (security.risks.length > 0) {
+          securitySection += `\n${security.risks.slice(0, 2).join('\n')}`;
+        }
+      }
+
+      const dexLink = `https://dexscreener.com/${chain}/${tokenAddress}`;
+      const dextoolsLink = `https://www.dextools.io/app/en/${chain === 'bsc' ? 'bnb' : chain}/pair-explorer/${tokenAddress}`;
+
+      message = `${LINE}
+${CHAIN_EMOJI[chain]} *${tokenInfo.symbol}* — ${CHAIN_NAME[chain]}
+${LINE}
+
+*${tokenInfo.name}*
+
+💰 *Price:* ${priceStr}
+${changeEmoji} *24h:* ${changeStr}
+
+📊 *MCap:* ${mcapStr}
+💧 *Liq:* ${liqStr}
+📈 *Vol:* ${volStr}
+${tokenInfo.holders ? `👥 *Holders:* ${tokenInfo.holders.toLocaleString()}` : ''}
+${securitySection}
+
+${LINE}
+🔗 [DexScreener](${dexLink}) • [DexTools](${dextoolsLink})
+${LINE}
+\`${tokenAddress}\``;
+    } else {
+      message = `${LINE}
+${CHAIN_EMOJI[chain]} *TOKEN* — ${CHAIN_NAME[chain]}
+${LINE}
+
+⚠️ *New/Unlisted Token*
+
+Data not yet available on DexScreener.
+Proceed with extreme caution.
+
+${LINE}
+\`${tokenAddress}\``;
+    }
+  }
+
+  // Build keyboard with buy options - smaller amounts for all chains
+  const keyboard = new InlineKeyboard();
+
+  if (chain === 'sol') {
+    keyboard
+      .text('🛒 0.1 SOL', `buy_sol_${tokenAddress}_0.1`)
+      .text('🛒 0.25 SOL', `buy_sol_${tokenAddress}_0.25`)
+      .text('🛒 0.5 SOL', `buy_sol_${tokenAddress}_0.5`)
+      .row()
+      .text('🛒 1 SOL', `buy_sol_${tokenAddress}_1`)
+      .text('🛒 2 SOL', `buy_sol_${tokenAddress}_2`)
+      .text('✏️ X SOL', `buy_sol_${tokenAddress}_custom`);
+  } else if (chain === 'bsc') {
+    keyboard
+      .text('🛒 0.01 BNB', `buy_bsc_${tokenAddress}_0.01`)
+      .text('🛒 0.05 BNB', `buy_bsc_${tokenAddress}_0.05`)
+      .text('🛒 0.1 BNB', `buy_bsc_${tokenAddress}_0.1`)
+      .row()
+      .text('🛒 0.25 BNB', `buy_bsc_${tokenAddress}_0.25`)
+      .text('🛒 0.5 BNB', `buy_bsc_${tokenAddress}_0.5`)
+      .text('✏️ X BNB', `buy_bsc_${tokenAddress}_custom`);
+  } else {
+    // ETH and Base
+    keyboard
+      .text(`🛒 0.005 ${symbol}`, `buy_${chain}_${tokenAddress}_0.005`)
+      .text(`🛒 0.01 ${symbol}`, `buy_${chain}_${tokenAddress}_0.01`)
+      .text(`🛒 0.025 ${symbol}`, `buy_${chain}_${tokenAddress}_0.025`)
+      .row()
+      .text(`🛒 0.05 ${symbol}`, `buy_${chain}_${tokenAddress}_0.05`)
+      .text(`🛒 0.1 ${symbol}`, `buy_${chain}_${tokenAddress}_0.1`)
+      .text(`✏️ X ${symbol}`, `buy_${chain}_${tokenAddress}_custom`);
+  }
+
+  keyboard
     .row()
-    .text(`🛒 Buy 1 ${symbol}`, `buy_${chain}_${tokenAddress}_1`)
-    .text(`🛒 Buy X`, `buy_${chain}_${tokenAddress}_custom`)
-    .row()
-    .text('🔍 Analyze', `analyze_${chain}_${tokenAddress}`)
+    .text('🔍 Full Scan', `analyze_${chain}_${tokenAddress}`)
     .text('🔄 Refresh', `refresh_${chain}_${tokenAddress}`)
     .row()
     .text('« Back', 'back_to_menu');
@@ -268,6 +631,7 @@ ${LINE}`;
   await ctx.reply(message, {
     parse_mode: 'Markdown',
     reply_markup: keyboard,
+    link_preview_options: { is_disabled: true },
   });
 }
 

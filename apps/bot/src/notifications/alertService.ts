@@ -68,6 +68,17 @@ function formatAlert(alert: Alert): string {
         `Lost: ${data.pnl} ${data.chain === 'bsc' ? 'BNB' : 'ETH'}`
       );
 
+    case 'DEPOSIT_PENDING': {
+      const pendingSymbol = data.symbol || (data.chain === 'bsc' ? 'BNB' : data.chain === 'sol' ? 'SOL' : 'ETH');
+      return (
+        `⏳ *Deposit Detected*\n\n` +
+        `Amount: ${data.amount} ${pendingSymbol}\n` +
+        `Chain: ${String(data.chain).toUpperCase()}\n` +
+        `Address: \`${String(data.address).slice(0, 8)}...${String(data.address).slice(-6)}\`\n\n` +
+        `Waiting for ${data.requiredConfirmations} confirmations...`
+      );
+    }
+
     case 'DEPOSIT_CONFIRMED': {
       const depositSymbol = data.symbol || (data.chain === 'bsc' ? 'BNB' : data.chain === 'sol' ? 'SOL' : 'ETH');
       return (

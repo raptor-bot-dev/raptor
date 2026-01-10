@@ -141,6 +141,7 @@ export type AlertType =
   | 'DCA_EXIT'
   | 'MOON_BAG_EXIT'
   | 'MAX_HOLD_TIME'
+  | 'DEPOSIT_PENDING'
   | 'DEPOSIT_CONFIRMED'
   | 'WITHDRAWAL_SENT'
   | 'DAILY_SUMMARY'

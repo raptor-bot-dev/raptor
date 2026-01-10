@@ -26,6 +26,8 @@ import { backupCommand } from './commands/backup.js';
 import { handleCallbackQuery } from './handlers/callbacks.js';
 import { handleTextMessage } from './handlers/messages.js';
 import { depositMonitor } from './services/depositMonitor.js';
+// v2.3.1 Security middleware
+import { rateLimitMiddleware } from './middleware/rateLimit.js';
 
 // Validate environment
 if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -48,6 +50,9 @@ bot.use(
 
 // Sequentialize updates per user to prevent race conditions
 bot.use(sequentialize((ctx) => ctx.from?.id.toString()));
+
+// Rate limiting middleware - SECURITY: Prevent DoS and abuse
+bot.use(rateLimitMiddleware());
 
 // Register commands
 bot.command('start', startCommand);
@@ -94,6 +99,24 @@ bot.catch((err) => {
 
 // Start the bot
 console.log('🦅 RAPTOR Bot starting...');
+
+// Set bot commands for the menu
+bot.api.setMyCommands([
+  { command: 'menu', description: '🏠 Main menu' },
+  { command: 'wallet', description: '💳 Wallet management' },
+  { command: 'balance', description: '💰 Check balances' },
+  { command: 'hunt', description: '🦅 Auto-hunt settings' },
+  { command: 'score', description: '🔍 Analyze token' },
+  { command: 'snipe', description: '🎯 Snipe a token' },
+  { command: 'positions', description: '📊 View positions' },
+  { command: 'strategy', description: '📈 Trading strategy' },
+  { command: 'gas', description: '⛽ Gas settings' },
+  { command: 'slippage', description: '📉 Slippage settings' },
+  { command: 'backup', description: '🔐 Export private keys' },
+  { command: 'help', description: '❓ Help & guides' },
+]).catch((err) => {
+  console.error('Failed to set bot commands:', err);
+});
 
 const runner = run(bot);
 

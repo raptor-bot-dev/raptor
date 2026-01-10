@@ -10,12 +10,26 @@
  * - Settings (strategy, gas, slippage, notifications)
  * - Custom Strategy (5-page editor)
  * - Address Detection (send native/token)
+ *
+ * SECURITY: v2.3.1 - All wallet operations require ownership verification
  */
 
 import { InlineKeyboard } from 'grammy';
 import type { MyContext } from '../types.js';
 import type { Chain, TradingMode, TradingStrategy } from '@raptor/shared';
 import { getUserBalances } from '@raptor/shared';
+
+// Security imports
+import {
+  parseWalletCallback,
+  requireWalletOwnership,
+  logWalletOperation,
+} from '../middleware/walletAuth.js';
+import {
+  isValidChain,
+  parseWalletIndex,
+  sanitizeCallbackData,
+} from '../utils/validation.js';
 
 // Import command handlers
 import { handleModeSelection, handleChainSelection } from '../commands/deposit.js';
@@ -51,6 +65,7 @@ import {
   toggleLaunchpad,
   enableAllLaunchpads,
   disableAllLaunchpads,
+  showOpportunities,
 } from '../commands/hunt.js';
 
 // Settings imports
@@ -218,66 +233,88 @@ export async function handleCallbackQuery(ctx: MyContext) {
 
     // Show wallet details (wallet_select_sol_1, wallet_select_bsc_2, etc.)
     if (data.startsWith('wallet_select_')) {
-      const parts = data.replace('wallet_select_', '').split('_');
-      if (parts.length === 2) {
-        const [chain, indexStr] = parts;
-        const walletIndex = parseInt(indexStr);
-        await showWalletDetails(ctx, chain as Chain, walletIndex);
+      const parsed = parseWalletCallback(data, 'wallet_select_');
+      if (parsed) {
+        const { chain, indexStr } = parsed;
+        // Verify ownership before showing details
+        await requireWalletOwnership(ctx, chain, indexStr, async (wallet) => {
+          const walletIndex = parseWalletIndex(indexStr)!;
+          await showWalletDetails(ctx, chain as Chain, walletIndex);
+        });
         return;
       }
     }
 
     // Wallet saved confirmation (wallet_saved_sol_1, etc.)
     if (data.startsWith('wallet_saved_')) {
-      const parts = data.replace('wallet_saved_', '').split('_');
-      if (parts.length === 2) {
-        const [chain, indexStr] = parts;
-        const walletIndex = parseInt(indexStr);
-        await handleWalletSaved(ctx, chain as Chain, walletIndex);
+      const parsed = parseWalletCallback(data, 'wallet_saved_');
+      if (parsed) {
+        const { chain, indexStr } = parsed;
+        // Verify ownership before confirming saved
+        await requireWalletOwnership(ctx, chain, indexStr, async (wallet) => {
+          const walletIndex = parseWalletIndex(indexStr)!;
+          await handleWalletSaved(ctx, chain as Chain, walletIndex);
+        });
         return;
       }
     }
 
-    // Export wallet key (wallet_export_sol_1, etc.)
+    // Export wallet key (wallet_export_sol_1, etc.) - SECURITY CRITICAL
     if (data.startsWith('wallet_export_')) {
-      const parts = data.replace('wallet_export_', '').split('_');
-      if (parts.length === 2) {
-        const [chain, indexStr] = parts;
-        const walletIndex = parseInt(indexStr);
-        await exportWalletKey(ctx, chain as Chain, walletIndex);
+      const parsed = parseWalletCallback(data, 'wallet_export_');
+      if (parsed) {
+        const { chain, indexStr } = parsed;
+        // Verify ownership before allowing key export
+        await requireWalletOwnership(ctx, chain, indexStr, async (wallet) => {
+          const walletIndex = parseWalletIndex(indexStr)!;
+          logWalletOperation(user.id, 'export', chain as Chain, walletIndex, true);
+          await exportWalletKey(ctx, chain as Chain, walletIndex);
+        });
         return;
       }
     }
 
-    // Activate wallet (wallet_activate_sol_1, etc.)
+    // Activate wallet (wallet_activate_sol_1, etc.) - SECURITY CRITICAL
     if (data.startsWith('wallet_activate_')) {
-      const parts = data.replace('wallet_activate_', '').split('_');
-      if (parts.length === 2) {
-        const [chain, indexStr] = parts;
-        const walletIndex = parseInt(indexStr);
-        await activateWallet(ctx, chain as Chain, walletIndex);
+      const parsed = parseWalletCallback(data, 'wallet_activate_');
+      if (parsed) {
+        const { chain, indexStr } = parsed;
+        // Verify ownership before allowing activation
+        await requireWalletOwnership(ctx, chain, indexStr, async (wallet) => {
+          const walletIndex = parseWalletIndex(indexStr)!;
+          logWalletOperation(user.id, 'activate', chain as Chain, walletIndex, true);
+          await activateWallet(ctx, chain as Chain, walletIndex);
+        });
         return;
       }
     }
 
-    // Delete wallet (wallet_delete_sol_1, etc.)
+    // Delete wallet (wallet_delete_sol_1, etc.) - SECURITY CRITICAL
     if (data.startsWith('wallet_delete_')) {
-      const parts = data.replace('wallet_delete_', '').split('_');
-      if (parts.length === 2) {
-        const [chain, indexStr] = parts;
-        const walletIndex = parseInt(indexStr);
-        await startDeleteWallet(ctx, chain as Chain, walletIndex);
+      const parsed = parseWalletCallback(data, 'wallet_delete_');
+      if (parsed) {
+        const { chain, indexStr } = parsed;
+        // Verify ownership before allowing deletion
+        await requireWalletOwnership(ctx, chain, indexStr, async (wallet) => {
+          const walletIndex = parseWalletIndex(indexStr)!;
+          logWalletOperation(user.id, 'delete', chain as Chain, walletIndex, true);
+          await startDeleteWallet(ctx, chain as Chain, walletIndex);
+        });
         return;
       }
     }
 
     // Deposit to wallet (wallet_deposit_sol_1, etc.)
     if (data.startsWith('wallet_deposit_')) {
-      const parts = data.replace('wallet_deposit_', '').split('_');
-      if (parts.length === 2) {
-        const [chain, indexStr] = parts;
-        const walletIndex = parseInt(indexStr);
-        await showWalletDeposit(ctx, chain as Chain, walletIndex);
+      const parsed = parseWalletCallback(data, 'wallet_deposit_');
+      if (parsed) {
+        const { chain, indexStr } = parsed;
+        // Verify ownership before showing deposit address
+        await requireWalletOwnership(ctx, chain, indexStr, async (wallet) => {
+          const walletIndex = parseWalletIndex(indexStr)!;
+          logWalletOperation(user.id, 'deposit', chain as Chain, walletIndex, true);
+          await showWalletDeposit(ctx, chain as Chain, walletIndex);
+        });
         return;
       }
     }
@@ -837,6 +874,18 @@ Tap "Show Keys" to reveal your private keys.`;
     }
 
     // === HUNT CALLBACKS ===
+    // Browse new launches
+    if (data === 'hunt_new') {
+      await showOpportunities(ctx, 'new');
+      return;
+    }
+
+    // Browse trending tokens
+    if (data === 'hunt_trending') {
+      await showOpportunities(ctx, 'trending');
+      return;
+    }
+
     // Chain selection for hunt (hunt_chain_sol, etc.)
     if (data.startsWith('hunt_chain_')) {
       const chain = data.replace('hunt_chain_', '') as Chain;
@@ -1122,42 +1171,169 @@ async function handleTradeChainSelected(ctx: MyContext, chain: Chain, address: s
   const user = ctx.from;
   if (!user) return;
 
-  await ctx.answerCallbackQuery({ text: 'Loading token info...' });
+  await ctx.answerCallbackQuery({ text: 'Loading...' });
 
   const chainName = chain === 'sol' ? 'Solana' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'Base' : 'Ethereum';
   const chainEmoji = chain === 'sol' ? '🟢' : chain === 'bsc' ? '🟡' : chain === 'base' ? '🔵' : '🟣';
   const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
 
-  // TODO: Fetch real token info from API
-  const message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Fetch all data in parallel for speed
+  const { tokenData, goplus, pumpfun } = await import('@raptor/shared');
+
+  try {
+    // Parallel fetch: DexScreener + GoPlus + PumpFun (if Solana)
+    const [tokenInfo, security, pumpInfo] = await Promise.all([
+      tokenData.getTokenInfo(address, chain).catch(() => null),
+      goplus.getTokenSecurity(address, chain).catch(() => null),
+      chain === 'sol' ? pumpfun.getTokenInfo(address).catch(() => null) : Promise.resolve(null),
+    ]);
+
+    let message: string;
+
+    // Check if it's a PumpFun token (not yet graduated)
+    if (pumpInfo && !pumpInfo.complete) {
+      const curveStatus = pumpfun.getBondingCurveStatus(pumpInfo);
+      const progressBar = pumpfun.formatBondingCurveBar(pumpInfo.bondingCurveProgress);
+      const links = pumpfun.getPumpFunLinks(address);
+
+      message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎰 *${pumpInfo.symbol}* — Pump.fun
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*${pumpInfo.name}*
+${curveStatus.emoji} ${curveStatus.label}
+
+💰 *Price:* ${pumpInfo.priceInSol.toFixed(9)} SOL
+📊 *MCap:* ${pumpInfo.marketCapSol.toFixed(2)} SOL
+
+*Bonding Curve:*
+${progressBar} ${pumpInfo.bondingCurveProgress.toFixed(1)}%
+💎 ${pumpInfo.realSolReserves.toFixed(2)} / ~85 SOL
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔗 [Pump.fun](${links.pumpfun}) • [DexScreener](${links.dexscreener})
+\`${address}\``;
+    } else if (tokenInfo) {
+      const priceStr = tokenData.formatPrice(tokenInfo.priceUsd);
+      const mcapStr = tokenData.formatLargeNumber(tokenInfo.marketCap);
+      const liqStr = tokenData.formatLargeNumber(tokenInfo.liquidity);
+      const volStr = tokenData.formatLargeNumber(tokenInfo.volume24h);
+      const changeStr = tokenData.formatPercentage(tokenInfo.priceChange24h);
+      const changeEmoji = (tokenInfo.priceChange24h ?? 0) >= 0 ? '🟢' : '🔴';
+
+      const securityBadge = security
+        ? goplus.getRiskBadge(security)
+        : tokenData.getSecurityBadge(tokenInfo.riskScore);
+
+      let securitySection = `\n*Security:* ${securityBadge.emoji} ${securityBadge.label}`;
+      if (security) {
+        if (security.buyTax > 0 || security.sellTax > 0) {
+          securitySection += `\n💸 Tax: ${security.buyTax.toFixed(1)}%/${security.sellTax.toFixed(1)}%`;
+        }
+        if (security.risks.length > 0) {
+          securitySection += `\n${security.risks.slice(0, 2).join('\n')}`;
+        }
+      }
+
+      const dexLink = `https://dexscreener.com/${chain === 'sol' ? 'solana' : chain}/${address}`;
+
+      message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${chainEmoji} *${tokenInfo.symbol}* — ${chainName}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*${tokenInfo.name}*
+
+💰 *Price:* ${priceStr}
+${changeEmoji} *24h:* ${changeStr}
+
+📊 *MCap:* ${mcapStr}
+💧 *Liq:* ${liqStr}
+📈 *Vol:* ${volStr}
+${tokenInfo.holders ? `👥 *Holders:* ${tokenInfo.holders.toLocaleString()}` : ''}
+${securitySection}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔗 [DexScreener](${dexLink})
+\`${address}\``;
+    } else {
+      message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${chainEmoji} *TOKEN* — ${chainName}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📊 *Token Info*
-Loading from chain...
+⚠️ *New/Unlisted Token*
 
-\`${address}\`
+Data not available. Proceed with caution.
 
+\`${address}\``;
+    }
+
+    // Build keyboard with appropriate buy amounts
+    const keyboard = new InlineKeyboard();
+
+    if (chain === 'sol') {
+      keyboard
+        .text('🛒 0.1', `buy_sol_${address}_0.1`)
+        .text('🛒 0.25', `buy_sol_${address}_0.25`)
+        .text('🛒 0.5', `buy_sol_${address}_0.5`)
+        .row()
+        .text('🛒 1', `buy_sol_${address}_1`)
+        .text('🛒 2', `buy_sol_${address}_2`)
+        .text('✏️ X', `buy_sol_${address}_custom`);
+    } else if (chain === 'bsc') {
+      keyboard
+        .text('🛒 0.01', `buy_bsc_${address}_0.01`)
+        .text('🛒 0.05', `buy_bsc_${address}_0.05`)
+        .text('🛒 0.1', `buy_bsc_${address}_0.1`)
+        .row()
+        .text('🛒 0.25', `buy_bsc_${address}_0.25`)
+        .text('🛒 0.5', `buy_bsc_${address}_0.5`)
+        .text('✏️ X', `buy_bsc_${address}_custom`);
+    } else {
+      keyboard
+        .text('🛒 0.005', `buy_${chain}_${address}_0.005`)
+        .text('🛒 0.01', `buy_${chain}_${address}_0.01`)
+        .text('🛒 0.025', `buy_${chain}_${address}_0.025`)
+        .row()
+        .text('🛒 0.05', `buy_${chain}_${address}_0.05`)
+        .text('🛒 0.1', `buy_${chain}_${address}_0.1`)
+        .text('✏️ X', `buy_${chain}_${address}_custom`);
+    }
+
+    keyboard
+      .row()
+      .text('🔍 Scan', `analyze_${chain}_${address}`)
+      .text('🔄 Refresh', `refresh_${chain}_${address}`)
+      .row()
+      .text('« Back', 'back_to_menu');
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+      link_preview_options: { is_disabled: true },
+    });
+  } catch (error) {
+    console.error('[Callbacks] Token fetch error:', error);
+    // Show error message with retry option
+    await ctx.editMessageText(
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${chainEmoji} *TOKEN* — ${chainName}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-_Select an amount to buy:_
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
-  const keyboard = new InlineKeyboard()
-    .text(`0.01 ${symbol}`, `buy_${chain}_${address}_0.01`)
-    .text(`0.05 ${symbol}`, `buy_${chain}_${address}_0.05`)
-    .row()
-    .text(`0.1 ${symbol}`, `buy_${chain}_${address}_0.1`)
-    .text(`0.5 ${symbol}`, `buy_${chain}_${address}_0.5`)
-    .row()
-    .text('🔍 Analyze', `analyze_${chain}_${address}`)
-    .text('🔄 Refresh', `refresh_${chain}_${address}`)
-    .row()
-    .text('« Back', 'back_to_menu');
+❌ *Error loading data*
 
-  await ctx.editMessageText(message, {
-    parse_mode: 'Markdown',
-    reply_markup: keyboard,
-  });
+Network issue or API timeout.
+Please try again.
+
+\`${address}\``,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: new InlineKeyboard()
+          .text('🔄 Retry', `trade_chain_${chain}_${address}`)
+          .row()
+          .text('« Back', 'back_to_menu'),
+      }
+    );
+  }
 }
 
 async function handleSendAmount(ctx: MyContext, chain: Chain, amount: string) {
