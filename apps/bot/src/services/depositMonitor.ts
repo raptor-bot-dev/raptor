@@ -15,8 +15,12 @@ import {
   SOLANA_CONFIG,
   updateBalance,
   supabase,
+  createLogger,
+  maskAddress,
 } from '@raptor/shared';
 import { sendAlertToUser } from '../notifications/alertService.js';
+
+const logger = createLogger('DepositMonitor');
 
 interface WatchedAddress {
   tgId: number;
@@ -74,7 +78,7 @@ export class DepositMonitor {
         const config = getChainConfig(chain);
         this.providers.set(chain, new ethers.JsonRpcProvider(config.rpcUrl));
       } catch (error) {
-        console.warn(`[DepositMonitor] Could not initialize ${chain} provider:`, error);
+        logger.warn(`Could not initialize ${chain} provider`, { chain });
       }
     }
   }
@@ -85,7 +89,7 @@ export class DepositMonitor {
   async start(): Promise<void> {
     if (this.running) return;
 
-    console.log('[DepositMonitor] Starting...');
+    logger.info('Starting deposit monitor');
     this.running = true;
 
     // Load existing deposit addresses from database
@@ -94,14 +98,14 @@ export class DepositMonitor {
     // Start polling for deposits
     this.startPolling();
 
-    console.log(`[DepositMonitor] Monitoring ${this.watchedAddresses.size} addresses`);
+    logger.info(`Monitoring ${this.watchedAddresses.size} addresses`);
   }
 
   /**
    * Stop the deposit monitor
    */
   async stop(): Promise<void> {
-    console.log('[DepositMonitor] Stopping...');
+    logger.info('Stopping deposit monitor');
     this.running = false;
 
     if (this.pollIntervalId) {
@@ -121,7 +125,7 @@ export class DepositMonitor {
         .not('deposit_address', 'is', null);
 
       if (error) {
-        console.error('[DepositMonitor] Error loading addresses:', error);
+        logger.error('Error loading addresses', error);
         return;
       }
 
@@ -133,7 +137,7 @@ export class DepositMonitor {
         );
       }
     } catch (error) {
-      console.error('[DepositMonitor] Error loading watched addresses:', error);
+      logger.error('Error loading watched addresses', error);
     }
   }
 
@@ -153,7 +157,7 @@ export class DepositMonitor {
       lastBalance: currentBalance,
     });
 
-    console.log(`[DepositMonitor] Watching ${chain}:${address} for user ${tgId}`);
+    logger.info('Watching address for deposits', { userId: tgId, chain, address });
   }
 
   /**
@@ -204,7 +208,7 @@ export class DepositMonitor {
         this.watchedAddresses.set(key, watched);
       }
     } catch (error) {
-      console.error(`[DepositMonitor] Error checking ${key}:`, error);
+      logger.error(`Error checking balance`, error, { key });
     }
   }
 
@@ -233,9 +237,12 @@ export class DepositMonitor {
     const symbol = this.getChainSymbol(chain);
     const amount = this.formatAmount(chain, amountWei);
 
-    console.log(
-      `[DepositMonitor] Deposit detected: ${amount} ${symbol} to ${address} for user ${tgId} (pending confirmation)`
-    );
+    logger.info('Deposit detected (pending confirmation)', {
+      userId: tgId,
+      chain,
+      address,
+      amount: `${amount} ${symbol}`,
+    });
 
     // Add to pending deposits
     const pending: PendingDeposit = {
@@ -272,7 +279,7 @@ export class DepositMonitor {
       try {
         // Check for timeout
         if (now - pending.detectedAt > DEPOSIT_TIMEOUT_MS) {
-          console.warn(`[DepositMonitor] Deposit timed out: ${key}`);
+          logger.warn('Deposit confirmation timed out', { key });
           this.pendingDeposits.delete(key);
           continue;
         }
@@ -284,9 +291,7 @@ export class DepositMonitor {
         // Check if we have enough confirmations
         const required = REQUIRED_CONFIRMATIONS[pending.chain];
         if (confirmations >= required) {
-          console.log(
-            `[DepositMonitor] Deposit confirmed: ${key} with ${confirmations} confirmations`
-          );
+          logger.info('Deposit confirmed', { key, confirmations });
 
           // Credit the balance
           await this.creditDeposit(pending);
@@ -295,7 +300,7 @@ export class DepositMonitor {
           this.pendingDeposits.delete(key);
         }
       } catch (error) {
-        console.error(`[DepositMonitor] Error checking pending ${key}:`, error);
+        logger.error('Error checking pending deposit', error, { key });
       }
     }
   }
@@ -325,11 +330,9 @@ export class DepositMonitor {
         deposited: amountStr,
       });
 
-      console.log(
-        `[DepositMonitor] Balance credited: ${amountStr} ${symbol} for user ${tgId}`
-      );
+      logger.info('Balance credited', { userId: tgId, amount: `${amountStr} ${symbol}`, chain });
     } catch (error) {
-      console.error('[DepositMonitor] Error crediting deposit:', error);
+      logger.error('Error crediting deposit', error, { userId: tgId });
       throw error; // Re-throw to prevent removing from pending
     }
 
@@ -379,7 +382,7 @@ export class DepositMonitor {
 
       return Math.max(0, finalizedSlot - deposit.slot);
     } catch (error) {
-      console.error('[DepositMonitor] Error getting Solana confirmations:', error);
+      logger.error('Error getting Solana confirmations', error);
       return 0;
     }
   }
@@ -402,7 +405,7 @@ export class DepositMonitor {
 
       return Math.max(0, currentBlock - deposit.blockNumber);
     } catch (error) {
-      console.error(`[DepositMonitor] Error getting ${deposit.chain} confirmations:`, error);
+      logger.error('Error getting EVM confirmations', error, { chain: deposit.chain });
       return 0;
     }
   }
@@ -466,7 +469,7 @@ export class DepositMonitor {
       const data = (await response.json()) as { result?: { value?: number } };
       return BigInt(data.result?.value || 0);
     } catch (error) {
-      console.error('[DepositMonitor] Error getting Solana balance:', error);
+      logger.error('Error getting Solana balance', error);
       return 0n;
     }
   }

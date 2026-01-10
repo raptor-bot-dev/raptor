@@ -5,3 +5,4 @@
 export * from './auditLog.js';
 export * from './healthCheck.js';
 export * from './gracefulDegradation.js';
+export * from './secureLogger.js';

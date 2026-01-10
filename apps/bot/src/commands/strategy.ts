@@ -12,7 +12,7 @@
  */
 
 import { InlineKeyboard } from 'grammy';
-import type { MyContext } from '../types.js';
+import type { MyContext, CustomStrategyStep } from '../types.js';
 import type { TradingStrategy } from '@raptor/shared';
 import { LINE, STATUS } from '../utils/formatters.js';
 
@@ -1260,7 +1260,7 @@ export async function requestCustomInput(ctx: MyContext, field: string) {
   const user = ctx.from;
   if (!user) return;
 
-  ctx.session.step = `awaiting_custom_${field}` as any;
+  ctx.session.step = `awaiting_custom_${field}` as CustomStrategyStep;
 
   let prompt = '';
   switch (field) {

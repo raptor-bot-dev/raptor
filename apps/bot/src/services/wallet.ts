@@ -20,6 +20,8 @@ import {
   generateSolanaKeypair,
   generateEvmKeypair,
   type EncryptedData,
+  createLogger,
+  maskAddress,
 } from '@raptor/shared';
 import { depositMonitor } from './depositMonitor.js';
 // v2.3.1 Security imports
@@ -28,6 +30,8 @@ import {
   checkWithdrawalRateLimit,
   recordWithdrawal,
 } from '../utils/withdrawalValidation.js';
+
+const logger = createLogger('Wallet');
 
 /**
  * Initialize user wallet - generates keypairs if new user
@@ -74,7 +78,7 @@ export async function getOrCreateDepositAddress(
 
   // Start watching for deposits
   await depositMonitor.watchAddress(tgId, chain, address);
-  console.log(`[Wallet] User ${tgId} deposit address on ${chain}: ${address}`);
+  logger.info('Deposit address generated', { userId: tgId, chain, address });
 
   return address;
 }
@@ -151,7 +155,7 @@ export async function processWithdrawal(
 
   // Log warnings if any
   if (validation.warnings) {
-    console.warn(`[Wallet] Withdrawal warnings for user ${tgId}:`, validation.warnings);
+    logger.warn('Withdrawal warnings', { userId: tgId, warnings: validation.warnings.join(', ') });
   }
 
   // SECURITY: Check withdrawal rate limit (estimate $100 per unit for rate limit)

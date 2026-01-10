@@ -35,29 +35,88 @@ interface RpcEndpoint {
   lastLatency?: number;
 }
 
-// RPC endpoints per chain (would be from env in production)
-const RPC_ENDPOINTS: Record<Chain, RpcEndpoint[]> = {
-  sol: [
-    { url: process.env.SOLANA_RPC_1 || 'https://api.mainnet-beta.solana.com', name: 'Solana Public', priority: 2, healthy: true },
-    { url: process.env.SOLANA_RPC_2 || '', name: 'Helius', priority: 1, healthy: true },
-    { url: process.env.SOLANA_RPC_3 || '', name: 'QuickNode', priority: 1, healthy: true },
-  ].filter(e => e.url),
-  bsc: [
-    { url: process.env.BSC_RPC_1 || 'https://bsc-dataseed.binance.org', name: 'Binance', priority: 1, healthy: true },
-    { url: process.env.BSC_RPC_2 || 'https://bsc-dataseed1.defibit.io', name: 'Defibit', priority: 2, healthy: true },
-    { url: process.env.BSC_RPC_3 || 'https://bsc-dataseed1.ninicoin.io', name: 'Ninicoin', priority: 2, healthy: true },
-  ],
-  base: [
-    { url: process.env.BASE_RPC_1 || 'https://mainnet.base.org', name: 'Base Public', priority: 2, healthy: true },
-    { url: process.env.BASE_RPC_2 || '', name: 'Alchemy', priority: 1, healthy: true },
-    { url: process.env.BASE_RPC_3 || '', name: 'QuickNode', priority: 1, healthy: true },
-  ].filter(e => e.url),
-  eth: [
-    { url: process.env.ETH_RPC_1 || 'https://eth.llamarpc.com', name: 'LlamaRPC', priority: 2, healthy: true },
-    { url: process.env.ETH_RPC_2 || '', name: 'Alchemy', priority: 1, healthy: true },
-    { url: process.env.ETH_RPC_3 || '', name: 'Infura', priority: 1, healthy: true },
-  ].filter(e => e.url),
+/**
+ * SECURITY: L-004 - RPC Configuration
+ *
+ * Public RPC fallbacks are rate-limited and may be unreliable.
+ * For production, configure private RPCs via environment variables:
+ * - SOLANA_RPC_1, SOLANA_RPC_2, SOLANA_RPC_3
+ * - BSC_RPC_1, BSC_RPC_2, BSC_RPC_3
+ * - BASE_RPC_1, BASE_RPC_2, BASE_RPC_3
+ * - ETH_RPC_1, ETH_RPC_2, ETH_RPC_3
+ */
+
+// Public RPC fallbacks - only used if env vars not configured
+const PUBLIC_FALLBACKS: Record<Chain, string[]> = {
+  sol: ['https://api.mainnet-beta.solana.com'],
+  bsc: ['https://bsc-dataseed.binance.org', 'https://bsc-dataseed1.defibit.io', 'https://bsc-dataseed1.ninicoin.io'],
+  base: ['https://mainnet.base.org'],
+  eth: ['https://eth.llamarpc.com'],
 };
+
+// Build endpoint list from environment, logging warnings for missing configs
+function buildEndpoints(): Record<Chain, RpcEndpoint[]> {
+  const chains: Chain[] = ['sol', 'bsc', 'base', 'eth'];
+  const result: Record<Chain, RpcEndpoint[]> = {} as Record<Chain, RpcEndpoint[]>;
+
+  for (const chain of chains) {
+    const envPrefix = chain === 'sol' ? 'SOLANA' : chain.toUpperCase();
+    const endpoints: RpcEndpoint[] = [];
+
+    // Check for environment-configured RPCs
+    for (let i = 1; i <= 3; i++) {
+      const envVar = `${envPrefix}_RPC_${i}`;
+      const url = process.env[envVar];
+      if (url) {
+        endpoints.push({
+          url,
+          name: `${chain.toUpperCase()}-RPC-${i}`,
+          priority: i === 1 ? 1 : 2,
+          healthy: true,
+        });
+      }
+    }
+
+    // If no private RPCs configured, use public fallbacks
+    if (endpoints.length === 0) {
+      const fallbacks = PUBLIC_FALLBACKS[chain];
+      for (let i = 0; i < fallbacks.length; i++) {
+        endpoints.push({
+          url: fallbacks[i],
+          name: `${chain.toUpperCase()}-Public-${i + 1}`,
+          priority: 2, // Lower priority for public RPCs
+          healthy: true,
+        });
+      }
+      // Log warning in non-test environments
+      if (process.env.NODE_ENV !== 'test') {
+        console.warn(`[MultiRPC] Using public RPC fallbacks for ${chain}. Configure ${envPrefix}_RPC_* for better performance.`);
+      }
+    }
+
+    result[chain] = endpoints;
+  }
+
+  return result;
+}
+
+const RPC_ENDPOINTS: Record<Chain, RpcEndpoint[]> = buildEndpoints();
+
+/**
+ * Check if private RPCs are configured for a chain
+ */
+export function hasPrivateRpc(chain: Chain): boolean {
+  const envPrefix = chain === 'sol' ? 'SOLANA' : chain.toUpperCase();
+  return !!process.env[`${envPrefix}_RPC_1`];
+}
+
+/**
+ * Check if any chain is using public fallbacks
+ */
+export function getPublicFallbackChains(): Chain[] {
+  const chains: Chain[] = ['sol', 'bsc', 'base', 'eth'];
+  return chains.filter(chain => !hasPrivateRpc(chain));
+}
 
 // Broadcast result
 interface BroadcastResult {
@@ -88,7 +147,7 @@ export async function broadcastTransaction(
   }
 ): Promise<BroadcastResult> {
   const endpoints = RPC_ENDPOINTS[chain].filter(e => e.healthy);
-  const timeout = options?.timeout || 30000;
+  const timeout = options?.timeout || 10000; // Reduced from 30s for faster response
 
   if (endpoints.length === 0) {
     return {
@@ -323,7 +382,7 @@ export async function rpcCall<T>(
   options?: { timeout?: number }
 ): Promise<T> {
   const endpoints = RPC_ENDPOINTS[chain].filter(e => e.healthy);
-  const timeout = options?.timeout || 10000;
+  const timeout = options?.timeout || 5000; // Reduced from 10s for faster response
 
   for (const endpoint of endpoints) {
     try {

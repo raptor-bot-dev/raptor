@@ -10,7 +10,7 @@
 
 import { InlineKeyboard } from 'grammy';
 import type { MyContext } from '../types.js';
-import type { Chain, TradingMode, UserWallet } from '@raptor/shared';
+import type { Chain, TradingMode, UserWallet, EncryptedData } from '@raptor/shared';
 import {
   getUserWallets,
   getUserWalletsForChain,
@@ -369,7 +369,7 @@ export async function exportWalletKey(
       ? wallet.solana_private_key_encrypted
       : wallet.evm_private_key_encrypted;
     const address = isSolana ? wallet.solana_address : wallet.evm_address;
-    const privateKey = decryptPrivateKey(encryptedKey as any);
+    const privateKey = decryptPrivateKey(encryptedKey as EncryptedData);
 
     // Show credentials in new message
     const message = formatWalletCredentials(chain, address, privateKey, walletIndex);

@@ -1,6 +1,9 @@
 import type { Context, SessionFlavor } from 'grammy';
 import type { Chain } from '@raptor/shared';
 
+// Custom strategy step type for dynamic field prompts
+export type CustomStrategyStep = `awaiting_custom_${string}`;
+
 export interface SessionData {
   step:
     | 'awaiting_withdrawal_amount'
@@ -13,6 +16,7 @@ export interface SessionData {
     | 'awaiting_custom_value'
     | 'awaiting_send_amount'
     | 'awaiting_send_confirm'
+    | CustomStrategyStep
     | null;
   pendingWithdrawal: {
     chain: Chain;

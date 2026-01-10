@@ -3,9 +3,31 @@
  *
  * SECURITY: Validates all callback parameters to prevent injection,
  * integer overflow, and parameter manipulation attacks.
+ *
+ * SECURITY: L-010 - Logs validation failures for security monitoring
  */
 
 import type { Chain } from '@raptor/shared';
+import { createLogger } from '@raptor/shared';
+
+const logger = createLogger('Validation');
+
+/**
+ * Log validation failure for security monitoring
+ * SECURITY: L-010 - Track validation failures for anomaly detection
+ */
+function logValidationFailure(
+  type: string,
+  value: unknown,
+  userId?: number,
+  context?: Record<string, unknown>
+): void {
+  logger.security(`Validation failed: ${type}`, {
+    userId,
+    invalidValue: typeof value === 'string' ? value.slice(0, 50) : String(value),
+    ...context,
+  });
+}
 
 /**
  * Parse a positive integer from string with bounds checking
@@ -119,18 +141,29 @@ export function isValidTokenAddress(address: string, chain: Chain): boolean {
 /**
  * Parse callback data segments safely
  * Returns null if format is invalid
+ * SECURITY: L-010 - Logs failures for monitoring
  */
 export function parseCallbackSegments(
   data: string,
   prefix: string,
-  expectedCount: number
+  expectedCount: number,
+  userId?: number
 ): string[] | null {
-  if (!data.startsWith(prefix)) return null;
+  if (!data.startsWith(prefix)) {
+    logValidationFailure('callback_prefix', data, userId, { expected: prefix });
+    return null;
+  }
 
   const rest = data.slice(prefix.length);
   const segments = rest.split('_').filter(s => s.length > 0);
 
-  if (segments.length !== expectedCount) return null;
+  if (segments.length !== expectedCount) {
+    logValidationFailure('callback_segments', data, userId, {
+      expected: expectedCount,
+      got: segments.length,
+    });
+    return null;
+  }
 
   return segments;
 }

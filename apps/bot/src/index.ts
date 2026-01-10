@@ -29,6 +29,18 @@ import { depositMonitor } from './services/depositMonitor.js';
 // v2.3.1 Security middleware
 import { rateLimitMiddleware } from './middleware/rateLimit.js';
 
+// SECURITY: L-007 - Global promise rejection and error handlers
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled Promise Rejection:', reason);
+  // Log but don't crash - let the bot continue serving other users
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[FATAL] Uncaught Exception:', error);
+  // For uncaught exceptions, we should exit gracefully
+  process.exit(1);
+});
+
 // Validate environment
 if (!process.env.TELEGRAM_BOT_TOKEN) {
   console.error('ERROR: TELEGRAM_BOT_TOKEN is required');
