@@ -52,3 +52,23 @@ export * from './analysis/tokenAnalysis.js';
 
 // Crypto utilities for self-custodial wallets
 export * from './crypto/index.js';
+
+// API services for token data
+export * as dexscreener from './api/dexscreener.js';
+export * as birdeye from './api/birdeye.js';
+export * as goplus from './api/goplus.js';
+export * as pumpfun from './api/pumpfun.js';
+export * as tokenData from './api/tokenData.js';
+export * as chainDetector from './api/chainDetector.js';
+export * from './api/rateLimiter.js';
+
+// Solana launchpad APIs
+export * as rugcheck from './api/rugcheck.js';
+export * as moonshot from './api/moonshot.js';
+export * as bonkfun from './api/bonkfun.js';
+export * as launchpadDetector from './api/launchpadDetector.js';
+
+// === RAPTOR v2.3.1 Security Modules ===
+
+// Security audit logging, health checks, and graceful degradation
+export * from './security/index.js';
