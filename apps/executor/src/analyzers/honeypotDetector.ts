@@ -235,7 +235,8 @@ export class HoneypotDetector {
 
       // SECURITY: P0-2 - Use actual simulation to measure tax instead of gas heuristics
       // Simulate swap and compare actual received vs expected
-      const simulationAddress = '0x1234567890123456789012345678901234567890';
+      // Use a well-known dead address for simulation (no private key can access it)
+      const simulationAddress = DEAD_ADDRESS;
       const iface = new Interface(ROUTER_ABI);
       const deadline = Math.floor(Date.now() / 1000) + 3600;
       const swapData = iface.encodeFunctionData(
@@ -385,7 +386,8 @@ export class HoneypotDetector {
       }
 
       // SECURITY: P0-2 - Calculate actual sell tax using round-trip simulation
-      const simulationAddress = '0x1234567890123456789012345678901234567890';
+      // Use a well-known dead address for simulation (no private key can access it)
+      const simulationAddress = DEAD_ADDRESS;
       const iface = new Interface(ROUTER_ABI);
       const deadline = Math.floor(Date.now() / 1000) + 3600;
       const swapData = iface.encodeFunctionData(

@@ -10,6 +10,7 @@
 import { InlineKeyboard } from 'grammy';
 import type { MyContext } from '../types.js';
 import type { Chain } from '@raptor/shared';
+import { getGasSettings, saveGasSettings } from '@raptor/shared';
 import { chainsWithBackKeyboard, backKeyboard, CHAIN_EMOJI, CHAIN_NAME } from '../utils/keyboards.js';
 
 type TipSpeed = 'slow' | 'normal' | 'fast' | 'turbo';
@@ -27,14 +28,30 @@ const defaultGasSettings: Record<Chain, GasSettings> = {
   eth: { autoTip: true, tipSpeed: 'normal', maxTipUSD: 20 },
 };
 
-// In-memory gas settings (would be in database)
+// In-memory cache with database persistence (SECURITY: P0-2)
 const userGasSettings = new Map<number, Record<Chain, GasSettings>>();
 
-function getUserGasSettings(tgId: number): Record<Chain, GasSettings> {
-  if (!userGasSettings.has(tgId)) {
-    userGasSettings.set(tgId, JSON.parse(JSON.stringify(defaultGasSettings)));
+async function getUserGasSettingsAsync(tgId: number): Promise<Record<Chain, GasSettings>> {
+  if (userGasSettings.has(tgId)) {
+    return userGasSettings.get(tgId)!;
   }
-  return userGasSettings.get(tgId)!;
+
+  const dbSettings = await getGasSettings(tgId);
+  if (dbSettings) {
+    const settings = dbSettings as Record<Chain, GasSettings>;
+    userGasSettings.set(tgId, settings);
+    return settings;
+  }
+
+  const defaults = JSON.parse(JSON.stringify(defaultGasSettings));
+  userGasSettings.set(tgId, defaults);
+  await saveGasSettings(tgId, defaults);
+  return defaults;
+}
+
+async function saveUserGasSettings(tgId: number, settings: Record<Chain, GasSettings>): Promise<void> {
+  userGasSettings.set(tgId, settings);
+  await saveGasSettings(tgId, settings);
 }
 
 // Speed descriptions and multipliers
@@ -52,7 +69,7 @@ export async function gasCommand(ctx: MyContext) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserGasSettings(user.id);
+  const settings = await getUserGasSettingsAsync(user.id);
 
   let message = '⛽ *Gas Settings*\n\n';
   message += 'Configure priority fees per chain:\n\n';
@@ -81,7 +98,7 @@ export async function showGas(ctx: MyContext) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserGasSettings(user.id);
+  const settings = await getUserGasSettingsAsync(user.id);
 
   let message = '⛽ *Gas Settings*\n\n';
   message += 'Configure priority fees per chain:\n\n';
@@ -112,7 +129,8 @@ export async function showChainGas(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserGasSettings(user.id)[chain];
+  const allSettings = await getUserGasSettingsAsync(user.id);
+  const settings = allSettings[chain];
   const speedInfo = SPEED_INFO[settings.tipSpeed];
 
   let message = `⛽ *Gas Settings - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n`;
@@ -150,8 +168,9 @@ export async function toggleAutoTip(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserGasSettings(user.id);
+  const settings = await getUserGasSettingsAsync(user.id);
   settings[chain].autoTip = !settings[chain].autoTip;
+  await saveUserGasSettings(user.id, settings);
 
   const status = settings[chain].autoTip ? 'enabled' : 'disabled';
   await ctx.answerCallbackQuery({ text: `Auto-tip ${status}` });
@@ -166,7 +185,8 @@ export async function showSpeedSelection(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserGasSettings(user.id)[chain];
+  const allSettings = await getUserGasSettingsAsync(user.id);
+  const settings = allSettings[chain];
 
   const message = `🏃 *Priority Speed - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n` +
     `Current: ${SPEED_INFO[settings.tipSpeed].emoji} ${SPEED_INFO[settings.tipSpeed].name}\n\n` +
@@ -197,8 +217,9 @@ export async function setTipSpeed(ctx: MyContext, chain: Chain, speed: TipSpeed)
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserGasSettings(user.id);
+  const settings = await getUserGasSettingsAsync(user.id);
   settings[chain].tipSpeed = speed;
+  await saveUserGasSettings(user.id, settings);
 
   await ctx.answerCallbackQuery({ text: `Speed set to ${SPEED_INFO[speed].name}` });
 
@@ -212,7 +233,8 @@ export async function showMaxTipSelection(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserGasSettings(user.id)[chain];
+  const allSettings = await getUserGasSettingsAsync(user.id);
+  const settings = allSettings[chain];
 
   const message = `💰 *Max Tip - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n` +
     `Current: $${settings.maxTipUSD} USD\n\n` +

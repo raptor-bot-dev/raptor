@@ -1163,3 +1163,127 @@ export async function markBackupExported(tgId: number): Promise<void> {
 
   if (error) throw error;
 }
+
+// =====================
+// User Settings (P0-2 Production Fix)
+// =====================
+
+/**
+ * User settings stored in database for persistence
+ * SECURITY: P0-2 - Settings must persist across bot restarts
+ */
+export interface UserSettings {
+  tg_id: number;
+  hunt_settings: Record<string, unknown>;
+  gas_settings: Record<string, unknown>;
+  slippage_settings: Record<string, unknown>;
+  strategy_settings: Record<string, unknown>;
+  updated_at: string;
+}
+
+/**
+ * Get user settings from database
+ */
+export async function getUserSettings(tgId: number): Promise<UserSettings | null> {
+  const { data, error } = await supabase
+    .from('user_settings')
+    .select('*')
+    .eq('tg_id', tgId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    // Table might not exist yet - return null gracefully
+    if (error.code === '42P01') return null;
+    console.error('[Supabase] getUserSettings error:', error);
+    return null;
+  }
+  return data;
+}
+
+/**
+ * Save user settings to database
+ */
+export async function saveUserSettings(
+  tgId: number,
+  settings: Partial<Omit<UserSettings, 'tg_id' | 'updated_at'>>
+): Promise<void> {
+  const { error } = await supabase
+    .from('user_settings')
+    .upsert({
+      tg_id: tgId,
+      ...settings,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'tg_id',
+    });
+
+  if (error) {
+    // Table might not exist yet - log but don't throw
+    if (error.code === '42P01') {
+      console.warn('[Supabase] user_settings table not found - settings not persisted');
+      return;
+    }
+    console.error('[Supabase] saveUserSettings error:', error);
+  }
+}
+
+/**
+ * Get hunt settings for a user
+ */
+export async function getHuntSettings(tgId: number): Promise<Record<string, unknown> | null> {
+  const settings = await getUserSettings(tgId);
+  return settings?.hunt_settings || null;
+}
+
+/**
+ * Save hunt settings for a user
+ */
+export async function saveHuntSettings(tgId: number, huntSettings: Record<string, unknown>): Promise<void> {
+  await saveUserSettings(tgId, { hunt_settings: huntSettings });
+}
+
+/**
+ * Get gas settings for a user
+ */
+export async function getGasSettings(tgId: number): Promise<Record<string, unknown> | null> {
+  const settings = await getUserSettings(tgId);
+  return settings?.gas_settings || null;
+}
+
+/**
+ * Save gas settings for a user
+ */
+export async function saveGasSettings(tgId: number, gasSettings: Record<string, unknown>): Promise<void> {
+  await saveUserSettings(tgId, { gas_settings: gasSettings });
+}
+
+/**
+ * Get slippage settings for a user
+ */
+export async function getSlippageSettings(tgId: number): Promise<Record<string, unknown> | null> {
+  const settings = await getUserSettings(tgId);
+  return settings?.slippage_settings || null;
+}
+
+/**
+ * Save slippage settings for a user
+ */
+export async function saveSlippageSettings(tgId: number, slippageSettings: Record<string, unknown>): Promise<void> {
+  await saveUserSettings(tgId, { slippage_settings: slippageSettings });
+}
+
+/**
+ * Get strategy settings for a user
+ */
+export async function getStrategySettings(tgId: number): Promise<Record<string, unknown> | null> {
+  const settings = await getUserSettings(tgId);
+  return settings?.strategy_settings || null;
+}
+
+/**
+ * Save strategy settings for a user
+ */
+export async function saveStrategySettings(tgId: number, strategySettings: Record<string, unknown>): Promise<void> {
+  await saveUserSettings(tgId, { strategy_settings: strategySettings });
+}

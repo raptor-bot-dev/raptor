@@ -11,6 +11,7 @@
 import { InlineKeyboard } from 'grammy';
 import type { MyContext } from '../types.js';
 import type { Chain } from '@raptor/shared';
+import { getHuntSettings, saveHuntSettings } from '@raptor/shared';
 import {
   chainsWithBackKeyboard,
   huntKeyboard,
@@ -21,7 +22,7 @@ import {
 } from '../utils/keyboards.js';
 import { formatHuntStatus } from '../utils/formatters.js';
 
-// In-memory hunt settings (would be from database in production)
+// Hunt settings interface (SECURITY: P0-2 - Now persisted to database)
 interface HuntSettings {
   enabled: boolean;
   minScore: number;
@@ -36,14 +37,33 @@ const defaultHuntSettings: Record<Chain, HuntSettings> = {
   eth: { enabled: false, minScore: 25, launchpads: [] }, // Higher threshold for ETH due to gas
 };
 
-// Store user hunt settings (would be in database)
+// In-memory cache with database persistence
 const userHuntSettings = new Map<number, Record<Chain, HuntSettings>>();
 
-function getUserHuntSettings(tgId: number): Record<Chain, HuntSettings> {
-  if (!userHuntSettings.has(tgId)) {
-    userHuntSettings.set(tgId, JSON.parse(JSON.stringify(defaultHuntSettings)));
+async function getUserHuntSettingsAsync(tgId: number): Promise<Record<Chain, HuntSettings>> {
+  // Check in-memory cache first
+  if (userHuntSettings.has(tgId)) {
+    return userHuntSettings.get(tgId)!;
   }
-  return userHuntSettings.get(tgId)!;
+
+  // Load from database
+  const dbSettings = await getHuntSettings(tgId);
+  if (dbSettings) {
+    const settings = dbSettings as Record<Chain, HuntSettings>;
+    userHuntSettings.set(tgId, settings);
+    return settings;
+  }
+
+  // Use defaults and save to database
+  const defaults = JSON.parse(JSON.stringify(defaultHuntSettings));
+  userHuntSettings.set(tgId, defaults);
+  await saveHuntSettings(tgId, defaults);
+  return defaults;
+}
+
+async function saveUserHuntSettings(tgId: number, settings: Record<Chain, HuntSettings>): Promise<void> {
+  userHuntSettings.set(tgId, settings);
+  await saveHuntSettings(tgId, settings);
 }
 
 /**
@@ -53,7 +73,7 @@ export async function huntCommand(ctx: MyContext) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserHuntSettings(user.id);
+  const settings = await getUserHuntSettingsAsync(user.id);
 
   // Build status message
   let message = '🦅 *RAPTOR Hunt*\n\n';
@@ -95,7 +115,7 @@ export async function showHunt(ctx: MyContext) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserHuntSettings(user.id);
+  const settings = await getUserHuntSettingsAsync(user.id);
 
   let message = '🦅 *RAPTOR Hunt*\n\n';
   message += '*Browse Opportunities:*\n';
@@ -138,7 +158,8 @@ export async function showChainHunt(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserHuntSettings(user.id)[chain];
+  const allSettings = await getUserHuntSettingsAsync(user.id);
+  const settings = allSettings[chain];
   const message = formatHuntStatus({
     chain,
     enabled: settings.enabled,
@@ -162,8 +183,9 @@ export async function toggleHunt(ctx: MyContext, chain: Chain, enable: boolean) 
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserHuntSettings(user.id);
+  const settings = await getUserHuntSettingsAsync(user.id);
   settings[chain].enabled = enable;
+  await saveUserHuntSettings(user.id, settings);
 
   const status = enable ? 'started' : 'paused';
   await ctx.answerCallbackQuery({ text: `Hunt ${status} for ${CHAIN_NAME[chain]}` });
@@ -179,7 +201,8 @@ export async function showScoreSelection(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserHuntSettings(user.id)[chain];
+  const allSettings = await getUserHuntSettingsAsync(user.id);
+  const settings = allSettings[chain];
 
   const message = `🎚️ *Minimum Score - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}
 
@@ -220,8 +243,9 @@ export async function setMinScore(ctx: MyContext, chain: Chain, score: number) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserHuntSettings(user.id);
+  const settings = await getUserHuntSettingsAsync(user.id);
   settings[chain].minScore = score;
+  await saveUserHuntSettings(user.id, settings);
 
   await ctx.answerCallbackQuery({ text: `Min score set to ${score}` });
 
@@ -236,7 +260,8 @@ export async function showSizeSelection(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserHuntSettings(user.id)[chain];
+  const allSettings = await getUserHuntSettingsAsync(user.id);
+  const settings = allSettings[chain];
   const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
 
   const message = `💰 *Position Size - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}
@@ -283,8 +308,9 @@ export async function setPositionSize(ctx: MyContext, chain: Chain, size: string
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserHuntSettings(user.id);
+  const settings = await getUserHuntSettingsAsync(user.id);
   settings[chain].maxPositionSize = size === 'auto' ? undefined : size;
+  await saveUserHuntSettings(user.id, settings);
 
   await ctx.answerCallbackQuery({ text: `Position size updated` });
 
@@ -299,7 +325,8 @@ export async function showLaunchpadSelection(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserHuntSettings(user.id)[chain];
+  const allSettings = await getUserHuntSettingsAsync(user.id);
+  const settings = allSettings[chain];
 
   // Available launchpads per chain
   const availableLaunchpads: Record<Chain, string[]> = {
@@ -357,7 +384,7 @@ export async function toggleLaunchpad(ctx: MyContext, chain: Chain, launchpad: s
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserHuntSettings(user.id);
+  const settings = await getUserHuntSettingsAsync(user.id);
   const idx = settings[chain].launchpads.indexOf(launchpad);
 
   if (idx >= 0) {
@@ -365,6 +392,7 @@ export async function toggleLaunchpad(ctx: MyContext, chain: Chain, launchpad: s
   } else {
     settings[chain].launchpads.push(launchpad);
   }
+  await saveUserHuntSettings(user.id, settings);
 
   await ctx.answerCallbackQuery();
 
@@ -386,8 +414,9 @@ export async function enableAllLaunchpads(ctx: MyContext, chain: Chain) {
     eth: [],
   };
 
-  const settings = getUserHuntSettings(user.id);
+  const settings = await getUserHuntSettingsAsync(user.id);
   settings[chain].launchpads = [...availableLaunchpads[chain]];
+  await saveUserHuntSettings(user.id, settings);
 
   await ctx.answerCallbackQuery({ text: 'All launchpads enabled' });
   await showLaunchpadSelection(ctx, chain);
@@ -400,8 +429,9 @@ export async function disableAllLaunchpads(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserHuntSettings(user.id);
+  const settings = await getUserHuntSettingsAsync(user.id);
   settings[chain].launchpads = [];
+  await saveUserHuntSettings(user.id, settings);
 
   await ctx.answerCallbackQuery({ text: 'All launchpads disabled' });
   await showLaunchpadSelection(ctx, chain);

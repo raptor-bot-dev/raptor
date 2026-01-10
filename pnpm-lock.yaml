@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.27
       '@types/pg':
         specifier: ^8.16.0
         version: 8.16.0
@@ -22,7 +25,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.16
-        version: 4.0.16
+        version: 4.0.16(@types/node@20.19.27)
 
   apps/api:
     dependencies:
@@ -1447,7 +1450,7 @@ packages:
       '@vitest/spy': 4.0.16
       estree-walker: 3.0.3
       magic-string: 0.30.21
-      vite: 7.3.1
+      vite: 7.3.1(@types/node@20.19.27)
     dev: true
 
   /@vitest/pretty-format@4.0.16:
@@ -3748,7 +3751,7 @@ packages:
       - supports-color
     dev: true
 
-  /vite@7.3.1:
+  /vite@7.3.1(@types/node@20.19.27):
     resolution: {integrity: sha512-w+N7Hifpc3gRjZ63vYBXA56dvvRlNWRczTdmCBBa+CotUzAPf5b7YMdMR/8CQoeYE5LX3W4wj6RYTgonm1b9DA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
@@ -3788,6 +3791,7 @@ packages:
       yaml:
         optional: true
     dependencies:
+      '@types/node': 20.19.27
       esbuild: 0.27.2
       fdir: 6.5.0(picomatch@4.0.3)
       picomatch: 4.0.3
@@ -3798,7 +3802,7 @@ packages:
       fsevents: 2.3.3
     dev: true
 
-  /vitest@4.0.16:
+  /vitest@4.0.16(@types/node@20.19.27):
     resolution: {integrity: sha512-E4t7DJ9pESL6E3I8nFjPa4xGUd3PmiWDLsDztS2qXSJWfHtbQnwAWylaBvSNY48I3vr8PTqIZlyK8TE3V3CA4Q==}
     engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
     hasBin: true
@@ -3832,6 +3836,7 @@ packages:
       jsdom:
         optional: true
     dependencies:
+      '@types/node': 20.19.27
       '@vitest/expect': 4.0.16
       '@vitest/mocker': 4.0.16(vite@7.3.1)
       '@vitest/pretty-format': 4.0.16
@@ -3850,7 +3855,7 @@ packages:
       tinyexec: 1.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vite: 7.3.1
+      vite: 7.3.1(@types/node@20.19.27)
       why-is-node-running: 2.3.0
     transitivePeerDependencies:
       - jiti

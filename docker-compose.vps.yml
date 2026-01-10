@@ -1,0 +1,89 @@
+# =============================================================================
+# RAPTOR VPS Docker Compose Override
+# Production deployment for Hetzner CX21 (2 vCPU, 4GB RAM)
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.vps.yml up -d
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # API Server - VPS Configuration
+  # ===========================================================================
+  api:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ===========================================================================
+  # Trading Executor - VPS Configuration
+  # ===========================================================================
+  executor:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      # High-performance RPC settings
+      - SOLANA_CONNECTION_COMMITMENT=confirmed
+      - WS_RECONNECT_TIMEOUT=5000
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ===========================================================================
+  # Redis - VPS Configuration
+  # ===========================================================================
+  redis:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 384mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --tcp-backlog 511
+      --timeout 300
+      --tcp-keepalive 60
+      --loglevel notice
+    volumes:
+      - redis-data:/data
+      - /var/log/raptor/redis:/var/log/redis
+
+# ===========================================================================
+# Volumes - VPS Configuration
+# ===========================================================================
+volumes:
+  redis-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/raptor/redis
