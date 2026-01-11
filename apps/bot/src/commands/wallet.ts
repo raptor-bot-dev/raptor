@@ -32,6 +32,7 @@ import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { JsonRpcProvider, formatEther } from 'ethers';
 import {
   walletKeyboard,
+  portfolioKeyboard,
   walletChainKeyboard,
   walletListKeyboard,
   walletActionsKeyboard,
@@ -154,6 +155,53 @@ export async function showWallets(ctx: MyContext) {
   } catch (error) {
     console.error('[Wallet] Error:', error);
     await ctx.answerCallbackQuery({ text: 'Error loading wallets' });
+  }
+}
+
+/**
+ * Show portfolio - all wallets as clickable buttons
+ */
+export async function showPortfolio(ctx: MyContext) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    // Get all user wallets
+    const wallets = await getUserWallets(user.id);
+
+    if (wallets.length === 0) {
+      await ctx.answerCallbackQuery({
+        text: 'No wallets yet. Create one first!',
+        show_alert: true,
+      });
+      return;
+    }
+
+    // Format wallet data for keyboard
+    const walletData = wallets.map((w) => ({
+      chain: w.chain,
+      index: w.wallet_index,
+      label: w.wallet_label || `Wallet #${w.wallet_index}`,
+      isActive: w.is_active,
+    }));
+
+    const message = `${LINE}
+💼 *PORTFOLIO*
+${LINE}
+
+Select a wallet to manage:
+
+${LINE}`;
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: portfolioKeyboard(walletData),
+    });
+
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('[Wallet] Error showing portfolio:', error);
+    await ctx.answerCallbackQuery({ text: 'Error loading portfolio' });
   }
 }
 

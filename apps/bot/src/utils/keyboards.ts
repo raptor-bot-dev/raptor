@@ -169,15 +169,63 @@ export function percentagesKeyboard(
 
 /**
  * Wallet menu keyboard (v2.3 multi-wallet)
+ * Main wallet menu with Portfolio button for easy access
  */
 export function walletKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
+    .text('💼 Portfolio', 'wallet_portfolio')
+    .row()
     .text('➕ Create', 'wallet_create')
     .text('📥 Import', 'wallet_import')
     .row()
     .text('🔄 Refresh', 'wallet_refresh')
     .row()
     .text('« Back', 'back_to_menu');
+}
+
+/**
+ * Portfolio keyboard - shows all user wallets as clickable buttons
+ */
+export function portfolioKeyboard(
+  wallets: Array<{ chain: Chain; index: number; label: string; isActive: boolean }>
+): InlineKeyboard {
+  const kb = new InlineKeyboard();
+
+  // Group wallets by chain
+  const byChain = new Map<Chain, typeof wallets>();
+  for (const wallet of wallets) {
+    if (!byChain.has(wallet.chain)) {
+      byChain.set(wallet.chain, []);
+    }
+    byChain.get(wallet.chain)!.push(wallet);
+  }
+
+  // Add wallet buttons grouped by chain
+  for (const [chain, chainWallets] of byChain) {
+    // Add chain label row
+    kb.text(`${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}`, `wallet_chain_${chain}`);
+    kb.row();
+
+    // Add wallet buttons (2 per row)
+    for (let i = 0; i < chainWallets.length; i += 2) {
+      const w1 = chainWallets[i];
+      const marker1 = w1.isActive ? ' ✓' : '';
+      kb.text(`#${w1.index} ${w1.label}${marker1}`, `wallet_select_${w1.chain}_${w1.index}`);
+
+      if (i + 1 < chainWallets.length) {
+        const w2 = chainWallets[i + 1];
+        const marker2 = w2.isActive ? ' ✓' : '';
+        kb.text(`#${w2.index} ${w2.label}${marker2}`, `wallet_select_${w2.chain}_${w2.index}`);
+      }
+
+      kb.row();
+    }
+  }
+
+  // Add back button
+  kb.text('« Back to Wallets', 'wallets');
+
+  return kb;
 }
 
 /**
@@ -189,7 +237,7 @@ export function walletChainKeyboard(): InlineKeyboard {
     .text(`${CHAIN_EMOJI.bsc} BSC`, 'wallet_chain_bsc')
     .row()
     .text(`${CHAIN_EMOJI.base} Base`, 'wallet_chain_base')
-    .text(`${CHAIN_EMOJI.eth} Ethereum`, 'wallet_chain_eth')
+    .text(`${CHAIN_EMOJI.eth} Ethereum`, 'wallet_chain_eth`)
     .row()
     .text('« Back', 'back_to_wallets');
 }

@@ -41,6 +41,7 @@ import { handleBackupConfirm, showWalletInfo } from '../commands/backup.js';
 // v2.3 Wallet imports
 import {
   showWallets,
+  showPortfolio,
   showWalletCreate,
   showWalletImport,
   createNewWallet,
@@ -229,6 +230,11 @@ export async function handleCallbackQuery(ctx: MyContext) {
     if (data === 'wallet_refresh') {
       await ctx.answerCallbackQuery('🔄 Refreshing balances...');
       await showWallets(ctx);
+      return;
+    }
+
+    if (data === 'wallet_portfolio') {
+      await showPortfolio(ctx);
       return;
     }
 
