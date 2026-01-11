@@ -44,6 +44,17 @@ export const CHAIN_STATUS: Record<Chain, string> = {
   eth: '🟣',
 };
 
+/**
+ * Escape special characters for Telegram MarkdownV2
+ * Characters that must be escaped: _ * [ ] ( ) ~ ` > # + - = | { } . !
+ *
+ * Note: Do NOT use this on text inside code blocks (backticks)
+ */
+export function escapeMarkdownV2(text: string): string {
+  // Regex to match all special characters that need escaping in MarkdownV2
+  return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
+}
+
 // Format numbers with commas
 export function formatNumber(num: number, decimals: number = 2): string {
   return num.toLocaleString('en-US', {
@@ -244,13 +255,17 @@ export function formatWalletsOverview(
       const escapedLabel = label.replace(/#/g, '\\#');
       message += `\\#${wallet.wallet_index} ${escapedLabel}${activeMarker}\n`;
       message += `\`${address}\`\n`;
-      message += `${balanceInfo.balance.toFixed(4)} ${symbol}\n\n`;
+
+      // CRITICAL FIX: Escape decimal points in balance
+      const balanceText = `${balanceInfo.balance.toFixed(4)} ${symbol}`;
+      message += `${escapeMarkdownV2(balanceText)}\n\n`;
 
       totalUSD += balanceInfo.usdValue;
     }
   }
 
-  message += `*Total:* \\$${totalUSD.toFixed(2)}`;
+  // CRITICAL FIX: Escape decimal points in total
+  message += `*Total:* ${escapeMarkdownV2('$' + totalUSD.toFixed(2))}`;
 
   return message;
 }
