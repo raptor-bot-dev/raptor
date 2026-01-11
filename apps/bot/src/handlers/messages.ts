@@ -57,6 +57,12 @@ export async function handleTextMessage(ctx: MyContext) {
  * Handle session-based input flows
  */
 async function handleSessionFlow(ctx: MyContext, text: string): Promise<boolean> {
+  // Check for wallet import flow
+  if (ctx.session.awaitingImport) {
+    await handleWalletImport(ctx, text);
+    return true;
+  }
+
   switch (ctx.session.step) {
     case 'awaiting_withdrawal_amount':
       await handleWithdrawalAmountInput(ctx, text);
@@ -799,7 +805,83 @@ async function handleSendAmountInput(ctx: MyContext, text: string) {
   );
 }
 
-// Extend session type to include pendingSend
+/**
+ * Handle wallet import private key input
+ */
+async function handleWalletImport(ctx: MyContext, privateKey: string) {
+  const user = ctx.from;
+  const chain = ctx.session.awaitingImport;
+
+  if (!user || !chain) return;
+
+  // Delete user's message immediately (contains private key!)
+  try {
+    await ctx.deleteMessage();
+  } catch {
+    // Message may already be deleted or unable to delete
+  }
+
+  try {
+    const { importSolanaKeypair, importEvmKeypair, createWallet, CHAIN_NAME } = await import(
+      '@raptor/shared'
+    );
+
+    // Import keypair based on chain type
+    const isSolana = chain === 'sol';
+    const keypair = isSolana
+      ? importSolanaKeypair(privateKey.trim(), user.id)
+      : importEvmKeypair(privateKey.trim(), user.id);
+
+    // Create wallet in database
+    const wallet = await createWallet({
+      tg_id: user.id,
+      chain,
+      address: keypair.publicKey,
+      private_key_encrypted: keypair.privateKeyEncrypted,
+    });
+
+    // Clear session
+    delete ctx.session.awaitingImport;
+
+    // Show success message
+    await ctx.reply(
+      `${LINE}
+✅ *WALLET IMPORTED SUCCESSFULLY*
+${LINE}
+
+${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - Wallet #${wallet.wallet_index}
+
+*Address:*
+\`${keypair.publicKey}\`
+
+Your wallet has been encrypted and stored securely.
+
+${LINE}`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),
+      }
+    );
+  } catch (error) {
+    console.error('[Messages] Error importing wallet:', error);
+
+    // Clear session
+    delete ctx.session.awaitingImport;
+
+    await ctx.reply(
+      `❌ *Import Failed*\n\n` +
+        `Invalid private key format for ${CHAIN_NAME[chain]}.\n\n` +
+        `Please make sure you're using the correct format:\n` +
+        (chain === 'sol' ? '• Base58 format for Solana' : '• Hex format for EVM chains'),
+      {
+        parse_mode: 'Markdown',
+        reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),
+      }
+    );
+  }
+}
+
+// Extend session type to include pendingSend and awaitingImport
 declare module '../types.js' {
   interface SessionData {
     pendingSend?: {
@@ -808,5 +890,6 @@ declare module '../types.js' {
       amount?: string;
       tokenAddress?: string;
     };
+    awaitingImport?: Chain;
   }
 }
