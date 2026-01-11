@@ -33,6 +33,7 @@ export interface SessionData {
     walletId: number;
     chain: Chain;
   };
+  awaitingImport?: Chain;
 }
 
 export type MyContext = Context & SessionFlavor<SessionData>;

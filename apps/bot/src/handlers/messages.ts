@@ -822,7 +822,7 @@ async function handleWalletImport(ctx: MyContext, privateKey: string) {
   }
 
   try {
-    const { importSolanaKeypair, importEvmKeypair, createWallet, CHAIN_NAME } = await import(
+    const { importSolanaKeypair, importEvmKeypair, createWallet } = await import(
       '@raptor/shared'
     );
 
@@ -878,18 +878,5 @@ ${LINE}`,
         reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),
       }
     );
-  }
-}
-
-// Extend session type to include pendingSend and awaitingImport
-declare module '../types.js' {
-  interface SessionData {
-    pendingSend?: {
-      toAddress: string;
-      chain: Chain;
-      amount?: string;
-      tokenAddress?: string;
-    };
-    awaitingImport?: Chain;
   }
 }

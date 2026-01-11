@@ -289,7 +289,14 @@ ${LINE}`;
 
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',
-    reply_markup: walletChainKeyboard('wallet_import'),
+    reply_markup: new InlineKeyboard()
+      .text(`${CHAIN_EMOJI.sol} Solana`, 'wallet_import_sol')
+      .text(`${CHAIN_EMOJI.bsc} BSC`, 'wallet_import_bsc')
+      .row()
+      .text(`${CHAIN_EMOJI.base} Base`, 'wallet_import_base')
+      .text(`${CHAIN_EMOJI.eth} Ethereum`, 'wallet_import_eth')
+      .row()
+      .text('« Back', 'wallets'),
   });
 
   await ctx.answerCallbackQuery();
@@ -342,7 +349,12 @@ ${LINE}`,
     );
 
     // Set session state for import
-    if (!ctx.session) ctx.session = {};
+    if (!ctx.session) {
+      ctx.session = {
+        step: null,
+        pendingWithdrawal: null,
+      };
+    }
     ctx.session.awaitingImport = chain;
 
     await ctx.answerCallbackQuery();
