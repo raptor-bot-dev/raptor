@@ -59,7 +59,7 @@ import {
 } from '../commands/wallet.js';
 
 // Utilities
-import { LINE } from '../utils/formatters.js';
+import { escapeMarkdownV2, LINE } from '../utils/formatters.js';
 import { CHAIN_NAME } from '../utils/keyboards.js';
 
 // Hunt imports
@@ -1556,12 +1556,13 @@ async function handleConfirmWithdrawal(ctx: MyContext) {
       ? `${config.explorerUrl}/tx/${tx.hash}`
       : `${config.explorerUrl}/tx/${tx.hash}`;
 
+    const amountText = `${parseFloat(amount).toFixed(6)} ${symbol}`;
     await ctx.editMessageText(
       `${LINE}
 ✅ *WITHDRAWAL SUCCESSFUL*
 ${LINE}
 
-*Amount:* ${parseFloat(amount).toFixed(6)} ${symbol}
+*Amount:* ${escapeMarkdownV2(amountText)}
 *Chain:* ${CHAIN_NAME[chain]}
 
 *Transaction:*
