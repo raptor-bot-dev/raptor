@@ -21,6 +21,8 @@ import {
   getWalletCount,
   generateSolanaKeypair,
   generateEvmKeypair,
+  importSolanaKeypair,
+  importEvmKeypair,
   decryptPrivateKey,
   markWalletBackupExported,
   SOLANA_CONFIG,
@@ -262,6 +264,92 @@ ${LINE}`,
     console.error('[Wallet] Error creating wallet:', error);
     await ctx.answerCallbackQuery({
       text: 'Error creating wallet. Please try again.',
+      show_alert: true,
+    });
+  }
+}
+
+/**
+ * Show chain selection for wallet import
+ */
+export async function showWalletImport(ctx: MyContext) {
+  const message = `${LINE}
+📥 *IMPORT WALLET*
+${LINE}
+
+Select a chain to import an existing wallet.
+You'll need to provide your private key.
+
+⚠️ *SECURITY WARNING:*
+• Your private key will be encrypted and stored securely
+• The message with your key will be deleted immediately
+• Make sure you're in a private chat
+
+${LINE}`;
+
+  await ctx.editMessageText(message, {
+    parse_mode: 'Markdown',
+    reply_markup: walletChainKeyboard('wallet_import'),
+  });
+
+  await ctx.answerCallbackQuery();
+}
+
+/**
+ * Start import flow for a specific chain
+ */
+export async function startWalletImport(ctx: MyContext, chain: Chain) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    // Check wallet count
+    const count = await getWalletCount(user.id, chain);
+    if (count >= 5) {
+      await ctx.answerCallbackQuery({
+        text: `Maximum 5 wallets reached for ${CHAIN_NAME[chain]}`,
+        show_alert: true,
+      });
+      return;
+    }
+
+    const isSolana = chain === 'sol';
+    const keyFormat = isSolana ? 'base58' : 'hex (with or without 0x prefix)';
+    const example = isSolana ? '5Kj...abc123' : '0x1234...abcd';
+
+    await ctx.editMessageText(
+      `${LINE}
+📥 *IMPORT ${CHAIN_NAME[chain].toUpperCase()} WALLET*
+${LINE}
+
+Send your private key in the next message.
+
+*Format:* ${keyFormat}
+*Example:* \`${example}\`
+
+⚠️ *SECURITY:*
+• Your message will be deleted immediately
+• The private key will be encrypted
+• Never share your private key with anyone
+
+*Type your private key below:*
+
+${LINE}`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: new InlineKeyboard().text('« Cancel', 'wallets'),
+      }
+    );
+
+    // Set session state for import
+    if (!ctx.session) ctx.session = {};
+    ctx.session.awaitingImport = chain;
+
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('[Wallet] Error starting import:', error);
+    await ctx.answerCallbackQuery({
+      text: 'Error. Please try again.',
       show_alert: true,
     });
   }

@@ -148,3 +148,64 @@ export function getEvmAddressFromEncrypted(encrypted: EncryptedData, tgId?: numb
 export function isValidEvmAddress(address: string): boolean {
   return ethers.isAddress(address);
 }
+
+/**
+ * Import a Solana wallet from a private key
+ * @param privateKeyBase58 - The private key in base58 format
+ * @param tgId - Telegram user ID for per-user encryption
+ * @returns Public key and encrypted private key
+ */
+export function importSolanaKeypair(
+  privateKeyBase58: string,
+  tgId: number
+): GeneratedWallet {
+  try {
+    // Decode base58 private key
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair.fromSecretKey(secretKey);
+
+    // Encrypt the private key
+    const encrypted = encryptPrivateKey(privateKeyBase58, tgId);
+
+    // Clear sensitive data
+    secureClear(privateKeyBase58);
+
+    return {
+      publicKey: keypair.publicKey.toBase58(),
+      privateKeyEncrypted: encrypted,
+    };
+  } catch (error) {
+    throw new Error('Invalid Solana private key format');
+  }
+}
+
+/**
+ * Import an EVM wallet from a private key
+ * @param privateKeyHex - The private key in hex format (with or without 0x prefix)
+ * @param tgId - Telegram user ID for per-user encryption
+ * @returns Address and encrypted private key
+ */
+export function importEvmKeypair(
+  privateKeyHex: string,
+  tgId: number
+): GeneratedWallet {
+  try {
+    // Normalize hex format (add 0x if missing)
+    const normalized = privateKeyHex.startsWith('0x')
+      ? privateKeyHex
+      : `0x${privateKeyHex}`;
+
+    // Create wallet from private key to validate
+    const wallet = new ethers.Wallet(normalized);
+
+    // Encrypt the private key (store without 0x prefix)
+    const encrypted = encryptPrivateKey(wallet.privateKey.slice(2), tgId);
+
+    return {
+      publicKey: wallet.address,
+      privateKeyEncrypted: encrypted,
+    };
+  } catch (error) {
+    throw new Error('Invalid EVM private key format');
+  }
+}

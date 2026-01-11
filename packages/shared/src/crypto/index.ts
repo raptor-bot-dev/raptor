@@ -25,6 +25,8 @@ export {
   loadEvmWallet,
   getEvmAddressFromEncrypted,
   isValidEvmAddress,
+  importSolanaKeypair,
+  importEvmKeypair,
   type GeneratedWallet,
   type UserWalletKeys,
 } from './keypairs.js';
