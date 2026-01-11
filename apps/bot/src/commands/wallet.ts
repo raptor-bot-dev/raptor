@@ -515,6 +515,23 @@ export async function showWalletDetails(
     const activeStatus = wallet.is_active ? '✓ Active' : '';
     const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
 
+    // Fetch live balance
+    let balance = 0;
+    try {
+      if (chain === 'sol') {
+        const connection = new Connection(SOLANA_CONFIG.rpcUrl);
+        const balanceLamports = await connection.getBalance(new PublicKey(address), 'finalized');
+        balance = balanceLamports / LAMPORTS_PER_SOL;
+      } else {
+        const config = getChainConfig(chain);
+        const provider = new JsonRpcProvider(config.rpcUrl);
+        const balanceWei = await provider.getBalance(address);
+        balance = Number(formatEther(balanceWei));
+      }
+    } catch (error) {
+      console.error('[Wallet] Error fetching balance for details:', error);
+    }
+
     const message = `${LINE}
 ${CHAIN_EMOJI[chain]} *${wallet.wallet_label || `Wallet #${walletIndex}`}* ${activeStatus}
 ${LINE}
@@ -523,7 +540,7 @@ ${LINE}
 *Address:*
 \`${address}\`
 
-*Balance:* 0.0000 ${symbol}
+*Balance:* ${balance.toFixed(4)} ${symbol}
 
 ${LINE}`;
 
@@ -840,6 +857,7 @@ ${LINE}`;
     }
     ctx.session.pendingWithdrawal = {
       chain,
+      walletIndex,
       amount: balance.toString(),
       address: undefined,
     };
@@ -913,6 +931,7 @@ export async function selectWithdrawalPercentage(
     // Update session with amount
     ctx.session.pendingWithdrawal = {
       chain,
+      walletIndex,
       amount: withdrawAmount.toFixed(6),
       address: undefined,
     };
@@ -958,6 +977,7 @@ export async function startCustomWithdrawal(
     ctx.session.step = 'awaiting_withdrawal_amount';
     ctx.session.pendingWithdrawal = {
       chain,
+      walletIndex,
       amount: undefined,
       address: undefined,
     };

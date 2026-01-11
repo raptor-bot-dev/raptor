@@ -20,6 +20,7 @@ export interface SessionData {
     | null;
   pendingWithdrawal: {
     chain: Chain;
+    walletIndex: number;
     amount?: string;
     address?: string;
   } | null;

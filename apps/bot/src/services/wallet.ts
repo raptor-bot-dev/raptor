@@ -133,19 +133,39 @@ export async function hasWallet(tgId: number): Promise<boolean> {
 export async function processWithdrawal(
   tgId: number,
   chain: Chain,
+  walletIndex: number,
   amount: string,
   toAddress: string,
   mode: TradingMode = 'snipe'
 ): Promise<{ hash: string }> {
-  // Get user's wallet
-  const wallet = await getUserWallet(tgId);
+  // Get user's specific wallet (multi-wallet v2.3)
+  const { getWalletByIndex } = await import('@raptor/shared');
+  const wallet = await getWalletByIndex(tgId, chain, walletIndex);
   if (!wallet) {
-    throw new Error('User wallet not found');
+    throw new Error('Wallet not found');
   }
 
-  // SECURITY: H-007 - Get current balance for validation
-  const balanceRecord = await getUserBalance(tgId, chain);
-  const availableBalance = balanceRecord ? parseFloat(balanceRecord.current_value || '0') : 0;
+  // Fetch current balance from blockchain for validation
+  let availableBalance = 0;
+  try {
+    if (chain === 'sol') {
+      const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
+      const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+      const connection = new Connection(rpcUrl, 'confirmed');
+      const balance = await connection.getBalance(new PublicKey(wallet.solana_address), 'finalized');
+      availableBalance = balance / LAMPORTS_PER_SOL;
+    } else {
+      const { ethers } = await import('ethers');
+      const { getChainConfig } = await import('@raptor/shared');
+      const config = getChainConfig(chain as 'bsc' | 'base' | 'eth');
+      const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+      const balance = await provider.getBalance(wallet.evm_address);
+      availableBalance = Number(ethers.formatEther(balance));
+    }
+  } catch (error) {
+    logger.error('Failed to fetch balance for withdrawal validation:', error);
+    throw new Error('Unable to verify balance. Please try again.');
+  }
 
   // SECURITY: H-007 - Validate withdrawal parameters
   const validation = validateWithdrawal(chain, amount, toAddress, availableBalance);

@@ -1526,7 +1526,7 @@ async function handleConfirmWithdrawal(ctx: MyContext) {
   const user = ctx.from;
   if (!user || !ctx.session.pendingWithdrawal) return;
 
-  const { chain, amount, address } = ctx.session.pendingWithdrawal;
+  const { chain, walletIndex, amount, address } = ctx.session.pendingWithdrawal;
 
   if (!address || !amount) {
     await ctx.editMessageText('❌ Missing withdrawal details. Please try again.', {
@@ -1546,7 +1546,7 @@ async function handleConfirmWithdrawal(ctx: MyContext) {
     const { processWithdrawal } = await import('../services/wallet.js');
     const { getChainConfig } = await import('@raptor/shared');
 
-    const tx = await processWithdrawal(user.id, chain, amount, address);
+    const tx = await processWithdrawal(user.id, chain, walletIndex, amount, address);
 
     const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
     const config = chain === 'sol'
