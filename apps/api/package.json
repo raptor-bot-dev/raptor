@@ -11,7 +11,10 @@
   },
   "dependencies": {
     "@raptor/shared": "workspace:*",
-    "@vercel/node": "^3.0.0"
+    "@vercel/node": "^3.0.0",
+    "@solana/web3.js": "^1.95.8",
+    "ethers": "^6.13.0",
+    "redis": "^4.7.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

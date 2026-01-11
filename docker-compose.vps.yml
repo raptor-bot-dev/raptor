@@ -8,27 +8,21 @@ version: '3.8'
 
 services:
   # ===========================================================================
-  # API Server - VPS Configuration
+  # Bot - DISABLED on VPS (runs on Railway)
+  # ===========================================================================
+  bot:
+    deploy:
+      replicas: 0
+
+  # ===========================================================================
+  # API - DISABLED on VPS (runs on Railway/Vercel)
   # ===========================================================================
   api:
     deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      redis:
-        condition: service_healthy
+      replicas: 0
 
   # ===========================================================================
-  # Trading Executor - VPS Configuration
+  # Trading Executor - VPS Configuration (PRIMARY SERVICE)
   # ===========================================================================
   executor:
     deploy:

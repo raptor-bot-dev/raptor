@@ -29,9 +29,6 @@ COPY apps/ ./apps/
 # Build all packages
 RUN pnpm run build
 
-# Prune dev dependencies
-RUN pnpm prune --prod
-
 # =============================================================================
 # Bot service
 # =============================================================================
@@ -45,8 +42,10 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
+COPY --from=builder /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY --from=builder /app/packages/database/dist ./packages/database/dist
 COPY --from=builder /app/packages/database/package.json ./packages/database/
+COPY --from=builder /app/packages/database/node_modules ./packages/database/node_modules
 COPY --from=builder /app/apps/bot/dist ./apps/bot/dist
 COPY --from=builder /app/apps/bot/package.json ./apps/bot/
 COPY --from=builder /app/apps/bot/node_modules ./apps/bot/node_modules
@@ -70,8 +69,10 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
+COPY --from=builder /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY --from=builder /app/packages/database/dist ./packages/database/dist
 COPY --from=builder /app/packages/database/package.json ./packages/database/
+COPY --from=builder /app/packages/database/node_modules ./packages/database/node_modules
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/
 COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
@@ -98,8 +99,10 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
+COPY --from=builder /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY --from=builder /app/packages/database/dist ./packages/database/dist
 COPY --from=builder /app/packages/database/package.json ./packages/database/
+COPY --from=builder /app/packages/database/node_modules ./packages/database/node_modules
 COPY --from=builder /app/apps/executor/dist ./apps/executor/dist
 COPY --from=builder /app/apps/executor/package.json ./apps/executor/
 COPY --from=builder /app/apps/executor/node_modules ./apps/executor/node_modules

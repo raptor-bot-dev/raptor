@@ -281,7 +281,7 @@ export async function setMaxTip(ctx: MyContext, chain: Chain, maxUSD: number) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = getUserGasSettings(user.id);
+  const settings = await getUserGasSettingsAsync(user.id);
   settings[chain].maxTipUSD = maxUSD;
 
   await ctx.answerCallbackQuery({ text: `Max tip set to $${maxUSD}` });
