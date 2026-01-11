@@ -237,7 +237,7 @@ export function walletChainKeyboard(): InlineKeyboard {
     .text(`${CHAIN_EMOJI.bsc} BSC`, 'wallet_chain_bsc')
     .row()
     .text(`${CHAIN_EMOJI.base} Base`, 'wallet_chain_base')
-    .text(`${CHAIN_EMOJI.eth} Ethereum`, 'wallet_chain_eth`)
+    .text(`${CHAIN_EMOJI.eth} Ethereum`, 'wallet_chain_eth')
     .row()
     .text('« Back', 'back_to_wallets');
 }
