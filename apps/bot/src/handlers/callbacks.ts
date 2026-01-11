@@ -42,7 +42,9 @@ import { handleBackupConfirm, showWalletInfo } from '../commands/backup.js';
 import {
   showWallets,
   showWalletCreate,
+  showWalletImport,
   createNewWallet,
+  startWalletImport,
   handleWalletSaved,
   showChainWallets,
   showWalletDetails,
@@ -220,6 +222,18 @@ export async function handleCallbackQuery(ctx: MyContext) {
     if (data === 'wallet_refresh') {
       await ctx.answerCallbackQuery('🔄 Refreshing balances...');
       await showWallets(ctx);
+      return;
+    }
+
+    if (data === 'wallet_import') {
+      await showWalletImport(ctx);
+      return;
+    }
+
+    // Import wallet for chain (wallet_import_sol, wallet_import_bsc, etc.)
+    if (data.startsWith('wallet_import_')) {
+      const chain = data.replace('wallet_import_', '') as Chain;
+      await startWalletImport(ctx, chain);
       return;
     }
 
