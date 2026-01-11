@@ -114,23 +114,30 @@ export async function walletCommand(ctx: MyContext) {
  * Show wallets overview (reply or edit)
  */
 async function showWalletsOverview(ctx: MyContext, userId: number, edit: boolean) {
-  const wallets = await getUserWallets(userId);
+  try {
+    const wallets = await getUserWallets(userId);
 
-  // Fetch live balances from chain RPCs
-  const balances = await fetchWalletBalances(wallets);
+    // Fetch live balances from chain RPCs (only if wallets exist)
+    const balances = wallets.length > 0
+      ? await fetchWalletBalances(wallets)
+      : new Map();
 
-  const message = formatWalletsOverview(wallets, balances);
+    const message = formatWalletsOverview(wallets, balances);
 
-  if (edit) {
-    await ctx.editMessageText(message, {
-      parse_mode: 'MarkdownV2',
-      reply_markup: walletKeyboard(),
-    });
-  } else {
-    await ctx.reply(message, {
-      parse_mode: 'MarkdownV2',
-      reply_markup: walletKeyboard(),
-    });
+    if (edit) {
+      await ctx.editMessageText(message, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: walletKeyboard(),
+      });
+    } else {
+      await ctx.reply(message, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: walletKeyboard(),
+      });
+    }
+  } catch (error) {
+    console.error('[Wallet] Error in showWalletsOverview:', error);
+    throw error; // Re-throw to be caught by walletCommand
   }
 }
 
