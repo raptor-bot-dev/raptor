@@ -248,6 +248,22 @@ export function deleteWalletConfirmKeyboard(chain: Chain, walletIndex: number): 
 }
 
 /**
+ * Withdrawal amount selection keyboard
+ */
+export function withdrawAmountKeyboard(chain: Chain, walletIndex: number): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('25%', `withdraw_pct_${chain}_${walletIndex}_25`)
+    .text('50%', `withdraw_pct_${chain}_${walletIndex}_50`)
+    .row()
+    .text('75%', `withdraw_pct_${chain}_${walletIndex}_75`)
+    .text('100%', `withdraw_pct_${chain}_${walletIndex}_100`)
+    .row()
+    .text('💬 Custom Amount', `withdraw_custom_${chain}_${walletIndex}`)
+    .row()
+    .text('« Cancel', `wallet_select_${chain}_${walletIndex}`);
+}
+
+/**
  * Settings menu keyboard (v2.3 wide layout)
  */
 export function settingsKeyboard(): InlineKeyboard {

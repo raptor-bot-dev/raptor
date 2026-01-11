@@ -48,11 +48,18 @@ import {
   handleWalletSaved,
   showChainWallets,
   showWalletDetails,
+  startWithdrawal,
+  selectWithdrawalPercentage,
+  startCustomWithdrawal,
   exportWalletKey,
   activateWallet,
   startDeleteWallet,
   showWalletDeposit,
 } from '../commands/wallet.js';
+
+// Utilities
+import { LINE } from '../utils/formatters.js';
+import { CHAIN_NAME } from '../utils/keyboards.js';
 
 // Hunt imports
 import {
@@ -337,6 +344,58 @@ export async function handleCallbackQuery(ctx: MyContext) {
         });
         return;
       }
+    }
+
+    // Withdraw from wallet (wallet_withdraw_sol_1, etc.)
+    if (data.startsWith('wallet_withdraw_')) {
+      const parsed = parseWalletCallback(data, 'wallet_withdraw_');
+      if (parsed) {
+        const { chain, indexStr } = parsed;
+        // Verify ownership before starting withdrawal
+        await requireWalletOwnership(ctx, chain, indexStr, async (wallet) => {
+          const walletIndex = parseWalletIndex(indexStr)!;
+          logWalletOperation(user.id, 'withdraw_start', chain as Chain, walletIndex, true);
+          await startWithdrawal(ctx, chain as Chain, walletIndex);
+        });
+        return;
+      }
+    }
+
+    // Withdraw percentage (withdraw_pct_sol_1_25, etc.)
+    if (data.startsWith('withdraw_pct_')) {
+      const parts = data.replace('withdraw_pct_', '').split('_');
+      if (parts.length === 3) {
+        const chain = parts[0] as Chain;
+        const indexStr = parts[1];
+        const percentage = parseInt(parts[2]);
+
+        await requireWalletOwnership(ctx, chain, indexStr, async (wallet) => {
+          const walletIndex = parseWalletIndex(indexStr)!;
+          logWalletOperation(user.id, 'withdraw_amount', chain as Chain, walletIndex, true);
+          await selectWithdrawalPercentage(ctx, chain, walletIndex, percentage);
+        });
+        return;
+      }
+    }
+
+    // Custom withdrawal amount (withdraw_custom_sol_1, etc.)
+    if (data.startsWith('withdraw_custom_')) {
+      const parsed = parseWalletCallback(data, 'withdraw_custom_');
+      if (parsed) {
+        const { chain, indexStr } = parsed;
+        await requireWalletOwnership(ctx, chain, indexStr, async (wallet) => {
+          const walletIndex = parseWalletIndex(indexStr)!;
+          logWalletOperation(user.id, 'withdraw_custom', chain as Chain, walletIndex, true);
+          await startCustomWithdrawal(ctx, chain as Chain, walletIndex);
+        });
+        return;
+      }
+    }
+
+    // Confirm withdrawal
+    if (data === 'confirm_withdrawal') {
+      await handleConfirmWithdrawal(ctx);
+      return;
     }
 
     // === ADDRESS DETECTION CALLBACKS ===
@@ -1454,41 +1513,93 @@ async function handleAnalyzeToken(ctx: MyContext, chain: Chain, tokenAddress: st
   await handleScoreRequest(ctx, tokenAddress);
 }
 
-async function handleWithdrawConfirm(ctx: MyContext) {
+/**
+ * Handle withdrawal confirmation
+ */
+async function handleConfirmWithdrawal(ctx: MyContext) {
   const user = ctx.from;
   if (!user || !ctx.session.pendingWithdrawal) return;
 
   const { chain, amount, address } = ctx.session.pendingWithdrawal;
 
   if (!address || !amount) {
-    await ctx.editMessageText('❌ Missing withdrawal details. Please try again.');
+    await ctx.editMessageText('❌ Missing withdrawal details. Please try again.', {
+      reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),
+    });
     ctx.session.step = null;
     ctx.session.pendingWithdrawal = null;
     return;
   }
 
-  await ctx.editMessageText('⏳ Processing withdrawal...');
+  await ctx.editMessageText('⏳ Processing withdrawal...\n\n_This may take a few moments..._', {
+    parse_mode: 'Markdown',
+  });
 
   try {
+    // Import processWithdrawal from wallet service
+    const { processWithdrawal } = await import('../services/wallet.js');
+    const { getChainConfig } = await import('@raptor/shared');
+
     const tx = await processWithdrawal(user.id, chain, amount, address);
 
-    const token = chain === 'bsc' ? 'BNB' : 'ETH';
-    const explorer = chain === 'bsc' ? 'bscscan.com' : 'basescan.org';
+    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+    const config = chain === 'sol'
+      ? { explorerUrl: 'https://solscan.io' }
+      : getChainConfig(chain);
+    const explorerUrl = chain === 'sol'
+      ? `${config.explorerUrl}/tx/${tx.hash}`
+      : `${config.explorerUrl}/tx/${tx.hash}`;
 
     await ctx.editMessageText(
-      `✅ *Withdrawal Sent*\n\n` +
-        `Amount: ${parseFloat(amount).toFixed(4)} ${token}\n` +
-        `TX: [View on Explorer](https://${explorer}/tx/${tx.hash})\n\n` +
-        `_Funds should arrive within a few minutes._`,
-      { parse_mode: 'Markdown' }
+      `${LINE}
+✅ *WITHDRAWAL SUCCESSFUL*
+${LINE}
+
+*Amount:* ${parseFloat(amount).toFixed(6)} ${symbol}
+*Chain:* ${CHAIN_NAME[chain]}
+
+*Transaction:*
+[View on Explorer](${explorerUrl})
+
+_Funds should arrive within a few minutes\\._
+
+${LINE}`,
+      {
+        parse_mode: 'MarkdownV2',
+        reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),
+      }
     );
   } catch (error) {
     console.error('[Callbacks] Withdrawal error:', error);
-    await ctx.editMessageText('❌ Withdrawal failed. Please try again or contact support.');
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+    await ctx.editMessageText(
+      `${LINE}
+❌ *WITHDRAWAL FAILED*
+${LINE}
+
+*Error:* ${errorMessage}
+
+Please check:
+• Sufficient balance for amount + gas fees
+• Valid destination address
+• Network congestion
+
+${LINE}`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),
+      }
+    );
   }
 
   ctx.session.step = null;
   ctx.session.pendingWithdrawal = null;
+}
+
+async function handleWithdrawConfirm(ctx: MyContext) {
+  // Legacy function - redirect to new handler
+  await handleConfirmWithdrawal(ctx);
 }
 
 // === WALLET GENERATION HANDLERS ===

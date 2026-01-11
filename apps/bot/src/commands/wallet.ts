@@ -35,6 +35,7 @@ import {
   walletChainKeyboard,
   walletListKeyboard,
   walletActionsKeyboard,
+  withdrawAmountKeyboard,
   backKeyboard,
   CHAIN_EMOJI,
   CHAIN_NAME,
@@ -721,6 +722,210 @@ ${LINE}`;
   } catch (error) {
     console.error('[Wallet] Error showing deposit:', error);
     await ctx.answerCallbackQuery({ text: 'Error loading deposit info' });
+  }
+}
+
+/**
+ * Start withdrawal flow - show amount selection
+ */
+export async function startWithdrawal(
+  ctx: MyContext,
+  chain: Chain,
+  walletIndex: number
+) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    const wallet = await getWalletByIndex(user.id, chain, walletIndex);
+    if (!wallet) {
+      await ctx.answerCallbackQuery({ text: 'Wallet not found' });
+      return;
+    }
+
+    // Fetch current balance
+    const address = chain === 'sol' ? wallet.solana_address : wallet.evm_address;
+    let balance = 0;
+
+    try {
+      if (chain === 'sol') {
+        const connection = new Connection(SOLANA_CONFIG.rpcUrl);
+        const balanceLamports = await connection.getBalance(new PublicKey(address), 'finalized');
+        balance = balanceLamports / LAMPORTS_PER_SOL;
+      } else {
+        const config = getChainConfig(chain);
+        const provider = new JsonRpcProvider(config.rpcUrl);
+        const balanceWei = await provider.getBalance(address);
+        balance = Number(formatEther(balanceWei));
+      }
+    } catch (error) {
+      console.error('[Wallet] Error fetching balance for withdrawal:', error);
+    }
+
+    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+
+    const message = `${LINE}
+📤 *WITHDRAW*
+${LINE}
+
+${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - ${wallet.wallet_label || `Wallet #${walletIndex}`}
+
+*Current Balance:* ${balance.toFixed(4)} ${symbol}
+
+Select amount to withdraw:
+
+${LINE}`;
+
+    // Store withdrawal context in session
+    if (!ctx.session) {
+      ctx.session = {
+        step: null,
+        pendingWithdrawal: null,
+      };
+    }
+    ctx.session.pendingWithdrawal = {
+      chain,
+      amount: balance.toString(),
+      address: undefined,
+    };
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: withdrawAmountKeyboard(chain, walletIndex),
+    });
+
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('[Wallet] Error starting withdrawal:', error);
+    await ctx.answerCallbackQuery({ text: 'Error starting withdrawal' });
+  }
+}
+
+/**
+ * Handle percentage-based withdrawal amount selection
+ */
+export async function selectWithdrawalPercentage(
+  ctx: MyContext,
+  chain: Chain,
+  walletIndex: number,
+  percentage: number
+) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    const wallet = await getWalletByIndex(user.id, chain, walletIndex);
+    if (!wallet) {
+      await ctx.answerCallbackQuery({ text: 'Wallet not found' });
+      return;
+    }
+
+    // Fetch current balance
+    const address = chain === 'sol' ? wallet.solana_address : wallet.evm_address;
+    let balance = 0;
+
+    if (chain === 'sol') {
+      const connection = new Connection(SOLANA_CONFIG.rpcUrl);
+      const balanceLamports = await connection.getBalance(new PublicKey(address), 'finalized');
+      balance = balanceLamports / LAMPORTS_PER_SOL;
+    } else {
+      const config = getChainConfig(chain);
+      const provider = new JsonRpcProvider(config.rpcUrl);
+      const balanceWei = await provider.getBalance(address);
+      balance = Number(formatEther(balanceWei));
+    }
+
+    // Calculate amount (keep some for gas if not 100%)
+    let withdrawAmount: number;
+    if (percentage === 100) {
+      // For 100%, leave minimum for gas
+      const gasReserve = chain === 'sol' ? 0.001 : chain === 'bsc' ? 0.001 : 0.001;
+      withdrawAmount = Math.max(0, balance - gasReserve);
+    } else {
+      withdrawAmount = (balance * percentage) / 100;
+    }
+
+    if (withdrawAmount <= 0) {
+      await ctx.answerCallbackQuery({
+        text: 'Insufficient balance for withdrawal',
+        show_alert: true,
+      });
+      return;
+    }
+
+    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+
+    // Update session with amount
+    ctx.session.pendingWithdrawal = {
+      chain,
+      amount: withdrawAmount.toFixed(6),
+      address: undefined,
+    };
+    ctx.session.step = 'awaiting_withdrawal_address';
+
+    const message = `${LINE}
+📤 *WITHDRAW ${percentage}%*
+${LINE}
+
+*Amount:* ${withdrawAmount.toFixed(6)} ${symbol}
+
+Please enter the destination address:
+
+${LINE}`;
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: new InlineKeyboard().text('« Cancel', `wallet_select_${chain}_${walletIndex}`),
+    });
+
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('[Wallet] Error selecting withdrawal percentage:', error);
+    await ctx.answerCallbackQuery({ text: 'Error processing withdrawal' });
+  }
+}
+
+/**
+ * Start custom amount withdrawal flow
+ */
+export async function startCustomWithdrawal(
+  ctx: MyContext,
+  chain: Chain,
+  walletIndex: number
+) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+
+    // Set session for custom amount input
+    ctx.session.step = 'awaiting_withdrawal_amount';
+    ctx.session.pendingWithdrawal = {
+      chain,
+      amount: undefined,
+      address: undefined,
+    };
+
+    const message = `${LINE}
+📤 *CUSTOM WITHDRAWAL*
+${LINE}
+
+Enter the amount to withdraw in ${symbol}:
+
+*Example:* 0.5
+
+${LINE}`;
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: new InlineKeyboard().text('« Cancel', `wallet_select_${chain}_${walletIndex}`),
+    });
+
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('[Wallet] Error starting custom withdrawal:', error);
+    await ctx.answerCallbackQuery({ text: 'Error' });
   }
 }
 

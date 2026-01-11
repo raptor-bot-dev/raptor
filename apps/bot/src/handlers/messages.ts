@@ -68,6 +68,14 @@ async function handleSessionFlow(ctx: MyContext, text: string): Promise<boolean>
       await handleWithdrawalAmountInput(ctx, text);
       return true;
 
+    case 'awaiting_withdrawal_address':
+      await handleWithdrawalAddressInput(ctx, text);
+      return true;
+
+    case 'awaiting_withdrawal_confirm':
+      // Confirmation handled via callback
+      return false;
+
     case 'awaiting_delete_confirmation':
       await handleDeleteConfirmation(ctx, text);
       return true;
@@ -642,57 +650,111 @@ ${LINE}
 }
 
 /**
- * Handle withdrawal amount input
+ * Handle withdrawal amount input (custom amount)
  */
 async function handleWithdrawalAmountInput(ctx: MyContext, text: string) {
   const user = ctx.from;
   if (!user || !ctx.session.pendingWithdrawal) return;
 
   const { chain } = ctx.session.pendingWithdrawal;
-  const balances = await getUserBalances(user.id);
-  const balance = balances.find((b) => b.chain === chain);
+  const amount = parseFloat(text);
 
-  if (!balance) {
-    await ctx.reply('❌ Error: Balance not found.');
+  if (isNaN(amount) || amount <= 0) {
+    await ctx.reply('❌ Invalid amount. Please enter a valid number greater than 0.');
+    return;
+  }
+
+  const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+
+  // Update session with amount and move to address input
+  ctx.session.pendingWithdrawal.amount = amount.toFixed(6);
+  ctx.session.step = 'awaiting_withdrawal_address';
+
+  await ctx.reply(
+    `${LINE}
+📤 *CUSTOM WITHDRAWAL*
+${LINE}
+
+*Amount:* ${amount.toFixed(6)} ${symbol}
+
+Please enter the destination address:
+
+${LINE}`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: new InlineKeyboard().text('« Cancel', 'wallets'),
+    }
+  );
+}
+
+/**
+ * Handle withdrawal destination address input
+ */
+async function handleWithdrawalAddressInput(ctx: MyContext, text: string) {
+  const user = ctx.from;
+  if (!user || !ctx.session.pendingWithdrawal) return;
+
+  const { chain, amount } = ctx.session.pendingWithdrawal;
+  if (!amount) {
+    await ctx.reply('❌ Error: Amount not set.');
     ctx.session.step = null;
     ctx.session.pendingWithdrawal = null;
     return;
   }
 
-  const available = parseFloat(balance.current_value);
-  let amount: number;
+  const address = text.trim();
+  const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
 
-  if (text.toLowerCase() === 'max') {
-    amount = available;
+  // Basic address validation
+  let isValidAddress = false;
+  if (chain === 'sol') {
+    // Solana address validation (base58, 32-44 chars)
+    isValidAddress = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
   } else {
-    amount = parseFloat(text);
-    if (isNaN(amount) || amount <= 0) {
-      await ctx.reply('❌ Invalid amount. Please enter a valid number.');
-      return;
-    }
-    if (amount > available) {
-      await ctx.reply(`❌ Insufficient balance. Maximum: ${available.toFixed(4)}`);
-      return;
-    }
+    // EVM address validation (0x + 40 hex chars)
+    isValidAddress = /^0x[a-fA-F0-9]{40}$/.test(address);
   }
 
-  ctx.session.pendingWithdrawal.amount = amount.toString();
+  if (!isValidAddress) {
+    await ctx.reply(
+      `❌ *Invalid Address*\n\n` +
+        `Please enter a valid ${CHAIN_NAME[chain]} address.\n\n` +
+        (chain === 'sol'
+          ? 'Format: Base58 (e.g., 7xK...abc)'
+          : 'Format: 0x... (e.g., 0x742d...)'),
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  // Update session and show confirmation
+  ctx.session.pendingWithdrawal.address = address;
   ctx.session.step = 'awaiting_withdrawal_confirm';
 
-  const token = chain === 'bsc' ? 'BNB' : chain === 'sol' ? 'SOL' : 'ETH';
-
-  const keyboard = new InlineKeyboard()
-    .text('✅ Confirm', 'confirm_withdraw')
-    .text('❌ Cancel', 'cancel');
-
   await ctx.reply(
-    `⚠️ *Confirm Withdrawal*\n\n` +
-      `Amount: ${amount.toFixed(4)} ${token}\n` +
-      `Chain: ${CHAIN_NAME[chain as Chain]}\n\n` +
-      `Funds will be sent to your deposit address.`,
+    `${LINE}
+⚠️ *CONFIRM WITHDRAWAL*
+${LINE}
+
+*Amount:* ${amount} ${symbol}
+*Chain:* ${CHAIN_NAME[chain]}
+*Destination:*
+\`${address}\`
+
+⚠️ *WARNING:*
+• Double-check the address
+• This transaction cannot be reversed
+• Ensure the address is on the correct network
+
+Confirm to proceed:
+
+${LINE}`,
     {
       parse_mode: 'Markdown',
-      reply_markup: keyboard,
+      reply_markup: new InlineKeyboard()
+        .text('✅ Confirm Withdrawal', 'confirm_withdrawal')
+        .row()
+        .text('❌ Cancel', 'wallets'),
     }
   );
 }
