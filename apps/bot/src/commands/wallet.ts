@@ -45,6 +45,7 @@ import {
   formatWalletsOverview,
   formatWalletCredentials,
   formatDeleteWalletWarning,
+  escapeMarkdownV2,
   LINE,
 } from '../utils/formatters.js';
 
@@ -937,18 +938,19 @@ export async function selectWithdrawalPercentage(
     };
     ctx.session.step = 'awaiting_withdrawal_address';
 
+    const amountText = `${withdrawAmount.toFixed(6)} ${symbol}`;
     const message = `${LINE}
 📤 *WITHDRAW ${percentage}%*
 ${LINE}
 
-*Amount:* ${withdrawAmount.toFixed(6)} ${symbol}
+*Amount:* ${escapeMarkdownV2(amountText)}
 
 Please enter the destination address:
 
 ${LINE}`;
 
     await ctx.editMessageText(message, {
-      parse_mode: 'Markdown',
+      parse_mode: 'MarkdownV2',
       reply_markup: new InlineKeyboard().text('« Cancel', `wallet_select_${chain}_${walletIndex}`),
     });
 

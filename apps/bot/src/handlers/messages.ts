@@ -14,7 +14,7 @@ import type { MyContext } from '../types.js';
 import type { Chain } from '@raptor/shared';
 import { getUserBalances, userHasWallet } from '@raptor/shared';
 import { sendOptionsKeyboard, CHAIN_EMOJI, CHAIN_NAME } from '../utils/keyboards.js';
-import { formatSendToAddress, LINE } from '../utils/formatters.js';
+import { formatSendToAddress, escapeMarkdownV2, LINE } from '../utils/formatters.js';
 import { confirmDeleteWallet, cancelDeleteWallet } from '../commands/wallet.js';
 
 // Regex patterns for address detection
@@ -670,18 +670,19 @@ async function handleWithdrawalAmountInput(ctx: MyContext, text: string) {
   ctx.session.pendingWithdrawal.amount = amount.toFixed(6);
   ctx.session.step = 'awaiting_withdrawal_address';
 
+  const amountText = `${amount.toFixed(6)} ${symbol}`;
   await ctx.reply(
     `${LINE}
 📤 *CUSTOM WITHDRAWAL*
 ${LINE}
 
-*Amount:* ${amount.toFixed(6)} ${symbol}
+*Amount:* ${escapeMarkdownV2(amountText)}
 
 Please enter the destination address:
 
 ${LINE}`,
     {
-      parse_mode: 'Markdown',
+      parse_mode: 'MarkdownV2',
       reply_markup: new InlineKeyboard().text('« Cancel', 'wallets'),
     }
   );
@@ -731,18 +732,19 @@ async function handleWithdrawalAddressInput(ctx: MyContext, text: string) {
   ctx.session.pendingWithdrawal.address = address;
   ctx.session.step = 'awaiting_withdrawal_confirm';
 
+  const amountText = `${amount} ${symbol}`;
   await ctx.reply(
     `${LINE}
 ⚠️ *CONFIRM WITHDRAWAL*
 ${LINE}
 
-*Amount:* ${amount} ${symbol}
+*Amount:* ${escapeMarkdownV2(amountText)}
 *Chain:* ${CHAIN_NAME[chain]}
 *Destination:*
 \`${address}\`
 
 ⚠️ *WARNING:*
-• Double-check the address
+• Double\\-check the address
 • This transaction cannot be reversed
 • Ensure the address is on the correct network
 
@@ -750,7 +752,7 @@ Confirm to proceed:
 
 ${LINE}`,
     {
-      parse_mode: 'Markdown',
+      parse_mode: 'MarkdownV2',
       reply_markup: new InlineKeyboard()
         .text('✅ Confirm Withdrawal', 'confirm_withdrawal')
         .row()
