@@ -6,7 +6,8 @@ node_modules/
 dist/
 out/
 .turbo/
-cache/
+.cache/
+**/node_modules/.cache/
 
 # Environment
 .env
