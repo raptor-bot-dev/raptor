@@ -121,7 +121,7 @@ export function parseWalletCallback(
  */
 export function logWalletOperation(
   userId: number,
-  operation: 'export' | 'delete' | 'activate' | 'create' | 'deposit',
+  operation: 'export' | 'delete' | 'activate' | 'create' | 'deposit' | 'withdraw_start' | 'withdraw_amount' | 'withdraw_custom',
   chain: Chain,
   walletIndex: number,
   success: boolean
