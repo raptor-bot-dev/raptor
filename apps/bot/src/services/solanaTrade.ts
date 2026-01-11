@@ -110,12 +110,19 @@ export async function executeSolanaBuy(
 
     // 3. Get best quote from Jupiter
     const lamportsIn = Math.floor(solAmount * LAMPORTS_PER_SOL);
+
+    logger.info('Requesting Jupiter quote', { tokenMint, solAmount, lamportsIn });
     const quote = await getJupiterQuote(tokenMint, lamportsIn);
 
     if (!quote) {
+      logger.error('No Jupiter quote available', { tokenMint, solAmount });
       return {
         success: false,
-        error: 'Failed to get quote from Jupiter. Token may not have liquidity.',
+        error: 'No liquidity available for this token. The token may be:\n' +
+               '• Too new (no DEX pools yet)\n' +
+               '• On a bonding curve (try pump.fun)\n' +
+               '• Graduated but not listed yet\n\n' +
+               'Please try again later when liquidity is available.',
         amountIn: solAmount,
       };
     }
@@ -151,28 +158,52 @@ export async function executeSolanaBuy(
     );
 
     // 6. Deserialize, sign, and send transaction
-    const txBuffer = Buffer.from(swapResponse.swapTransaction, 'base64');
-    const transaction = VersionedTransaction.deserialize(txBuffer);
+    let signature: string;
+    try {
+      const txBuffer = Buffer.from(swapResponse.swapTransaction, 'base64');
+      const transaction = VersionedTransaction.deserialize(txBuffer);
 
-    // Sign the transaction
-    transaction.sign([keypair]);
+      // Sign the transaction
+      transaction.sign([keypair]);
 
-    // Send transaction
-    const signature = await connection.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: false,
-      maxRetries: 3,
-    });
+      logger.info('Sending transaction to Solana network...');
 
-    logger.info('Transaction sent', { signature });
+      // Send transaction
+      signature = await connection.sendRawTransaction(transaction.serialize(), {
+        skipPreflight: false,
+        maxRetries: 3,
+      });
 
-    // 7. Confirm transaction
-    const confirmation = await connection.confirmTransaction(signature, 'confirmed');
-
-    if (confirmation.value.err) {
-      logger.error('Transaction failed', { signature, error: confirmation.value.err });
+      logger.info('Transaction sent', { signature });
+    } catch (error) {
+      logger.error('Failed to send transaction', error);
       return {
         success: false,
-        error: `Transaction failed: ${JSON.stringify(confirmation.value.err)}`,
+        error: `Failed to send transaction: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        amountIn: solAmount,
+      };
+    }
+
+    // 7. Confirm transaction
+    let confirmation;
+    try {
+      logger.info('Waiting for transaction confirmation...');
+      confirmation = await connection.confirmTransaction(signature, 'confirmed');
+    } catch (error) {
+      logger.error('Transaction confirmation failed', { signature, error });
+      return {
+        success: false,
+        error: `Transaction confirmation timeout. It may still succeed. Check Solscan: https://solscan.io/tx/${signature}`,
+        amountIn: solAmount,
+        txHash: signature,
+      };
+    }
+
+    if (confirmation.value.err) {
+      logger.error('Transaction failed on-chain', { signature, error: confirmation.value.err });
+      return {
+        success: false,
+        error: `Transaction failed on-chain. Check Solscan for details: https://solscan.io/tx/${signature}`,
         amountIn: solAmount,
         txHash: signature,
       };
@@ -247,22 +278,63 @@ async function getJupiterQuote(
       asLegacyTransaction: 'false', // Use versioned transactions
     });
 
-    const response = await fetch(`${JUPITER_API_BASE}/quote?${params}`, {
-      headers: {
-        'Accept': 'application/json',
-      },
+    logger.info('Fetching Jupiter quote', {
+      tokenMint,
+      lamportsIn,
+      url: `${JUPITER_API_BASE}/quote?${params.toString()}`,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error('Jupiter quote failed', { status: response.status, error: errorText });
-      return null;
-    }
+    // Add timeout to fetch
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
-    const quote = await response.json() as JupiterQuote;
-    return quote;
+    try {
+      const response = await fetch(`${JUPITER_API_BASE}/quote?${params}`, {
+        headers: {
+          'Accept': 'application/json',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error('Jupiter quote API returned error', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText,
+        });
+
+        // Parse error to provide helpful message
+        if (response.status === 404 || errorText.includes('No routes found')) {
+          return null; // No liquidity available
+        }
+
+        return null;
+      }
+
+      const quote = (await response.json()) as JupiterQuote;
+      logger.info('Jupiter quote received successfully', {
+        inputAmount: quote.inAmount,
+        outputAmount: quote.outAmount,
+        priceImpact: quote.priceImpactPct,
+      });
+
+      return quote;
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        logger.error('Jupiter quote request timed out');
+        throw new Error('Jupiter API timeout. Please try again.');
+      }
+      throw fetchError;
+    }
   } catch (error) {
-    logger.error('Failed to get Jupiter quote', error);
+    logger.error('Failed to get Jupiter quote', {
+      error: error instanceof Error ? error.message : String(error),
+      tokenMint,
+    });
     return null;
   }
 }
