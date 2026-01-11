@@ -217,6 +217,12 @@ export async function handleCallbackQuery(ctx: MyContext) {
       return;
     }
 
+    if (data === 'wallet_refresh') {
+      await ctx.answerCallbackQuery('🔄 Refreshing balances...');
+      await showWallets(ctx);
+      return;
+    }
+
     // Create wallet for chain (wallet_create_sol, wallet_create_bsc, etc.)
     if (data.startsWith('wallet_create_')) {
       const chain = data.replace('wallet_create_', '') as Chain;

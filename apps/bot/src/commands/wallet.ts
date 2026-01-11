@@ -23,7 +23,11 @@ import {
   generateEvmKeypair,
   decryptPrivateKey,
   markWalletBackupExported,
+  SOLANA_CONFIG,
+  getChainConfig,
 } from '@raptor/shared';
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { JsonRpcProvider, formatEther } from 'ethers';
 import {
   walletKeyboard,
   walletChainKeyboard,
@@ -45,6 +49,46 @@ const pendingDeletions = new Map<number, { chain: Chain; walletIndex: number }>(
 
 // Store auto-delete message timeouts
 const autoDeleteTimeouts = new Map<string, NodeJS.Timeout>();
+
+/**
+ * Fetch live balances for wallets from chain RPCs
+ */
+async function fetchWalletBalances(
+  wallets: UserWallet[]
+): Promise<Map<string, { balance: number; usdValue: number }>> {
+  const balances = new Map<string, { balance: number; usdValue: number }>();
+
+  for (const wallet of wallets) {
+    const key = `${wallet.chain}_${wallet.wallet_index}`;
+    const address = wallet.chain === 'sol' ? wallet.solana_address : wallet.evm_address;
+
+    try {
+      let balance: bigint;
+
+      if (wallet.chain === 'sol') {
+        // Solana: Get SOL balance
+        const connection = new Connection(SOLANA_CONFIG.rpcUrl);
+        balance = BigInt(
+          await connection.getBalance(new PublicKey(address), 'finalized')
+        );
+        const sol = Number(balance) / LAMPORTS_PER_SOL;
+        balances.set(key, { balance: sol, usdValue: 0 });
+      } else {
+        // EVM: Get native token balance (ETH/BNB)
+        const config = getChainConfig(wallet.chain);
+        const provider = new JsonRpcProvider(config.rpcUrl);
+        balance = await provider.getBalance(address);
+        const eth = Number(formatEther(balance));
+        balances.set(key, { balance: eth, usdValue: 0 });
+      }
+    } catch (error) {
+      console.error(`[Wallet] Failed to fetch balance for ${key}:`, error);
+      balances.set(key, { balance: 0, usdValue: 0 });
+    }
+  }
+
+  return balances;
+}
 
 /**
  * Main wallet command - show wallets overview
@@ -69,25 +113,19 @@ export async function walletCommand(ctx: MyContext) {
 async function showWalletsOverview(ctx: MyContext, userId: number, edit: boolean) {
   const wallets = await getUserWallets(userId);
 
-  // Calculate balances (placeholder for now)
-  const balances = new Map<string, { balance: number; usdValue: number }>();
-
-  // TODO: Get actual balances from chain RPCs
-  for (const wallet of wallets) {
-    const key = `${wallet.chain}_${wallet.wallet_index}`;
-    balances.set(key, { balance: 0, usdValue: 0 });
-  }
+  // Fetch live balances from chain RPCs
+  const balances = await fetchWalletBalances(wallets);
 
   const message = formatWalletsOverview(wallets, balances);
 
   if (edit) {
     await ctx.editMessageText(message, {
-      parse_mode: 'Markdown',
+      parse_mode: 'MarkdownV2',
       reply_markup: walletKeyboard(),
     });
   } else {
     await ctx.reply(message, {
-      parse_mode: 'Markdown',
+      parse_mode: 'MarkdownV2',
       reply_markup: walletKeyboard(),
     });
   }
