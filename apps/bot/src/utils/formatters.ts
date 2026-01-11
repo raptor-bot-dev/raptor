@@ -130,8 +130,7 @@ export function formatMainMenu(
   const pnlEmoji = todayPnL >= 0 ? '🟢' : '🔴';
   const pnlSign = todayPnL >= 0 ? '+' : '';
 
-  return `${LINE}
-🦖 *RAPTOR*
+  return `🦖 *RAPTOR*
 ${LINE}
 
 Welcome back, *${firstName}*!
@@ -142,19 +141,14 @@ Welcome back, *${firstName}*!
 ${SECTION} Active ${SECTION}
 ${STATUS.ON} ${activePositions} positions | 📋 ${activeOrders} orders
 
-${LINE}
-
-⚡ Paste a CA to trade instantly!
-
-${LINE}`;
+⚡ Paste a CA to trade instantly!`;
 }
 
 /**
  * Format welcome screen for first-time users (v2.3)
  */
 export function formatWelcome(firstName: string): string {
-  return `${LINE}
-🦖 *Welcome to RAPTOR*
+  return `🦖 *Welcome to RAPTOR*
 ${LINE}
 
 The fastest MEV hunter in the game.
@@ -168,12 +162,8 @@ The fastest MEV hunter in the game.
 🔐 *YOUR KEYS, YOUR COINS:*
 Self-custody. We never store your keys.
 
-${LINE}
-
 ⚡ Quick: Paste any contract address
-   to get instant token info + buy!
-
-${LINE}`;
+   to get instant token info + buy!`;
 }
 
 /**
@@ -188,8 +178,7 @@ export function formatWalletCredentials(
   const chainEmoji = CHAIN_STATUS[chain];
   const chainName = CHAIN_NAME[chain];
 
-  return `${LINE}
-🔐 *WALLET CREDENTIALS*
+  return `🔐 *WALLET CREDENTIALS*
 ${LINE}
 
 ${chainEmoji} *${chainName}* - Wallet #${walletIndex}
@@ -202,12 +191,8 @@ ${SECTION} Address ${SECTION}
 ${SECTION} Private Key ${SECTION}
 \`${privateKey}\`
 
-${LINE}
-
 🚨 *NEVER SHARE YOUR PRIVATE KEY*
-Anyone with this key can access your funds.
-
-${LINE}`;
+Anyone with this key can access your funds.`;
 }
 
 /**
@@ -221,7 +206,8 @@ export function formatWalletsOverview(
     return `*💼 WALLETS*\n\nNo wallets yet\\. Generate your first wallet to get started\\!`;
   }
 
-  let message = '*💼 WALLETS*\n\n';
+  let message = '*💼 WALLETS*\n';
+  message += `${LINE}\n`;
   message += '_Manage your wallets across chains\\._\n\n';
 
   // Group wallets by chain
@@ -233,12 +219,16 @@ export function formatWalletsOverview(
     byChain.get(wallet.chain)!.push(wallet);
   }
 
-  let totalUSD = 0;
+  // Track totals per chain
+  const chainTotals = new Map<Chain, number>();
 
   for (const [chain, chainWallets] of byChain) {
     const chainEmoji = CHAIN_STATUS[chain];
     const chainName = CHAIN_NAME[chain];
     const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+
+    // Initialize chain total
+    let chainTotal = 0;
 
     // Chain header with bold + underline
     message += `*__${chainEmoji} ${chainName}__*\n\n`;
@@ -260,12 +250,20 @@ export function formatWalletsOverview(
       const balanceText = `${balanceInfo.balance.toFixed(4)} ${symbol}`;
       message += `${escapeMarkdownV2(balanceText)}\n\n`;
 
-      totalUSD += balanceInfo.usdValue;
+      chainTotal += balanceInfo.balance;
     }
+
+    // Store chain total
+    chainTotals.set(chain, chainTotal);
   }
 
-  // CRITICAL FIX: Escape decimal points in total
-  message += `*Total:* ${escapeMarkdownV2('$' + totalUSD.toFixed(2))}`;
+  // Display per-chain totals in native tokens
+  message += '\n*Totals:*\n';
+  for (const [chain, total] of chainTotals) {
+    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+    const totalText = `${total.toFixed(4)} ${symbol}`;
+    message += `${CHAIN_STATUS[chain]} ${escapeMarkdownV2(totalText)}\n`;
+  }
 
   return message;
 }
@@ -743,8 +741,7 @@ export const STRATEGY_INFO: Record<
  * Format strategy panel (v2.3 wide layout)
  */
 export function formatStrategyPanel(currentStrategy: TradingStrategy): string {
-  let message = `${LINE}
-🎯 *TRADING STRATEGIES*
+  let message = `🎯 *TRADING STRATEGIES*
 ${LINE}
 
 Select a strategy or create custom.
@@ -762,8 +759,6 @@ ${SECTION} PRESETS ${SECTION}
     message += `   Best for: ${info.bestFor}\n\n`;
   }
 
-  message += LINE;
-
   return message;
 }
 
@@ -773,8 +768,7 @@ ${SECTION} PRESETS ${SECTION}
 export function formatStrategyDetail(strategy: TradingStrategy): string {
   const info = STRATEGY_INFO[strategy];
 
-  let message = `${LINE}
-${info.emoji} *${info.name} Strategy*
+  let message = `${info.emoji} *${info.name} Strategy*
 ${LINE}
 
 ${info.description}
@@ -789,9 +783,7 @@ ${SECTION} Settings ${SECTION}
     message += `\n⚡ *Special:* ${info.special}`;
   }
 
-  message += `\n\n🎯 *Best for:* ${info.bestFor}
-
-${LINE}`;
+  message += `\n\n🎯 *Best for:* ${info.bestFor}`;
 
   return message;
 }
@@ -805,34 +797,27 @@ export function formatCustomStrategyPage(
 ): string {
   const pages = [
     // Page 1: Core Settings
-    () => `${LINE}
-🔧 *CUSTOM STRATEGY — Core*
+    () => `🔧 *CUSTOM STRATEGY — Core*
 ${LINE}
 
 Configure your exit targets and timing.
 
 📈 *Take Profit:* ${settings.take_profit_percent || 50}%
 📉 *Stop Loss:* ${settings.stop_loss_percent || 30}%
-⏱️ *Max Hold:* ${formatMaxHold(settings.max_hold_minutes || 240)}
-
-${LINE}`,
+⏱️ *Max Hold:* ${formatMaxHold(settings.max_hold_minutes || 240)}`,
 
     // Page 2: Advanced Exits
-    () => `${LINE}
-🔧 *CUSTOM STRATEGY — Exits*
+    () => `🔧 *CUSTOM STRATEGY — Exits*
 ${LINE}
 
 Configure trailing stops, ladders, moon bags.
 
 🎯 *Trailing:* ${settings.trailing_enabled ? STATUS.ON : STATUS.OFF} OFF
 📊 *DCA Ladder:* ${settings.dca_enabled ? STATUS.ON : STATUS.OFF} OFF
-🌙 *Moon Bag:* ${settings.moon_bag_percent || 0}%
-
-${LINE}`,
+🌙 *Moon Bag:* ${settings.moon_bag_percent || 0}%`,
 
     // Page 3: Filters
-    () => `${LINE}
-🔧 *CUSTOM STRATEGY — Filters*
+    () => `🔧 *CUSTOM STRATEGY — Filters*
 ${LINE}
 
 Set token requirements before entry.
@@ -841,13 +826,10 @@ Set token requirements before entry.
 💰 *Max Market Cap:* ${formatUSD(settings.max_market_cap_usd || 10000000)}
 📊 *Min Score:* ${settings.min_score || 23}/35
 📈 *Max Buy Tax:* ${settings.max_buy_tax_percent || 5}%
-📉 *Max Sell Tax:* ${settings.max_sell_tax_percent || 5}%
-
-${LINE}`,
+📉 *Max Sell Tax:* ${settings.max_sell_tax_percent || 5}%`,
 
     // Page 4: Protection & Execution
-    () => `${LINE}
-🔧 *CUSTOM STRATEGY — Protection*
+    () => `🔧 *CUSTOM STRATEGY — Protection*
 ${LINE}
 
 Safety features and execution settings.
@@ -857,15 +839,12 @@ Safety features and execution settings.
 ✅ *Auto-Approve:* ${settings.auto_approve_enabled ? `${STATUS.ON} ON` : `${STATUS.OFF} OFF`}
 Ⓢ *Slippage:* ${settings.slippage_percent || 15}%
 ⛽ *Gas Priority:* ${(settings.gas_priority || 'medium').charAt(0).toUpperCase() + (settings.gas_priority || 'medium').slice(1)}
-🔄 *Retry Failed:* ${settings.retry_failed ? `${STATUS.ON} ON` : `${STATUS.OFF} OFF`}
-
-${LINE}`,
+🔄 *Retry Failed:* ${settings.retry_failed ? `${STATUS.ON} ON` : `${STATUS.OFF} OFF`}`,
 
     // Page 5: Review
     () => {
       const s = settings;
-      return `${LINE}
-🔧 *CUSTOM STRATEGY — Review*
+      return `🔧 *CUSTOM STRATEGY — Review*
 ${LINE}
 
 Review your custom strategy:
@@ -883,9 +862,7 @@ ${SECTION} Filters ${SECTION}
 📊 Score: ${s.min_score || 23}+ | Max Tax: ${s.max_buy_tax_percent || 5}%
 
 ${SECTION} Protection ${SECTION}
-🛡️ Anti-Rug ${s.anti_rug_enabled ? '✓' : '✗'} | 🔒 Anti-MEV ${s.anti_mev_enabled ? '✓' : '✗'}
-
-${LINE}`;
+🛡️ Anti-Rug ${s.anti_rug_enabled ? '✓' : '✗'} | 🔒 Anti-MEV ${s.anti_mev_enabled ? '✓' : '✗'}`;
     },
   ];
 
@@ -922,17 +899,14 @@ export function formatSendToAddress(toAddress: string, chain: Chain): string {
   const chainEmoji = CHAIN_STATUS[chain];
   const chainName = CHAIN_NAME[chain];
 
-  return `${LINE}
-📤 *SEND TO ADDRESS*
+  return `📤 *SEND TO ADDRESS*
 ${LINE}
 
 ${chainEmoji} *${chainName}*
 
 To: \`${formatAddress(toAddress)}\`
 
-What would you like to send?
-
-${LINE}`;
+What would you like to send?`;
 }
 
 /**
@@ -945,8 +919,7 @@ export function formatGlobalSettings(settings: {
   tokenReportView: 'minimal' | 'detailed';
   includesFees: boolean;
 }): string {
-  return `${LINE}
-⚙️ *GLOBAL SETTINGS*
+  return `⚙️ *GLOBAL SETTINGS*
 ${LINE}
 
 Configure your general settings.
@@ -954,9 +927,7 @@ Click 🛒 Buy or 💰 Sell to customize
 per-action settings.
 
 ℹ️ Global Settings apply to all chains.
-   Override in per-chain settings.
-
-${LINE}`;
+   Override in per-chain settings.`;
 }
 
 /**
@@ -966,8 +937,7 @@ export function formatChainsSelection(
   enabledChains: Chain[],
   chainBalances: Map<Chain, { balance: number; symbol: string; usdValue: number }>
 ): string {
-  let message = `${LINE}
-🔗 *CHAINS*
+  let message = `🔗 *CHAINS*
 ${LINE}
 
 Select chains to enable for trading.
@@ -994,8 +964,6 @@ Select chains to enable for trading.
     message += '\n';
   }
 
-  message += LINE;
-
   return message;
 }
 
@@ -1010,8 +978,7 @@ export function formatDeleteWalletWarning(
   const chainEmoji = CHAIN_STATUS[chain];
   const chainName = CHAIN_NAME[chain];
 
-  return `${LINE}
-⚠️ *DELETE WALLET*
+  return `⚠️ *DELETE WALLET*
 ${LINE}
 
 You are about to delete:
@@ -1023,7 +990,5 @@ ${chainEmoji} *${chainName}* — ${walletLabel} (#${walletIndex})
 All funds in this wallet will be lost if you
 haven't backed up the private key.
 
-Type *DELETE* to confirm:
-
-${LINE}`;
+Type *DELETE* to confirm:`;
 }

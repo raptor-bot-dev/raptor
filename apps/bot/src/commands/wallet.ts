@@ -186,13 +186,10 @@ export async function showPortfolio(ctx: MyContext) {
       isActive: w.is_active,
     }));
 
-    const message = `${LINE}
-💼 *PORTFOLIO*
+    const message = `💼 *PORTFOLIO*
 ${LINE}
 
-Select a wallet to manage:
-
-${LINE}`;
+Select a wallet to manage:`;
 
     await ctx.editMessageText(message, {
       parse_mode: 'Markdown',
@@ -210,14 +207,11 @@ ${LINE}`;
  * Show chain selection for wallet creation
  */
 export async function showWalletCreate(ctx: MyContext) {
-  const message = `${LINE}
-➕ *CREATE WALLET*
+  const message = `➕ *CREATE WALLET*
 ${LINE}
 
 Select a chain to create a new wallet.
-You can have up to 5 wallets per chain.
-
-${LINE}`;
+You can have up to 5 wallets per chain.`;
 
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',
@@ -297,8 +291,7 @@ export async function createNewWallet(ctx: MyContext, chain: Chain) {
 
     // Update original message
     await ctx.editMessageText(
-      `${LINE}
-✅ *WALLET CREATED*
+      `✅ *WALLET CREATED*
 ${LINE}
 
 ${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - Wallet #${wallet.wallet_index}
@@ -307,9 +300,7 @@ Your new wallet has been created.
 Credentials shown in the message above.
 
 ⚠️ *The credentials message will auto-delete in 2 minutes.*
-Make sure to save your private key!
-
-${LINE}`,
+Make sure to save your private key!`,
       {
         parse_mode: 'Markdown',
         reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),

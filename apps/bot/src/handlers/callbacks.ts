@@ -1501,12 +1501,81 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
 
   if (amount === 'custom') {
     // TODO: Prompt for custom amount
-    await ctx.answerCallbackQuery({ text: 'Enter custom amount via /snipe' });
+    await ctx.answerCallbackQuery({ text: 'Custom amount not yet implemented. Use preset amounts.' });
     return;
   }
 
-  // TODO: Execute buy transaction
-  await ctx.answerCallbackQuery({ text: `Buying ${amount} worth on ${chain}...` });
+  // Only Solana is supported currently
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'Only Solana is supported currently', show_alert: true });
+    return;
+  }
+
+  const solAmount = parseFloat(amount);
+  if (isNaN(solAmount) || solAmount <= 0) {
+    await ctx.answerCallbackQuery({ text: 'Invalid amount', show_alert: true });
+    return;
+  }
+
+  // Show processing message
+  await ctx.answerCallbackQuery({ text: `🔄 Processing ${solAmount} SOL buy...` });
+
+  try {
+    // Import the Solana trade service
+    const { executeSolanaBuy } = await import('../services/solanaTrade.js');
+
+    // Show initial status message
+    await ctx.reply(
+      `⏳ *PROCESSING BUY*\n\n` +
+      `Buying with ${solAmount} SOL...\n` +
+      `Finding best route via Jupiter aggregator...\n\n` +
+      `_This may take a few seconds..._`,
+      { parse_mode: 'Markdown' }
+    );
+
+    // Execute the buy
+    const result = await executeSolanaBuy(user.id, tokenAddress, solAmount);
+
+    if (result.success && result.txHash) {
+      // Success message
+      const explorerUrl = `https://solscan.io/tx/${result.txHash}`;
+      const tokensReceived = result.amountOut || 0;
+      const pricePerToken = result.pricePerToken || 0;
+      const priceImpact = result.priceImpact || 0;
+
+      await ctx.reply(
+        `✅ *BUY SUCCESSFUL*\n\n` +
+        `*Amount:* ${result.amountIn} SOL\n` +
+        `*Tokens Received:* ${tokensReceived.toLocaleString()}\n` +
+        `*Price:* ${pricePerToken.toFixed(9)} SOL per token\n` +
+        `*Price Impact:* ${priceImpact.toFixed(2)}%\n` +
+        (result.route ? `*Route:* ${result.route}\n` : '') +
+        `\n` +
+        `[View Transaction](${explorerUrl})\n\n` +
+        `_Transaction confirmed on-chain_`,
+        {
+          parse_mode: 'Markdown',
+          link_preview_options: { is_disabled: true },
+        }
+      );
+    } else {
+      // Error message
+      await ctx.reply(
+        `❌ *BUY FAILED*\n\n` +
+        `*Error:* ${result.error || 'Unknown error'}\n\n` +
+        `Please check your wallet balance and try again.`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+  } catch (error) {
+    console.error('[Callbacks] Buy token error:', error);
+    await ctx.reply(
+      `❌ *BUY FAILED*\n\n` +
+      `An unexpected error occurred: ${error instanceof Error ? error.message : 'Unknown error'}\n\n` +
+      `Please try again or contact support.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
 }
 
 async function handleAnalyzeToken(ctx: MyContext, chain: Chain, tokenAddress: string) {
