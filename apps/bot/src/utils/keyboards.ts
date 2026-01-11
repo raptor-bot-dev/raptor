@@ -172,13 +172,9 @@ export function percentagesKeyboard(
  */
 export function walletKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text('📥 Deposit', 'wallet_deposit')
-    .text('📤 Withdraw', 'wallet_withdraw')
-    .row()
     .text('➕ Create', 'wallet_create')
     .text('📥 Import', 'wallet_import')
     .row()
-    .text('🔑 Export', 'wallet_export')
     .text('🔄 Refresh', 'wallet_refresh')
     .row()
     .text('« Back', 'back_to_menu');

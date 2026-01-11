@@ -207,22 +207,11 @@ export function formatWalletsOverview(
   balances: Map<string, { balance: number; usdValue: number }>
 ): string {
   if (wallets.length === 0) {
-    return `${LINE}
-💳 *WALLETS*
-${LINE}
-
-No wallets yet. Generate your first wallet to get started!
-
-${LINE}`;
+    return `*💼 WALLETS*\n\nNo wallets yet\\. Generate your first wallet to get started\\!`;
   }
 
-  let message = `${LINE}
-💳 *WALLETS*
-${LINE}
-
-Manage your wallets across chains.
-
-`;
+  let message = '*💼 WALLETS*\n\n';
+  message += '_Manage your wallets across chains\\._\n\n';
 
   // Group wallets by chain
   const byChain = new Map<Chain, UserWallet[]>();
@@ -240,7 +229,8 @@ Manage your wallets across chains.
     const chainName = CHAIN_NAME[chain];
     const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
 
-    message += `${chainEmoji} *${chainName}*\n`;
+    // Chain header with bold + underline
+    message += `*__${chainEmoji} ${chainName}__*\n\n`;
 
     for (const wallet of chainWallets.sort((a, b) => a.wallet_index - b.wallet_index)) {
       const address = chain === 'sol' ? wallet.solana_address : wallet.evm_address;
@@ -248,16 +238,16 @@ Manage your wallets across chains.
       const balanceInfo = balances.get(key) || { balance: 0, usdValue: 0 };
       const activeMarker = wallet.is_active ? ' ✓' : '';
 
-      message += `   #${wallet.wallet_index} ${wallet.wallet_label}${activeMarker}\n`;
-      message += `   ${formatAddress(address)} — ${balanceInfo.balance.toFixed(4)} ${symbol}\n\n`;
+      // Wallet entry - full address in monospace
+      message += `#${wallet.wallet_index} ${wallet.wallet_label}${activeMarker}\n`;
+      message += `\`${address}\`\n`;
+      message += `${balanceInfo.balance.toFixed(4)} ${symbol}\n\n`;
 
       totalUSD += balanceInfo.usdValue;
     }
   }
 
-  message += `${LINE}
-Total: ${formatUSD(totalUSD)}
-${LINE}`;
+  message += `*Total:* $${totalUSD.toFixed(2)}`;
 
   return message;
 }
