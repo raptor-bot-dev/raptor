@@ -3,8 +3,7 @@
 
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "./Dockerfile"
-dockerBuildTarget = "bot"
+dockerfilePath = "Dockerfile.bot"
 
 [build.buildArgs]
 DOCKER_BUILDKIT = "1"
