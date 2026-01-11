@@ -240,7 +240,8 @@ export function formatWalletsOverview(
 
       // Wallet entry - full address in monospace
       // Escape # for MarkdownV2 (both in index AND in label)
-      const escapedLabel = wallet.wallet_label.replace(/#/g, '\\#');
+      const label = wallet.wallet_label || `Wallet \\#${wallet.wallet_index}`;
+      const escapedLabel = label.replace(/#/g, '\\#');
       message += `\\#${wallet.wallet_index} ${escapedLabel}${activeMarker}\n`;
       message += `\`${address}\`\n`;
       message += `${balanceInfo.balance.toFixed(4)} ${symbol}\n\n`;
