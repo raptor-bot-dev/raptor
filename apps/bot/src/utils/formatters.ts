@@ -239,7 +239,8 @@ export function formatWalletsOverview(
       const activeMarker = wallet.is_active ? ' ✓' : '';
 
       // Wallet entry - full address in monospace
-      message += `#${wallet.wallet_index} ${wallet.wallet_label}${activeMarker}\n`;
+      // Escape # for MarkdownV2
+      message += `\\#${wallet.wallet_index} ${wallet.wallet_label}${activeMarker}\n`;
       message += `\`${address}\`\n`;
       message += `${balanceInfo.balance.toFixed(4)} ${symbol}\n\n`;
 
@@ -247,7 +248,7 @@ export function formatWalletsOverview(
     }
   }
 
-  message += `*Total:* $${totalUSD.toFixed(2)}`;
+  message += `*Total:* \\$${totalUSD.toFixed(2)}`;
 
   return message;
 }
