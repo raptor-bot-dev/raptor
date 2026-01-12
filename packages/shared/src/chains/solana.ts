@@ -173,6 +173,7 @@ export interface BondingCurveState {
   realSolReserves: bigint;
   tokenTotalSupply: bigint;
   complete: boolean;
+  creator: string; // Creator pubkey - required for creator_vault PDA (late 2025 update)
 }
 
 /**

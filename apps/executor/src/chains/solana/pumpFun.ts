@@ -184,6 +184,11 @@ export function decodeBondingCurveState(data: Buffer): BondingCurveState {
 
   // Read complete flag (bool)
   const complete = data.readUInt8(offset) === 1;
+  offset += 1;
+
+  // Read creator pubkey (32 bytes) - required for creator_vault PDA
+  const creatorBytes = data.slice(offset, offset + 32);
+  const creator = new PublicKey(creatorBytes).toBase58();
 
   return {
     virtualTokenReserves,
@@ -192,6 +197,7 @@ export function decodeBondingCurveState(data: Buffer): BondingCurveState {
     realSolReserves,
     tokenTotalSupply,
     complete,
+    creator,
   };
 }
 
@@ -357,6 +363,18 @@ export function deriveFeeConfigPDA(): [PublicKey, number] {
 }
 
 /**
+ * Derive creator vault PDA
+ * Required by pump.fun for creator fee distribution (late 2025 update)
+ * This replaced SysvarRent in the account list
+ */
+export function deriveCreatorVaultPDA(creator: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('creator_vault'), creator.toBuffer()],
+    PUMP_FUN_PROGRAM
+  );
+}
+
+/**
  * Derive associated bonding curve token account
  * pump.fun uses Token-2022 program for all tokens
  */
@@ -496,6 +514,10 @@ export class PumpFunClient {
       throw new Error('Token has graduated - use Jupiter instead');
     }
 
+    // Derive creator vault PDA (required since late 2025 pump.fun update)
+    // This replaced SysvarRent in the account list
+    const [creatorVault] = deriveCreatorVaultPDA(new PublicKey(state.creator));
+
     // Calculate expected tokens
     const expectedTokens = calculateBuyOutput(
       solAmount,
@@ -551,7 +573,7 @@ export class PumpFunClient {
         { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
-        { pubkey: new PublicKey('SysvarRent111111111111111111111111111111111'), isSigner: false, isWritable: false },
+        { pubkey: creatorVault, isSigner: false, isWritable: true }, // creator_vault (late 2025 update - replaced SysvarRent)
         { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
         // Volume accumulator accounts (required since August 2025)
@@ -618,6 +640,9 @@ export class PumpFunClient {
       throw new Error('Token has graduated - use Jupiter instead');
     }
 
+    // Derive creator vault PDA (required since late 2025 pump.fun update)
+    const [creatorVault] = deriveCreatorVaultPDA(new PublicKey(state.creator));
+
     // Calculate expected SOL
     const expectedSol = calculateSellOutput(
       tokenAmount,
@@ -656,6 +681,7 @@ export class PumpFunClient {
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
         { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: creatorVault, isSigner: false, isWritable: true }, // creator_vault (late 2025 update)
         { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
         // Volume accumulator accounts (required since August 2025)
