@@ -2,7 +2,7 @@
 // Used for post-graduation trading when tokens move to Raydium
 
 import { PROGRAM_IDS, solToLamports, lamportsToSol } from '@raptor/shared';
-import { fetchWithTimeout } from '../../utils/fetchWithTimeout.js';
+import { fetchWithRetry } from '../../utils/fetchWithTimeout.js';
 
 const JUPITER_API_BASE = 'https://quote-api.jup.ag/v6';
 
@@ -67,21 +67,14 @@ export class JupiterClient {
       asLegacyTransaction: 'false',
     });
 
-    try {
-      const response = await fetchWithTimeout(`${this.apiBase}/quote?${params}`, {}, 5000);
+    const response = await fetchWithRetry(`${this.apiBase}/quote?${params}`, {}, 5000, 3);
 
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Jupiter quote failed: ${error}`);
-      }
-
-      return response.json() as Promise<JupiterQuote>;
-    } catch (error) {
-      if ((error as Error).name === 'AbortError') {
-        throw new Error('Jupiter API timeout after 5s');
-      }
-      throw error;
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Jupiter quote failed: ${error}`);
     }
+
+    return response.json() as Promise<JupiterQuote>;
   }
 
   /**
@@ -93,33 +86,26 @@ export class JupiterClient {
     quote: JupiterQuote,
     userPublicKey: string
   ): Promise<JupiterSwapResponse> {
-    try {
-      const response = await fetchWithTimeout(`${this.apiBase}/swap`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          quoteResponse: quote,
-          userPublicKey,
-          wrapAndUnwrapSol: true,
-          dynamicComputeUnitLimit: true,
-          prioritizationFeeLamports: 'auto',
-        }),
-      }, 5000);
+    const response = await fetchWithRetry(`${this.apiBase}/swap`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        quoteResponse: quote,
+        userPublicKey,
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: 'auto',
+      }),
+    }, 5000, 3);
 
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Jupiter swap failed: ${error}`);
-      }
-
-      return response.json() as Promise<JupiterSwapResponse>;
-    } catch (error) {
-      if ((error as Error).name === 'AbortError') {
-        throw new Error('Jupiter swap API timeout after 5s');
-      }
-      throw error;
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Jupiter swap failed: ${error}`);
     }
+
+    return response.json() as Promise<JupiterSwapResponse>;
   }
 
   /**
@@ -134,7 +120,7 @@ export class JupiterClient {
     });
 
     try {
-      const response = await fetchWithTimeout(`https://price.jup.ag/v6/price?${params}`, {}, 3000);
+      const response = await fetchWithRetry(`https://price.jup.ag/v6/price?${params}`, {}, 3000, 3);
 
       if (!response.ok) {
         throw new Error('Failed to get token price');
@@ -143,11 +129,9 @@ export class JupiterClient {
       const data = (await response.json()) as { data?: Record<string, { price?: number }> };
       return data.data?.[tokenMint]?.price || 0;
     } catch (error) {
-      if ((error as Error).name === 'AbortError') {
-        console.warn('[Jupiter] Price API timeout, returning 0');
-        return 0;
-      }
-      throw error;
+      // Return 0 for price failures - non-critical for trading
+      console.warn('[Jupiter] Price API failed after retries, returning 0');
+      return 0;
     }
   }
 
