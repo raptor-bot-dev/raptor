@@ -6,6 +6,20 @@ import { FourMemeListener } from './listeners/fourMeme.js';
 import { BasePumpListener } from './listeners/basePump.js';
 import { PositionManager } from './execution/positionManager.js';
 
+// Export Solana executor for bot integration
+export { SolanaExecutor, solanaExecutor } from './chains/solana/index.js';
+export type { SolanaTradeResult, SolanaTokenInfo } from './chains/solana/index.js';
+
+// Export EVM chain executor
+export { ChainExecutor } from './chains/chainExecutor.js';
+
+// Export listeners
+export { FourMemeListener } from './listeners/fourMeme.js';
+export { BasePumpListener } from './listeners/basePump.js';
+
+// Export position management
+export { PositionManager } from './execution/positionManager.js';
+
 async function validateStartupConfiguration(): Promise<void> {
   console.log('🔍 Validating configuration...');
 
