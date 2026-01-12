@@ -163,11 +163,33 @@ export async function executeSolanaBuy(
  * Translate executor errors to user-friendly messages
  */
 function translateExecutorError(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return 'Unknown error occurred';
+  // Extract error message from various formats
+  let errorMessage = 'Unknown error occurred';
+
+  if (typeof error === 'string') {
+    errorMessage = error;
+  } else if (error instanceof Error) {
+    errorMessage = error.message;
+  } else if (error && typeof error === 'object') {
+    // Handle executor result objects and other error shapes
+    const err = error as Record<string, unknown>;
+    if (typeof err.message === 'string') {
+      errorMessage = err.message;
+    } else if (typeof err.error === 'string') {
+      errorMessage = err.error;
+    } else if (typeof err.reason === 'string') {
+      errorMessage = err.reason;
+    } else {
+      // Last resort: stringify for debugging
+      try {
+        errorMessage = JSON.stringify(error);
+      } catch {
+        errorMessage = 'Error details unavailable';
+      }
+    }
   }
 
-  const message = error.message.toLowerCase();
+  const message = errorMessage.toLowerCase();
 
   // Check for specific error patterns
   if (message.includes('invalid') && message.includes('address')) {
@@ -189,7 +211,11 @@ function translateExecutorError(error: unknown): string {
            '• Try again when liquidity is available';
   }
 
-  if (message.includes('transaction failed') || message.includes('simulation failed')) {
+  if (message.includes('simulation failed') || message.includes('custom program error')) {
+    return `❌ Transaction simulation failed:\n${errorMessage}`;
+  }
+
+  if (message.includes('transaction failed')) {
     return '❌ Transaction failed on-chain.\n\n' +
            'Possible causes:\n' +
            '• Slippage too low\n' +
@@ -197,10 +223,22 @@ function translateExecutorError(error: unknown): string {
            '• Token has trading restrictions';
   }
 
-  if (message.includes('rpc') || message.includes('network') || message.includes('timeout')) {
+  if (message.includes('rpc') || message.includes('network') || message.includes('timeout') || message.includes('enotfound')) {
     return '❌ Network error. Please try again.';
   }
 
-  // Default: return the original error message
-  return `❌ ${error.message}`;
+  if (message.includes('insufficient') || message.includes('not enough')) {
+    return '❌ Insufficient SOL balance. Please add funds.';
+  }
+
+  if (message.includes('graduated')) {
+    return '❌ Token has graduated from pump.fun. Routing via Jupiter...';
+  }
+
+  if (message.includes('accountnotenoughkeys') || message.includes('3005')) {
+    return '❌ pump.fun program update detected. Please report this error.';
+  }
+
+  // Default: return the actual error message (not generic)
+  return `❌ ${errorMessage}`;
 }
