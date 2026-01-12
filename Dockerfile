@@ -38,6 +38,10 @@ RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
 
 WORKDIR /app
 
+# Copy workspace configuration
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+
 # Copy built artifacts
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
@@ -68,6 +72,10 @@ RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
 
 WORKDIR /app
 
+# Copy workspace configuration
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+
 # Copy built artifacts
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
@@ -97,6 +105,10 @@ FROM node:20-alpine AS executor
 RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
 
 WORKDIR /app
+
+# Copy workspace configuration
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
 
 # Copy built artifacts
 COPY --from=builder /app/node_modules ./node_modules
