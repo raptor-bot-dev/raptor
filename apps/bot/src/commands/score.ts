@@ -161,18 +161,30 @@ async function analyzeToken(
     liquidity: string;
     holders: number;
     age: string;
+    bondingProgress?: number;
+    graduated?: boolean;
   };
 }> {
   // Import real APIs
   const { tokenData, birdeye, analyzeToken: runAnalysis } = await import('@raptor/shared');
 
-  // Fetch token data from DexScreener/Birdeye in parallel
-  const [tokenInfo, birdeyeSecurity] = await Promise.all([
+  // Fetch token data and bonding curve info in parallel
+  const fetchTasks: Promise<any>[] = [
     tokenData.getTokenInfo(address, chain),
     chain === 'sol' && birdeye.isConfigured()
       ? birdeye.analyzeTokenRisk(address)
       : Promise.resolve(null),
-  ]);
+  ];
+
+  // For Solana tokens, also fetch bonding curve info
+  if (chain === 'sol') {
+    const { solanaExecutor } = await import('@raptor/executor/solana');
+    fetchTasks.push(solanaExecutor.getTokenInfo(address));
+  } else {
+    fetchTasks.push(Promise.resolve(null));
+  }
+
+  const [tokenInfo, birdeyeSecurity, bondingInfo] = await Promise.all(fetchTasks);
 
   // Calculate scores based on real data
   const categories = {
@@ -309,6 +321,8 @@ async function analyzeToken(
       liquidity: liqString,
       holders: tokenInfo?.holders ?? 0,
       age,
+      bondingProgress: bondingInfo?.bondingCurveProgress,
+      graduated: bondingInfo?.graduated,
     },
   };
 }
@@ -337,7 +351,22 @@ function formatTokenAnalysis(
   // Basic stats
   message += `💧 *Liquidity:* ${analysis.tokenInfo.liquidity}\n`;
   message += `👥 *Holders:* ${analysis.tokenInfo.holders}\n`;
-  message += `⏱️ *Age:* ${analysis.tokenInfo.age}\n\n`;
+  message += `⏱️ *Age:* ${analysis.tokenInfo.age}\n`;
+
+  // Bonding curve info for Solana tokens
+  if (chain === 'sol' && analysis.tokenInfo.bondingProgress !== undefined) {
+    if (analysis.tokenInfo.graduated) {
+      message += `🎓 *Status:* Graduated (on DEX)\n`;
+    } else {
+      const progress = analysis.tokenInfo.bondingProgress;
+      const barLength = 10;
+      const filled = Math.floor((progress / 100) * barLength);
+      const bar = '█'.repeat(filled) + '░'.repeat(barLength - filled);
+      message += `🔄 *Bonding:* ${bar} ${progress.toFixed(1)}%\n`;
+    }
+  }
+
+  message += `\n`;
 
   // Score and decision
   message += `━━━━━━━━━━━━━━━━━━\n`;

@@ -8,3 +8,6 @@ export type {
   SolanaTradeResult,
   SolanaTokenInfo,
 } from './solanaExecutor.js';
+
+// Re-export for convenience
+export { PumpFunClient } from './pumpFun.js';
