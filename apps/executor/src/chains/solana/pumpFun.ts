@@ -14,8 +14,9 @@ import {
 } from '@solana/web3.js';
 import {
   getAssociatedTokenAddress,
+  getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
-  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import {
@@ -322,33 +323,39 @@ export function deriveBondingCurvePDA(mint: PublicKey): [PublicKey, number] {
 
 /**
  * Derive associated bonding curve token account
+ * pump.fun uses Token-2022 program for all tokens
  */
 export async function deriveAssociatedBondingCurve(
   bondingCurve: PublicKey,
   mint: PublicKey
 ): Promise<PublicKey> {
-  return getAssociatedTokenAddress(mint, bondingCurve, true);
+  return getAssociatedTokenAddress(mint, bondingCurve, true, TOKEN_2022_PROGRAM_ID);
 }
 
 /**
  * Get or create associated token account instruction
+ * pump.fun uses Token-2022 program for all tokens
  */
 export function getOrCreateATAInstruction(
   mint: PublicKey,
   owner: PublicKey,
   payer: PublicKey
 ): { ata: PublicKey; instruction: TransactionInstruction | null } {
-  const ata = PublicKey.findProgramAddressSync(
-    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
-    ASSOCIATED_TOKEN_PROGRAM_ID
-  )[0];
+  // Use Token-2022 program for pump.fun tokens
+  const ata = getAssociatedTokenAddressSync(
+    mint,
+    owner,
+    false,
+    TOKEN_2022_PROGRAM_ID
+  );
 
   // Note: We'll check if account exists before adding this instruction
   const instruction = createAssociatedTokenAccountInstruction(
     payer,
     ata,
     owner,
-    mint
+    mint,
+    TOKEN_2022_PROGRAM_ID
   );
 
   return { ata, instruction };
@@ -421,16 +428,22 @@ export class PumpFunClient {
 
   /**
    * Execute a buy on pump.fun bonding curve
+   * Note: pump.fun uses Token-2022 program for all tokens
    */
   async buy(params: PumpFunBuyParams): Promise<PumpFunTradeResult> {
     const { mint, solAmount, minTokensOut, slippageBps = 500 } = params;
 
     console.log(`[PumpFunClient] Buying with ${lamportsToSol(solAmount)} SOL`);
 
-    // Derive PDAs
+    // Derive PDAs - use Token-2022 for pump.fun tokens
     const [bondingCurve] = deriveBondingCurvePDA(mint);
     const associatedBondingCurve = await deriveAssociatedBondingCurve(bondingCurve, mint);
-    const userTokenAccount = await getAssociatedTokenAddress(mint, this.wallet.publicKey);
+    const userTokenAccount = await getAssociatedTokenAddress(
+      mint,
+      this.wallet.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
 
     // Get bonding curve state for calculation
     const state = await this.getBondingCurveState(mint);
@@ -465,6 +478,7 @@ export class PumpFunClient {
     );
 
     // Check if user token account exists, if not create it
+    // Use Token-2022 program for pump.fun tokens
     const userATAInfo = await this.connection.getAccountInfo(userTokenAccount);
     if (!userATAInfo) {
       transaction.add(
@@ -472,7 +486,8 @@ export class PumpFunClient {
           this.wallet.publicKey,
           userTokenAccount,
           this.wallet.publicKey,
-          mint
+          mint,
+          TOKEN_2022_PROGRAM_ID
         )
       );
     }
@@ -480,6 +495,7 @@ export class PumpFunClient {
     // Build buy instruction
     // SECURITY: P0-4 - Use minTokens (with slippage) instead of expectedTokens
     // This protects against MEV sandwich attacks by setting a minimum acceptable output
+    // Note: pump.fun uses Token-2022 program for all tokens
     const buyInstruction = new TransactionInstruction({
       programId: PUMP_FUN_PROGRAM,
       keys: [
@@ -491,7 +507,7 @@ export class PumpFunClient {
         { pubkey: userTokenAccount, isSigner: false, isWritable: true },
         { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
         { pubkey: new PublicKey('SysvarRent111111111111111111111111111111111'), isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
@@ -520,16 +536,22 @@ export class PumpFunClient {
 
   /**
    * Execute a sell on pump.fun bonding curve
+   * Note: pump.fun uses Token-2022 program for all tokens
    */
   async sell(params: PumpFunSellParams): Promise<PumpFunTradeResult> {
     const { mint, tokenAmount, minSolOut, slippageBps = 500 } = params;
 
     console.log(`[PumpFunClient] Selling ${tokenAmount} tokens`);
 
-    // Derive PDAs
+    // Derive PDAs - use Token-2022 for pump.fun tokens
     const [bondingCurve] = deriveBondingCurvePDA(mint);
     const associatedBondingCurve = await deriveAssociatedBondingCurve(bondingCurve, mint);
-    const userTokenAccount = await getAssociatedTokenAddress(mint, this.wallet.publicKey);
+    const userTokenAccount = await getAssociatedTokenAddress(
+      mint,
+      this.wallet.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
 
     // Get bonding curve state
     const state = await this.getBondingCurveState(mint);
@@ -564,6 +586,7 @@ export class PumpFunClient {
     );
 
     // Build sell instruction
+    // Note: pump.fun uses Token-2022 program for all tokens
     const sellInstruction = new TransactionInstruction({
       programId: PUMP_FUN_PROGRAM,
       keys: [
@@ -576,7 +599,7 @@ export class PumpFunClient {
         { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
       ],
