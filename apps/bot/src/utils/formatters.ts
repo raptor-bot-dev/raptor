@@ -55,6 +55,16 @@ export function escapeMarkdownV2(text: string): string {
   return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
 }
 
+/**
+ * Escape special characters for Telegram Markdown (v1)
+ * Characters that must be escaped: _ * ` [
+ *
+ * Use this for messages with parse_mode: 'Markdown' (not MarkdownV2)
+ */
+export function escapeMarkdown(text: string): string {
+  return text.replace(/([_*`\[])/g, '\\$1');
+}
+
 // Format numbers with commas
 export function formatNumber(num: number, decimals: number = 2): string {
   return num.toLocaleString('en-US', {

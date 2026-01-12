@@ -59,7 +59,7 @@ import {
 } from '../commands/wallet.js';
 
 // Utilities
-import { escapeMarkdownV2, LINE } from '../utils/formatters.js';
+import { escapeMarkdown, escapeMarkdownV2, LINE } from '../utils/formatters.js';
 import { CHAIN_NAME } from '../utils/keyboards.js';
 
 // Hunt imports
@@ -1562,19 +1562,20 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
         }
       );
     } else {
-      // Error message
+      // Error message - escape special chars to prevent Markdown parse errors
       await ctx.reply(
         `❌ *BUY FAILED*\n\n` +
-        `${result.error || 'Unknown error'}\n\n` +
+        `${escapeMarkdown(result.error || 'Unknown error')}\n\n` +
         `Please check your wallet balance and try again.`,
         { parse_mode: 'Markdown' }
       );
     }
   } catch (error) {
     console.error('[Callbacks] Buy token error:', error);
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
     await ctx.reply(
       `❌ *BUY FAILED*\n\n` +
-      `An unexpected error occurred: ${error instanceof Error ? error.message : 'Unknown error'}\n\n` +
+      `An unexpected error occurred: ${escapeMarkdown(errorMsg)}\n\n` +
       `Please try again or contact support.`,
       { parse_mode: 'Markdown' }
     );
@@ -1657,7 +1658,7 @@ ${LINE}`,
 ❌ *WITHDRAWAL FAILED*
 ${LINE}
 
-*Error:* ${errorMessage}
+*Error:* ${escapeMarkdown(errorMessage)}
 
 Please check:
 • Sufficient balance for amount + gas fees
