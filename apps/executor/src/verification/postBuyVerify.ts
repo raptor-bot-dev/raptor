@@ -293,7 +293,8 @@ async function simulateSell(
  * Simulate Solana sell using Jupiter API
  */
 async function simulateSolanaSell(tokenAddress: string): Promise<SellSimulationResult> {
-  const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6/quote';
+  // Use unified api.jup.ag endpoint (quote-api.jup.ag has DNS issues on some platforms)
+  const JUPITER_QUOTE_API = 'https://api.jup.ag/swap/v1/quote';
   const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
   // Simulate selling 1000 tokens (adjusted by decimals later)

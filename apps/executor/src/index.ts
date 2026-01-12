@@ -23,9 +23,9 @@ export { PositionManager } from './execution/positionManager.js';
 async function validateStartupConfiguration(): Promise<void> {
   console.log('🔍 Validating configuration...');
 
-  // Required environment variables
+  // Required environment variables for executor service
+  // Note: TELEGRAM_BOT_TOKEN is only required by the bot service, not executor
   const required = [
-    'TELEGRAM_BOT_TOKEN',
     'SUPABASE_URL',
     'SUPABASE_SERVICE_KEY',
     'EXECUTOR_PRIVATE_KEY',

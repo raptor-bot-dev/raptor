@@ -4,7 +4,10 @@
 import { PROGRAM_IDS, solToLamports, lamportsToSol } from '@raptor/shared';
 import { fetchWithRetry } from '../../utils/fetchWithTimeout.js';
 
-const JUPITER_API_BASE = 'https://quote-api.jup.ag/v6';
+// Jupiter API endpoints (updated to api.jup.ag - the unified endpoint)
+// Old endpoints (quote-api.jup.ag, price.jup.ag) have DNS issues on some platforms
+const JUPITER_SWAP_API = 'https://api.jup.ag/swap/v1';
+const JUPITER_PRICE_API = 'https://api.jup.ag/price/v2';
 
 export interface JupiterQuote {
   inputMint: string;
@@ -39,10 +42,12 @@ export interface JupiterSwapResponse {
 }
 
 export class JupiterClient {
-  private apiBase: string;
+  private swapApiBase: string;
+  private priceApiBase: string;
 
-  constructor(apiBase: string = JUPITER_API_BASE) {
-    this.apiBase = apiBase;
+  constructor(swapApiBase: string = JUPITER_SWAP_API, priceApiBase: string = JUPITER_PRICE_API) {
+    this.swapApiBase = swapApiBase;
+    this.priceApiBase = priceApiBase;
   }
 
   /**
@@ -67,7 +72,7 @@ export class JupiterClient {
       asLegacyTransaction: 'false',
     });
 
-    const response = await fetchWithRetry(`${this.apiBase}/quote?${params}`, {}, 5000, 3);
+    const response = await fetchWithRetry(`${this.swapApiBase}/quote?${params}`, {}, 5000, 3);
 
     if (!response.ok) {
       const error = await response.text();
@@ -86,7 +91,7 @@ export class JupiterClient {
     quote: JupiterQuote,
     userPublicKey: string
   ): Promise<JupiterSwapResponse> {
-    const response = await fetchWithRetry(`${this.apiBase}/swap`, {
+    const response = await fetchWithRetry(`${this.swapApiBase}/swap`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -113,21 +118,23 @@ export class JupiterClient {
    * @param tokenMint - Token mint address
    */
   async getTokenPrice(tokenMint: string): Promise<number> {
-    // Quote 1 token worth to get price in SOL
+    // Get price via Jupiter Price API v2
     const params = new URLSearchParams({
       ids: tokenMint,
       vsToken: PROGRAM_IDS.WSOL,
     });
 
     try {
-      const response = await fetchWithRetry(`https://price.jup.ag/v6/price?${params}`, {}, 3000, 3);
+      const response = await fetchWithRetry(`${this.priceApiBase}?${params}`, {}, 3000, 3);
 
       if (!response.ok) {
         throw new Error('Failed to get token price');
       }
 
-      const data = (await response.json()) as { data?: Record<string, { price?: number }> };
-      return data.data?.[tokenMint]?.price || 0;
+      // Price API v2 returns { data: { [mint]: { price: string } } }
+      const data = (await response.json()) as { data?: Record<string, { price?: string }> };
+      const priceStr = data.data?.[tokenMint]?.price;
+      return priceStr ? parseFloat(priceStr) : 0;
     } catch (error) {
       // Return 0 for price failures - non-critical for trading
       console.warn('[Jupiter] Price API failed after retries, returning 0');
