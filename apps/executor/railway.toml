@@ -1,7 +1,7 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "../../Dockerfile"
-buildTarget = "bot"
+buildTarget = "executor"
 
 [deploy]
 startCommand = "node dist/index.js"
