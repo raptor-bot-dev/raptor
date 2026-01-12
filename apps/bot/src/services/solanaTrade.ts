@@ -1,15 +1,14 @@
 /**
  * Solana Trade Service for RAPTOR Bot
  *
- * Handles buy/sell transactions via Jupiter aggregator
- * Automatically finds best routes with optimal liquidity
+ * Thin adapter layer that delegates to executor's intelligent routing
+ * Handles wallet management and user messaging
  */
 
+import { solanaExecutor } from '@raptor/executor/solana';
 import {
   Connection,
   PublicKey,
-  Transaction,
-  VersionedTransaction,
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import {
@@ -20,57 +19,26 @@ import {
   createLogger,
   recordTrade,
   recordFee,
+  applyBuyFeeDecimal,
 } from '@raptor/shared';
 
 const logger = createLogger('SolanaTrade');
-
-const JUPITER_API_BASE = 'https://quote-api.jup.ag/v6';
-const WSOL_MINT = 'So11111111111111111111111111111111111111112';
-
-interface JupiterQuote {
-  inputMint: string;
-  inAmount: string;
-  outputMint: string;
-  outAmount: string;
-  otherAmountThreshold: string;
-  swapMode: string;
-  slippageBps: number;
-  priceImpactPct: string;
-  routePlan: Array<{
-    swapInfo: {
-      ammKey: string;
-      label: string;
-      inputMint: string;
-      outputMint: string;
-      inAmount: string;
-      outAmount: string;
-      feeAmount: string;
-      feeMint: string;
-    };
-    percent: number;
-  }>;
-}
-
-interface JupiterSwapResponse {
-  swapTransaction: string; // Base64 encoded transaction
-  lastValidBlockHeight: number;
-  prioritizationFeeLamports?: number;
-}
 
 export interface SolanaBuyResult {
   success: boolean;
   txHash?: string;
   error?: string;
-  amountIn: number; // SOL amount
-  amountOut?: number; // Tokens received
+  amountIn: number;      // SOL amount (gross)
+  netAmount?: number;    // SOL after fee
+  fee?: number;          // Platform fee
+  amountOut?: number;    // Tokens received
   pricePerToken?: number;
-  priceImpact?: number;
-  route?: string; // Route description (e.g. "Raydium -> Orca")
+  route?: string;        // 'pump.fun' or 'Jupiter'
 }
 
 /**
  * Execute a buy transaction on Solana
- * Uses Jupiter aggregator to find best route with optimal liquidity
+ * Routes automatically between pump.fun and Jupiter via executor
  */
 export async function executeSolanaBuy(
   tgId: number,
@@ -108,270 +76,131 @@ export async function executeSolanaBuy(
       };
     }
 
-    // 3. Get best quote from Jupiter
-    const lamportsIn = Math.floor(solAmount * LAMPORTS_PER_SOL);
+    // 3. Calculate fee breakdown
+    const { netAmount, fee } = applyBuyFeeDecimal(solAmount);
 
-    logger.info('Requesting Jupiter quote', { tokenMint, solAmount, lamportsIn });
-    const quote = await getJupiterQuote(tokenMint, lamportsIn);
-
-    if (!quote) {
-      logger.error('No Jupiter quote available', { tokenMint, solAmount });
-      return {
-        success: false,
-        error: 'No liquidity available for this token. The token may be:\n' +
-               '• Too new (no DEX pools yet)\n' +
-               '• On a bonding curve (try pump.fun)\n' +
-               '• Graduated but not listed yet\n\n' +
-               'Please try again later when liquidity is available.',
-        amountIn: solAmount,
-      };
-    }
-
-    const priceImpact = parseFloat(quote.priceImpactPct);
-    logger.info('Jupiter quote received', {
-      inputAmount: quote.inAmount,
-      outputAmount: quote.outAmount,
-      priceImpact: `${priceImpact.toFixed(2)}%`,
-      routePlan: quote.routePlan.map((r) => r.swapInfo.label).join(' -> '),
-    });
-
-    // Check price impact (warn if > 5%)
-    if (priceImpact > 5) {
-      logger.warn('High price impact detected', { priceImpact });
-    }
-
-    // 4. Get swap transaction
-    const swapResponse = await getJupiterSwapTransaction(quote, solanaWallet.solana_address);
-
-    if (!swapResponse) {
-      return {
-        success: false,
-        error: 'Failed to create swap transaction from Jupiter.',
-        amountIn: solAmount,
-      };
-    }
-
-    // 5. Load user's keypair for signing
+    // 4. Load user's keypair
     const keypair = loadSolanaKeypair(
       solanaWallet.solana_private_key_encrypted as EncryptedData,
       tgId
     );
 
-    // 6. Deserialize, sign, and send transaction
-    let signature: string;
-    try {
-      const txBuffer = Buffer.from(swapResponse.swapTransaction, 'base64');
-      const transaction = VersionedTransaction.deserialize(txBuffer);
+    logger.info('Executing buy via executor', { netAmount, fee });
 
-      // Sign the transaction
-      transaction.sign([keypair]);
+    // 5. Execute via executor (handles routing automatically)
+    const result = await solanaExecutor.executeBuyWithKeypair(
+      tokenMint,
+      solAmount,  // Pass GROSS amount (executor applies fee)
+      keypair,
+      { slippageBps: 50 }  // 0.5% slippage
+    );
 
-      logger.info('Sending transaction to Solana network...');
-
-      // Send transaction
-      signature = await connection.sendRawTransaction(transaction.serialize(), {
-        skipPreflight: false,
-        maxRetries: 3,
-      });
-
-      logger.info('Transaction sent', { signature });
-    } catch (error) {
-      logger.error('Failed to send transaction', error);
+    if (!result.success) {
+      // Translate executor errors to user-friendly messages
+      const userMessage = translateExecutorError(result.error || 'Unknown error');
       return {
         success: false,
-        error: `Failed to send transaction: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error: userMessage,
         amountIn: solAmount,
       };
     }
-
-    // 7. Confirm transaction
-    let confirmation;
-    try {
-      logger.info('Waiting for transaction confirmation...');
-      confirmation = await connection.confirmTransaction(signature, 'confirmed');
-    } catch (error) {
-      logger.error('Transaction confirmation failed', { signature, error });
-      return {
-        success: false,
-        error: `Transaction confirmation timeout. It may still succeed. Check Solscan: https://solscan.io/tx/${signature}`,
-        amountIn: solAmount,
-        txHash: signature,
-      };
-    }
-
-    if (confirmation.value.err) {
-      logger.error('Transaction failed on-chain', { signature, error: confirmation.value.err });
-      return {
-        success: false,
-        error: `Transaction failed on-chain. Check Solscan for details: https://solscan.io/tx/${signature}`,
-        amountIn: solAmount,
-        txHash: signature,
-      };
-    }
-
-    // 8. Calculate output
-    const tokensReceived = parseInt(quote.outAmount);
-    const pricePerToken = solAmount / tokensReceived;
-
-    // 9. Build route description
-    const route = quote.routePlan.map((r) => r.swapInfo.label).join(' → ');
 
     logger.info('Buy successful', {
-      signature,
-      tokensReceived,
-      pricePerToken,
-      route,
+      txHash: result.txHash,
+      tokensReceived: result.amountOut,
+      route: result.route,
     });
 
-    // 10. Record trade in database
+    // 6. Record trade in database (single source of truth)
     await recordTrade({
       tg_id: tgId,
       chain: 'sol',
       mode: 'snipe',
       token_address: tokenMint,
-      token_symbol: 'UNKNOWN', // TODO: fetch token metadata
+      token_symbol: 'UNKNOWN',  // TODO: fetch metadata
       type: 'BUY',
       amount_in: solAmount.toString(),
-      amount_out: tokensReceived.toString(),
-      price: pricePerToken.toString(),
-      fee_amount: '0', // Jupiter fees included in output
+      amount_out: result.amountOut.toString(),
+      price: result.price.toString(),
+      fee_amount: fee.toString(),
       source: 'manual',
-      tx_hash: signature,
+      tx_hash: result.txHash!,
       status: 'CONFIRMED',
+    });
+
+    await recordFee({
+      tg_id: tgId,
+      chain: 'sol',
+      amount: fee.toString(),
+      token: 'SOL',
     });
 
     return {
       success: true,
-      txHash: signature,
+      txHash: result.txHash,
       amountIn: solAmount,
-      amountOut: tokensReceived,
-      pricePerToken,
-      priceImpact,
-      route,
+      netAmount: result.amountIn,
+      fee: result.fee,
+      amountOut: result.amountOut,
+      pricePerToken: result.price,
+      route: result.route,
     };
   } catch (error) {
     logger.error('Buy execution failed', error);
+
+    // Translate executor errors to user-friendly messages
+    const userMessage = translateExecutorError(error);
+
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      error: userMessage,
       amountIn: solAmount,
     };
   }
 }
 
 /**
- * Get a quote from Jupiter aggregator
- * Finds the best route with optimal liquidity
+ * Translate executor errors to user-friendly messages
  */
-async function getJupiterQuote(
-  tokenMint: string,
-  lamportsIn: number,
-  slippageBps: number = 50 // 0.5% slippage
-): Promise<JupiterQuote | null> {
-  try {
-    const params = new URLSearchParams({
-      inputMint: WSOL_MINT,
-      outputMint: tokenMint,
-      amount: lamportsIn.toString(),
-      slippageBps: slippageBps.toString(),
-      onlyDirectRoutes: 'false', // Allow multi-hop routes for better prices
-      asLegacyTransaction: 'false', // Use versioned transactions
-    });
-
-    logger.info('Fetching Jupiter quote', {
-      tokenMint,
-      lamportsIn,
-      url: `${JUPITER_API_BASE}/quote?${params.toString()}`,
-    });
-
-    // Add timeout to fetch
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
-    try {
-      const response = await fetch(`${JUPITER_API_BASE}/quote?${params}`, {
-        headers: {
-          'Accept': 'application/json',
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('Jupiter quote API returned error', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText,
-        });
-
-        // Parse error to provide helpful message
-        if (response.status === 404 || errorText.includes('No routes found')) {
-          return null; // No liquidity available
-        }
-
-        return null;
-      }
-
-      const quote = (await response.json()) as JupiterQuote;
-      logger.info('Jupiter quote received successfully', {
-        inputAmount: quote.inAmount,
-        outputAmount: quote.outAmount,
-        priceImpact: quote.priceImpactPct,
-      });
-
-      return quote;
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        logger.error('Jupiter quote request timed out');
-        throw new Error('Jupiter API timeout. Please try again.');
-      }
-      throw fetchError;
-    }
-  } catch (error) {
-    logger.error('Failed to get Jupiter quote', {
-      error: error instanceof Error ? error.message : String(error),
-      tokenMint,
-    });
-    return null;
+function translateExecutorError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return 'Unknown error occurred';
   }
-}
 
-/**
- * Get swap transaction from Jupiter
- */
-async function getJupiterSwapTransaction(
-  quote: JupiterQuote,
-  userPublicKey: string
-): Promise<JupiterSwapResponse | null> {
-  try {
-    const response = await fetch(`${JUPITER_API_BASE}/swap`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey,
-        wrapAndUnwrapSol: true, // Automatically wrap/unwrap SOL
-        dynamicComputeUnitLimit: true, // Optimize compute units
-        prioritizationFeeLamports: 'auto', // Auto priority fee
-      }),
-    });
+  const message = error.message.toLowerCase();
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error('Jupiter swap failed', { status: response.status, error: errorText });
-      return null;
-    }
-
-    const swapResponse = await response.json() as JupiterSwapResponse;
-    return swapResponse;
-  } catch (error) {
-    logger.error('Failed to get Jupiter swap transaction', error);
-    return null;
+  // Check for specific error patterns
+  if (message.includes('invalid') && message.includes('address')) {
+    return '❌ Invalid token address';
   }
+
+  if (message.includes('minimum') || message.includes('min')) {
+    return '❌ Amount below minimum position size (0.1 SOL)';
+  }
+
+  if (message.includes('not found') || message.includes('does not exist')) {
+    return '❌ Token not found on-chain. Check the address.';
+  }
+
+  if (message.includes('no route') || message.includes('no liquidity')) {
+    return '❌ No liquidity available for this token.\n\n' +
+           '• Token may be too new\n' +
+           '• No active trading pools\n' +
+           '• Try again when liquidity is available';
+  }
+
+  if (message.includes('transaction failed') || message.includes('simulation failed')) {
+    return '❌ Transaction failed on-chain.\n\n' +
+           'Possible causes:\n' +
+           '• Slippage too low\n' +
+           '• Insufficient SOL for fees\n' +
+           '• Token has trading restrictions';
+  }
+
+  if (message.includes('rpc') || message.includes('network') || message.includes('timeout')) {
+    return '❌ Network error. Please try again.';
+  }
+
+  // Default: return the original error message
+  return `❌ ${error.message}`;
 }

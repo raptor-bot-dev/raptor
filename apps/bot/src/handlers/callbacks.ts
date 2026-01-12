@@ -1521,15 +1521,20 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
   await ctx.answerCallbackQuery({ text: `🔄 Processing ${solAmount} SOL buy...` });
 
   try {
-    // Import the Solana trade service
+    // Import the Solana trade service and fee calculator
     const { executeSolanaBuy } = await import('../services/solanaTrade.js');
+    const { applyBuyFeeDecimal } = await import('@raptor/shared');
 
-    // Show initial status message
+    // Calculate fee for display
+    const { netAmount, fee } = applyBuyFeeDecimal(solAmount);
+
+    // Show initial status message with fee breakdown
     await ctx.reply(
       `⏳ *PROCESSING BUY*\n\n` +
-      `Buying with ${solAmount} SOL...\n` +
-      `Finding best route via Jupiter aggregator...\n\n` +
-      `_This may take a few seconds..._`,
+      `Amount: ${solAmount} SOL\n` +
+      `Platform Fee (1%): ${fee.toFixed(4)} SOL\n` +
+      `Net Buy Amount: ${netAmount.toFixed(4)} SOL\n\n` +
+      `_Finding best route (pump.fun or Jupiter)..._`,
       { parse_mode: 'Markdown' }
     );
 
@@ -1541,18 +1546,16 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
       const explorerUrl = `https://solscan.io/tx/${result.txHash}`;
       const tokensReceived = result.amountOut || 0;
       const pricePerToken = result.pricePerToken || 0;
-      const priceImpact = result.priceImpact || 0;
 
       await ctx.reply(
         `✅ *BUY SUCCESSFUL*\n\n` +
-        `*Amount:* ${result.amountIn} SOL\n` +
+        `*Route:* ${result.route || 'Unknown'}\n` +
+        `*Gross Amount:* ${result.amountIn} SOL\n` +
+        `*Platform Fee:* ${result.fee?.toFixed(4)} SOL (1%)\n` +
+        `*Net Amount:* ${result.netAmount?.toFixed(4)} SOL\n` +
         `*Tokens Received:* ${tokensReceived.toLocaleString()}\n` +
-        `*Price:* ${pricePerToken.toFixed(9)} SOL per token\n` +
-        `*Price Impact:* ${priceImpact.toFixed(2)}%\n` +
-        (result.route ? `*Route:* ${result.route}\n` : '') +
-        `\n` +
-        `[View Transaction](${explorerUrl})\n\n` +
-        `_Transaction confirmed on-chain_`,
+        `*Price:* ${pricePerToken.toFixed(9)} SOL per token\n\n` +
+        `[View Transaction](${explorerUrl})`,
         {
           parse_mode: 'Markdown',
           link_preview_options: { is_disabled: true },
@@ -1562,7 +1565,7 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
       // Error message
       await ctx.reply(
         `❌ *BUY FAILED*\n\n` +
-        `*Error:* ${result.error || 'Unknown error'}\n\n` +
+        `${result.error || 'Unknown error'}\n\n` +
         `Please check your wallet balance and try again.`,
         { parse_mode: 'Markdown' }
       );

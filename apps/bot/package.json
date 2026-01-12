@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@raptor/shared": "workspace:*",
+    "@raptor/executor": "workspace:*",
     "@solana/web3.js": "^1.95.0",
     "grammy": "^1.21.0",
     "@grammyjs/runner": "^2.0.3",
