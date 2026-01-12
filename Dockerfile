@@ -6,6 +6,9 @@
 # Build stage
 FROM node:20-alpine AS builder
 
+# Cache buster to force fresh builds - update this timestamp to rebuild
+ARG CACHEBUST=2026-01-12-20:00
+
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
 
