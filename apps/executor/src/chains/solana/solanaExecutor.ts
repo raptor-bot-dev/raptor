@@ -873,6 +873,197 @@ export class SolanaExecutor {
   }
 
   /**
+   * Execute sell with external keypair (for bot/hunter integration)
+   * Routes automatically between pump.fun and Jupiter based on graduation status
+   *
+   * @param tokenMint - Token to sell
+   * @param tokenAmount - Amount of tokens to sell
+   * @param keypair - User's keypair (from bot/hunter)
+   * @param options - Sell options
+   * @returns Trade result WITHOUT database recording
+   */
+  async executeSellWithKeypair(
+    tokenMint: string,
+    tokenAmount: number,
+    keypair: Keypair,
+    options?: {
+      slippageBps?: number;
+    }
+  ): Promise<SolanaTradeResult> {
+    console.log(
+      `[SolanaExecutor] Sell ${tokenAmount} tokens of ${tokenMint} with external keypair`
+    );
+
+    try {
+      // Check if token is on bonding curve or graduated
+      const tokenInfo = await this.getTokenInfo(tokenMint);
+
+      let result;
+      let route: string;
+
+      if (tokenInfo && !tokenInfo.graduated) {
+        // Use pump.fun bonding curve
+        console.log('[SolanaExecutor] Token on bonding curve, using pump.fun');
+        result = await this.sellViaPumpFunWithKeypair(
+          tokenMint,
+          tokenAmount,
+          keypair,
+          options
+        );
+        route = 'pump.fun';
+      } else {
+        // Use Jupiter for graduated tokens
+        console.log('[SolanaExecutor] Token graduated, using Jupiter');
+        result = await this.sellViaJupiterWithKeypair(
+          tokenMint,
+          tokenAmount,
+          keypair,
+          options
+        );
+        route = 'Jupiter';
+      }
+
+      const price = Number(result.solReceived) / tokenAmount;
+
+      console.log('[SolanaExecutor] Sell successful', {
+        txHash: result.txHash,
+        solReceived: result.solReceived.toString(),
+        price,
+        route,
+      });
+
+      // NO recordTrade() - let caller handle DB
+      return {
+        success: true,
+        txHash: result.txHash,
+        amountIn: tokenAmount,
+        amountOut: Number(result.solReceived),
+        fee: 0, // Fee calculated by caller
+        price,
+        route,
+      };
+    } catch (error) {
+      console.error('[SolanaExecutor] Sell failed', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        amountIn: tokenAmount,
+        amountOut: 0,
+        fee: 0,
+        price: 0,
+      };
+    }
+  }
+
+  /**
+   * Sell via pump.fun bonding curve with external keypair
+   */
+  private async sellViaPumpFunWithKeypair(
+    tokenMint: string,
+    tokenAmount: number,
+    keypair: Keypair,
+    options?: { slippageBps?: number }
+  ): Promise<{ txHash: string; solReceived: bigint }> {
+    console.log(`[SolanaExecutor] Executing pump.fun sell of ${tokenAmount} tokens with external keypair`);
+
+    try {
+      // Create a PumpFunClient with the external keypair
+      const { PumpFunClient } = await import('./pumpFun.js');
+      const client = new PumpFunClient(keypair);
+
+      const mint = new PublicKey(tokenMint);
+      const tokensRaw = BigInt(Math.floor(tokenAmount * 1e6));
+      const slippageBps = options?.slippageBps || 500; // Default 5% slippage
+
+      const result = await client.sell({
+        mint,
+        tokenAmount: tokensRaw,
+        minSolOut: 0n, // Will use slippageBps to calculate
+        slippageBps,
+      });
+
+      console.log(`[SolanaExecutor] pump.fun sell successful: ${result.signature}`);
+
+      return {
+        txHash: result.signature,
+        solReceived: result.solAmount,
+      };
+    } catch (error) {
+      console.error('[SolanaExecutor] pump.fun sell with keypair failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Sell via Jupiter aggregator with external keypair
+   */
+  private async sellViaJupiterWithKeypair(
+    tokenMint: string,
+    tokenAmount: number,
+    keypair: Keypair,
+    options?: { slippageBps?: number }
+  ): Promise<{ txHash: string; solReceived: bigint }> {
+    console.log(`[SolanaExecutor] Getting Jupiter sell quote for ${tokenAmount} tokens with external keypair`);
+
+    try {
+      const slippageBps = options?.slippageBps || 500; // Default 5% slippage
+      const tokensRaw = BigInt(Math.floor(tokenAmount * 1e6));
+
+      // Get quote
+      const quote = await this.jupiterClient.quoteSell(tokenMint, tokensRaw, slippageBps);
+      const expectedSol = BigInt(quote.outAmount);
+
+      console.log(`[SolanaExecutor] Jupiter quote: ${lamportsToSol(expectedSol)} SOL (slippage: ${quote.slippageBps}bps)`);
+
+      // Get the swap transaction from Jupiter
+      const userPublicKey = keypair.publicKey.toBase58();
+      const swapResponse = await this.jupiterClient.getSwapTransaction(quote, userPublicKey);
+
+      // Deserialize and sign the transaction
+      const { VersionedTransaction } = await import('@solana/web3.js');
+      const transactionBuffer = Buffer.from(swapResponse.swapTransaction, 'base64');
+      const transaction = VersionedTransaction.deserialize(transactionBuffer);
+
+      // Sign the transaction with external keypair
+      transaction.sign([keypair]);
+
+      // Send the transaction
+      const rawTransaction = transaction.serialize();
+      const txHash = await this.connection.sendRawTransaction(rawTransaction, {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+        maxRetries: 3,
+      });
+
+      console.log(`[SolanaExecutor] Transaction sent: ${txHash}`);
+
+      // Wait for confirmation
+      const confirmation = await this.connection.confirmTransaction(
+        {
+          signature: txHash,
+          blockhash: transaction.message.recentBlockhash,
+          lastValidBlockHeight: swapResponse.lastValidBlockHeight,
+        },
+        'confirmed'
+      );
+
+      if (confirmation.value.err) {
+        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      }
+
+      console.log(`[SolanaExecutor] Jupiter sell successful: ${txHash}`);
+
+      return {
+        txHash,
+        solReceived: expectedSol,
+      };
+    } catch (error) {
+      console.error('[SolanaExecutor] Jupiter sell with keypair failed:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get bonding curve state for a pump.fun token
    */
   private async getBondingCurveState(

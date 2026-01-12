@@ -1,0 +1,463 @@
+// =============================================================================
+// RAPTOR v3.1 Execution Loop
+// Job queue consumer: claims jobs, reserves budget, executes trades
+// =============================================================================
+
+import {
+  claimTradeJobs,
+  markJobRunning,
+  extendLease,
+  finalizeJob,
+  reserveTradeBudget,
+  updateExecution,
+  createPositionV31,
+  closePositionV31,
+  createNotification,
+  setCooldown,
+  getStrategy,
+  isTradingPaused,
+  isCircuitOpen,
+  getActiveWallet,
+  getPositionById,
+  loadSolanaKeypair,
+  applySellFeeDecimal,
+  type TradeJob,
+  type Strategy,
+  type EncryptedData,
+  getJobClaimLimit,
+  getJobLeaseDuration,
+} from '@raptor/shared';
+import { isRetryableError, parseError } from '@raptor/shared';
+
+// Import the executor library
+import { solanaExecutor } from '@raptor/executor';
+import type { Keypair } from '@solana/web3.js';
+
+const POLL_INTERVAL_MS = 1000;
+
+export class ExecutionLoop {
+  private running = false;
+  private workerId: string;
+  private autoExecuteEnabled: boolean;
+
+  constructor(workerId: string, autoExecuteEnabled: boolean) {
+    this.workerId = workerId;
+    this.autoExecuteEnabled = autoExecuteEnabled;
+  }
+
+  async start(): Promise<void> {
+    console.log('[ExecutionLoop] Starting...');
+    this.running = true;
+    this.poll();
+  }
+
+  async stop(): Promise<void> {
+    console.log('[ExecutionLoop] Stopping...');
+    this.running = false;
+  }
+
+  /**
+   * Main polling loop
+   */
+  private async poll(): Promise<void> {
+    while (this.running) {
+      try {
+        // Skip if auto-execute is disabled
+        if (!this.autoExecuteEnabled) {
+          await this.sleep(POLL_INTERVAL_MS * 5);
+          continue;
+        }
+
+        // Check global safety controls
+        const paused = await isTradingPaused();
+        if (paused) {
+          console.log('[ExecutionLoop] Trading is paused globally');
+          await this.sleep(5000);
+          continue;
+        }
+
+        const circuitOpen = await isCircuitOpen();
+        if (circuitOpen) {
+          console.log('[ExecutionLoop] Circuit breaker is open');
+          await this.sleep(5000);
+          continue;
+        }
+
+        // Claim jobs
+        const jobs = await claimTradeJobs(
+          this.workerId,
+          getJobClaimLimit(),
+          getJobLeaseDuration(),
+          'sol'
+        );
+
+        if (jobs.length > 0) {
+          console.log(`[ExecutionLoop] Claimed ${jobs.length} jobs`);
+        }
+
+        // Process jobs in parallel
+        await Promise.all(jobs.map((job) => this.processJob(job)));
+      } catch (error) {
+        console.error('[ExecutionLoop] Poll error:', error);
+      }
+
+      await this.sleep(POLL_INTERVAL_MS);
+    }
+  }
+
+  /**
+   * Process a single trade job
+   */
+  private async processJob(job: TradeJob): Promise<void> {
+    console.log(`[ExecutionLoop] Processing job ${job.id} (${job.action})`);
+
+    // Start heartbeat
+    const heartbeat = setInterval(async () => {
+      try {
+        await extendLease(job.id, this.workerId);
+      } catch {
+        // Ignore heartbeat errors
+      }
+    }, 10000);
+
+    try {
+      // 1. Mark job as running (increments attempts)
+      const running = await markJobRunning(job.id, this.workerId);
+      if (!running) {
+        console.warn(`[ExecutionLoop] Failed to mark job running: ${job.id}`);
+        return;
+      }
+
+      // 2. Get strategy for this job
+      const strategy = await getStrategy(job.strategy_id);
+      if (!strategy) {
+        await this.failJob(job, 'Strategy not found', false);
+        return;
+      }
+
+      // 3. Reserve budget atomically
+      const reservation = await reserveTradeBudget({
+        mode: 'AUTO',
+        userId: job.user_id,
+        strategyId: job.strategy_id,
+        chain: job.chain,
+        action: job.action,
+        tokenMint: job.payload.mint,
+        amountSol: job.payload.amount_sol || 0,
+        idempotencyKey: job.idempotency_key,
+      });
+
+      if (!reservation.allowed) {
+        console.log(
+          `[ExecutionLoop] Budget rejected: ${reservation.reason}`
+        );
+        await this.failJob(job, reservation.reason || 'Budget rejected', false);
+        return;
+      }
+
+      const executionId = reservation.reservation_id!;
+      console.log(`[ExecutionLoop] Reserved budget: ${executionId}`);
+
+      // 4. Execute the trade
+      let result;
+      if (job.action === 'BUY') {
+        result = await this.executeBuy(job, strategy);
+      } else {
+        result = await this.executeSell(job, strategy);
+      }
+
+      // 5. Update execution record
+      await updateExecution({
+        executionId,
+        status: result.success ? 'CONFIRMED' : 'FAILED',
+        txSig: result.txSig,
+        tokensOut: result.tokensReceived,
+        pricePerToken: result.price,
+        error: result.error,
+        errorCode: result.errorCode,
+        result: result as unknown as Record<string, unknown>,
+      });
+
+      if (result.success) {
+        // 6. Create/close position
+        if (job.action === 'BUY') {
+          await createPositionV31({
+            userId: job.user_id,
+            strategyId: job.strategy_id,
+            opportunityId: job.opportunity_id || undefined,
+            chain: job.chain,
+            tokenMint: job.payload.mint,
+            entryExecutionId: executionId,
+            entryTxSig: result.txSig,
+            entryCostSol: job.payload.amount_sol || 0,
+            entryPrice: result.price || 0,
+            sizeTokens: result.tokensReceived || 0,
+          });
+        } else if (job.payload.position_id) {
+          await closePositionV31({
+            positionId: job.payload.position_id,
+            exitExecutionId: executionId,
+            exitTxSig: result.txSig,
+            exitPrice: result.price || 0,
+            exitTrigger: job.payload.trigger || 'EMERGENCY',
+            realizedPnlSol: result.pnlSol || 0,
+            realizedPnlPercent: result.pnlPercent || 0,
+          });
+        }
+
+        // 7. Set cooldown
+        await setCooldown({
+          chain: job.chain,
+          cooldownType: 'MINT',
+          target: job.payload.mint,
+          durationSeconds: strategy.cooldown_seconds,
+          reason: 'Auto trade',
+        });
+
+        // 8. Create notification
+        await createNotification({
+          userId: job.user_id,
+          type: 'TRADE_DONE',
+          payload: {
+            action: job.action,
+            mint: job.payload.mint,
+            amount_sol: job.payload.amount_sol,
+            tokens: result.tokensReceived,
+            tx_sig: result.txSig,
+          },
+        });
+
+        // 9. Finalize job as DONE
+        await finalizeJob({
+          jobId: job.id,
+          workerId: this.workerId,
+          status: 'DONE',
+          retryable: false,
+        });
+
+        console.log(`[ExecutionLoop] Job completed: ${result.txSig}`);
+      } else {
+        // Handle failure
+        const retryable = isRetryableError(result.errorCode);
+
+        await createNotification({
+          userId: job.user_id,
+          type: 'TRADE_FAILED',
+          payload: {
+            action: job.action,
+            mint: job.payload.mint,
+            error: result.error,
+            retrying: retryable,
+          },
+        });
+
+        await finalizeJob({
+          jobId: job.id,
+          workerId: this.workerId,
+          status: 'FAILED',
+          retryable,
+          error: result.error,
+        });
+
+        console.warn(`[ExecutionLoop] Job failed: ${result.error} (retryable: ${retryable})`);
+      }
+    } catch (error) {
+      const { code, message } = parseError(error);
+      console.error(`[ExecutionLoop] Job error: ${message}`);
+
+      await finalizeJob({
+        jobId: job.id,
+        workerId: this.workerId,
+        status: 'FAILED',
+        retryable: isRetryableError(code),
+        error: message,
+      });
+    } finally {
+      clearInterval(heartbeat);
+    }
+  }
+
+  /**
+   * Get user's keypair for trading
+   */
+  private async getUserKeypair(userId: number, chain: string): Promise<Keypair | null> {
+    try {
+      const wallet = await getActiveWallet(userId, chain as 'sol');
+      if (!wallet) {
+        console.warn(`[ExecutionLoop] No active wallet for user ${userId}`);
+        return null;
+      }
+
+      // Get the encrypted private key
+      const encryptedKey = wallet.solana_private_key_encrypted as EncryptedData;
+      if (!encryptedKey) {
+        console.warn(`[ExecutionLoop] No encrypted key for user ${userId}`);
+        return null;
+      }
+
+      return loadSolanaKeypair(encryptedKey, userId);
+    } catch (error) {
+      console.error(`[ExecutionLoop] Failed to load keypair:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Execute a buy trade
+   */
+  private async executeBuy(
+    job: TradeJob,
+    strategy: Strategy
+  ): Promise<TradeResult> {
+    try {
+      // Get user's keypair
+      const keypair = await this.getUserKeypair(job.user_id, job.chain);
+      if (!keypair) {
+        return {
+          success: false,
+          error: 'No active wallet found for user',
+          errorCode: 'NO_WALLET',
+        };
+      }
+
+      const amountSol = job.payload.amount_sol || strategy.max_per_trade_sol;
+      const slippageBps = job.payload.slippage_bps || strategy.slippage_bps;
+
+      const result = await solanaExecutor.executeBuyWithKeypair(
+        job.payload.mint,
+        amountSol,
+        keypair,
+        { slippageBps }
+      );
+
+      return {
+        success: result.success,
+        txSig: result.txHash,
+        tokensReceived: result.amountOut,
+        price: result.price,
+        error: result.error,
+      };
+    } catch (error) {
+      const { code, message } = parseError(error);
+      return {
+        success: false,
+        error: message,
+        errorCode: code,
+      };
+    }
+  }
+
+  /**
+   * Execute a sell trade
+   */
+  private async executeSell(
+    job: TradeJob,
+    strategy: Strategy
+  ): Promise<TradeResult> {
+    try {
+      // Get user's keypair
+      const keypair = await this.getUserKeypair(job.user_id, job.chain);
+      if (!keypair) {
+        return {
+          success: false,
+          error: 'No active wallet found for user',
+          errorCode: 'NO_WALLET',
+        };
+      }
+
+      // Get position to know how many tokens to sell
+      if (!job.payload.position_id) {
+        return {
+          success: false,
+          error: 'No position_id in sell job payload',
+          errorCode: 'INVALID_PAYLOAD',
+        };
+      }
+
+      const position = await getPositionById(job.payload.position_id);
+      if (!position) {
+        return {
+          success: false,
+          error: 'Position not found',
+          errorCode: 'POSITION_NOT_FOUND',
+        };
+      }
+
+      const sellPercent = job.payload.sell_percent || 100;
+      const tokensToSell = position.size_tokens * (sellPercent / 100);
+      const slippageBps = job.payload.slippage_bps || strategy.slippage_bps;
+
+      const result = await solanaExecutor.executeSellWithKeypair(
+        job.payload.mint,
+        tokensToSell,
+        keypair,
+        { slippageBps }
+      );
+
+      if (!result.success) {
+        return {
+          success: false,
+          error: result.error,
+          errorCode: parseError(result.error).code,
+        };
+      }
+
+      // Calculate P&L
+      const grossSol = result.amountOut;
+      const { netAmount } = applySellFeeDecimal(grossSol);
+      const proportionalEntryCost = (position.entry_cost_sol * sellPercent) / 100;
+      const pnlSol = netAmount - proportionalEntryCost;
+      const pnlPercent = proportionalEntryCost > 0
+        ? ((netAmount - proportionalEntryCost) / proportionalEntryCost) * 100
+        : 0;
+
+      return {
+        success: true,
+        txSig: result.txHash,
+        tokensReceived: grossSol, // SOL received
+        price: result.price,
+        pnlSol,
+        pnlPercent,
+      };
+    } catch (error) {
+      const { code, message } = parseError(error);
+      return {
+        success: false,
+        error: message,
+        errorCode: code,
+      };
+    }
+  }
+
+  /**
+   * Helper to fail a job
+   */
+  private async failJob(
+    job: TradeJob,
+    error: string,
+    retryable: boolean
+  ): Promise<void> {
+    await finalizeJob({
+      jobId: job.id,
+      workerId: this.workerId,
+      status: 'FAILED',
+      retryable,
+      error,
+    });
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+}
+
+interface TradeResult {
+  success: boolean;
+  txSig?: string;
+  tokensReceived?: number;
+  price?: number;
+  pnlSol?: number;
+  pnlPercent?: number;
+  error?: string;
+  errorCode?: string;
+}

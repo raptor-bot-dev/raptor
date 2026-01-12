@@ -72,3 +72,14 @@ export * as launchpadDetector from './api/launchpadDetector.js';
 
 // Security audit logging, health checks, and graceful degradation
 export * from './security/index.js';
+
+// === RAPTOR v3.1 Modules ===
+
+// Idempotency key generation
+export * from './idempotency.js';
+
+// Error codes and classification
+export * from './errors.js';
+
+// Configuration validation per entrypoint
+export * from './config.js';

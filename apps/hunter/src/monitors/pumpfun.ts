@@ -1,0 +1,345 @@
+// =============================================================================
+// RAPTOR v3.1 Pump.fun Monitor
+// WebSocket listener for new token creates on pump.fun
+// =============================================================================
+
+import WebSocket from 'ws';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { SOLANA_CONFIG, PROGRAM_IDS, isValidSolanaAddress } from '@raptor/shared';
+
+export interface PumpFunEvent {
+  signature: string;
+  slot: number;
+  mint: string;
+  name: string;
+  symbol: string;
+  uri: string;
+  bondingCurve: string;
+  creator: string;
+  timestamp: number;
+}
+
+export type PumpFunEventHandler = (event: PumpFunEvent) => Promise<void>;
+
+// pump.fun Create instruction discriminator
+const CREATE_DISCRIMINATOR = Buffer.from([24, 30, 200, 40, 5, 28, 7, 119]);
+
+export class PumpFunMonitor {
+  private rpcUrl: string;
+  private wssUrl: string;
+  private connection: Connection;
+  private ws: WebSocket | null = null;
+  private running = false;
+  private handlers: PumpFunEventHandler[] = [];
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private pendingPings = 0;
+
+  constructor() {
+    this.rpcUrl = SOLANA_CONFIG.rpcUrl;
+    this.wssUrl = SOLANA_CONFIG.wssUrl;
+    this.connection = new Connection(this.rpcUrl, 'confirmed');
+  }
+
+  /**
+   * Register a handler for new token creates
+   */
+  onTokenCreate(handler: PumpFunEventHandler): void {
+    this.handlers.push(handler);
+  }
+
+  /**
+   * Start the monitor
+   */
+  async start(): Promise<void> {
+    console.log('[PumpFunMonitor] Starting...');
+    this.running = true;
+    await this.connect();
+  }
+
+  /**
+   * Stop the monitor
+   */
+  async stop(): Promise<void> {
+    console.log('[PumpFunMonitor] Stopping...');
+    this.running = false;
+
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+  }
+
+  /**
+   * Connect to Solana WebSocket
+   */
+  private async connect(): Promise<void> {
+    if (!this.running) return;
+
+    try {
+      console.log(`[PumpFunMonitor] Connecting to ${this.wssUrl}`);
+
+      this.ws = new WebSocket(this.wssUrl);
+
+      this.ws.on('open', () => {
+        console.log('[PumpFunMonitor] WebSocket connected');
+        this.reconnectAttempts = 0;
+        this.pendingPings = 0;
+        this.subscribe();
+        this.startHeartbeat();
+      });
+
+      this.ws.on('close', (code, reason) => {
+        console.log(
+          `[PumpFunMonitor] WebSocket closed: ${code} - ${reason.toString()}`
+        );
+        this.stopHeartbeat();
+        this.handleDisconnect();
+      });
+
+      this.ws.on('error', (error) => {
+        console.error('[PumpFunMonitor] WebSocket error:', error.message);
+      });
+
+      this.ws.on('message', (data) => {
+        this.handleMessage(data.toString());
+      });
+
+      this.ws.on('pong', () => {
+        this.pendingPings = 0;
+      });
+    } catch (error) {
+      console.error('[PumpFunMonitor] Connection failed:', error);
+      this.handleDisconnect();
+    }
+  }
+
+  /**
+   * Subscribe to pump.fun program logs
+   */
+  private subscribe(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    const message = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'logsSubscribe',
+      params: [
+        { mentions: [PROGRAM_IDS.PUMP_FUN] },
+        { commitment: 'confirmed' },
+      ],
+    };
+
+    this.ws.send(JSON.stringify(message));
+    console.log('[PumpFunMonitor] Subscribed to pump.fun logs');
+  }
+
+  /**
+   * Start heartbeat to keep connection alive
+   */
+  private startHeartbeat(): void {
+    this.heartbeatInterval = setInterval(() => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+      if (this.pendingPings >= 2) {
+        console.warn('[PumpFunMonitor] Connection unresponsive, reconnecting');
+        this.ws.terminate();
+        return;
+      }
+
+      this.ws.ping();
+      this.pendingPings++;
+    }, 30000);
+  }
+
+  /**
+   * Stop heartbeat
+   */
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  /**
+   * Handle WebSocket message
+   */
+  private async handleMessage(data: string): Promise<void> {
+    try {
+      const message = JSON.parse(data);
+
+      // Subscription confirmation
+      if (message.result !== undefined && message.id === 1) {
+        console.log(`[PumpFunMonitor] Subscription ID: ${message.result}`);
+        return;
+      }
+
+      // Log notification
+      if (
+        message.method === 'logsNotification' &&
+        message.params?.result?.value
+      ) {
+        const { signature, logs, err } = message.params.result.value;
+        if (err) return;
+
+        await this.processLogs(signature, logs || []);
+      }
+    } catch (error) {
+      console.error('[PumpFunMonitor] Message handling error:', error);
+    }
+  }
+
+  /**
+   * Process transaction logs for Create events
+   */
+  private async processLogs(
+    signature: string,
+    logs: string[]
+  ): Promise<void> {
+    // Look for Create instruction
+    const isCreate = logs.some(
+      (log) =>
+        log.includes('Program log: Instruction: Create') ||
+        (log.includes('Program 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P') &&
+          logs.some((l) => l.includes('InitializeMint')))
+    );
+
+    if (!isCreate) return;
+
+    console.log(`[PumpFunMonitor] New token detected: ${signature}`);
+
+    // Fetch transaction details with retries
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const event = await this.fetchCreateEvent(signature);
+        if (event && event.mint) {
+          console.log(`[PumpFunMonitor] Token: ${event.symbol} (${event.mint})`);
+
+          // Notify handlers
+          for (const handler of this.handlers) {
+            try {
+              await handler(event);
+            } catch (error) {
+              console.error('[PumpFunMonitor] Handler error:', error);
+            }
+          }
+          return;
+        }
+      } catch {
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+    }
+
+    console.warn(`[PumpFunMonitor] Failed to parse: ${signature}`);
+  }
+
+  /**
+   * Fetch Create event details from transaction
+   */
+  private async fetchCreateEvent(
+    signature: string
+  ): Promise<PumpFunEvent | null> {
+    try {
+      const tx = await this.connection.getTransaction(signature, {
+        maxSupportedTransactionVersion: 0,
+        commitment: 'confirmed',
+      });
+
+      if (!tx || tx.meta?.err) return null;
+
+      const message = tx.transaction.message;
+      const accountKeys = message.staticAccountKeys || [];
+      const instructions = message.compiledInstructions || [];
+
+      // Find pump.fun Create instruction
+      let createData: Buffer | null = null;
+      let createAccounts: number[] = [];
+
+      for (const ix of instructions) {
+        const programId = accountKeys[ix.programIdIndex];
+        if (programId?.toBase58() === PROGRAM_IDS.PUMP_FUN) {
+          const data = Buffer.from(ix.data);
+          if (data.slice(0, 8).equals(CREATE_DISCRIMINATOR)) {
+            createData = data;
+            createAccounts = [...ix.accountKeyIndexes];
+            break;
+          }
+        }
+      }
+
+      if (!createData || createAccounts.length < 3) return null;
+
+      // Parse instruction data
+      let offset = 8;
+
+      const nameLen = createData.readUInt32LE(offset);
+      offset += 4;
+      const name = createData.slice(offset, offset + nameLen).toString('utf8');
+      offset += nameLen;
+
+      const symbolLen = createData.readUInt32LE(offset);
+      offset += 4;
+      const symbol = createData
+        .slice(offset, offset + symbolLen)
+        .toString('utf8');
+      offset += symbolLen;
+
+      const uriLen = createData.readUInt32LE(offset);
+      offset += 4;
+      const uri = createData.slice(offset, offset + uriLen).toString('utf8');
+
+      // Extract addresses
+      const mint = accountKeys[createAccounts[0]]?.toBase58() || '';
+      const bondingCurve = accountKeys[createAccounts[2]]?.toBase58() || '';
+      const creator = accountKeys[createAccounts[7]]?.toBase58() || '';
+
+      return {
+        signature,
+        slot: tx.slot,
+        mint,
+        name,
+        symbol,
+        uri,
+        bondingCurve,
+        creator,
+        timestamp: tx.blockTime || Math.floor(Date.now() / 1000),
+      };
+    } catch (error) {
+      console.error('[PumpFunMonitor] Fetch error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Handle disconnection with reconnect
+   */
+  private handleDisconnect(): void {
+    if (!this.running) return;
+
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      const delay = 3000 * Math.min(this.reconnectAttempts, 5);
+
+      console.log(
+        `[PumpFunMonitor] Reconnecting in ${delay}ms (${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+      );
+
+      setTimeout(() => this.connect(), delay);
+    } else {
+      console.error('[PumpFunMonitor] Max reconnect attempts reached');
+      setTimeout(() => {
+        this.reconnectAttempts = 0;
+        this.connect();
+      }, 60000);
+    }
+  }
+}

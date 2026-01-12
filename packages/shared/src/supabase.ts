@@ -708,6 +708,7 @@ export interface UserWallet {
   wallet_label: string | null;
   is_active: boolean;
   solana_address: string;
+  public_key?: string; // v3.1: alias for solana_address
   solana_private_key_encrypted: Record<string, unknown>;
   evm_address: string;
   evm_private_key_encrypted: Record<string, unknown>;
@@ -1286,4 +1287,755 @@ export async function getStrategySettings(tgId: number): Promise<Record<string, 
  */
 export async function saveStrategySettings(tgId: number, strategySettings: Record<string, unknown>): Promise<void> {
   await saveUserSettings(tgId, { strategy_settings: strategySettings });
+}
+
+// =============================================================================
+// RAPTOR v3.1 RPC Wrappers
+// =============================================================================
+
+import type {
+  Strategy,
+  TradeJob,
+  Execution,
+  OpportunityV31,
+  Notification as NotificationV31,
+  SafetyControls,
+  PositionV31,
+  ReserveBudgetResult,
+  TradeMode,
+  TradeAction,
+  JobStatus,
+  ExecutionStatus,
+  ExitTrigger,
+} from './types.js';
+
+// ============================================================================
+// Strategy Functions
+// ============================================================================
+
+/**
+ * Get all strategies for a user
+ */
+export async function getStrategies(userId: number): Promise<Strategy[]> {
+  const { data, error } = await supabase
+    .from('strategies')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get a specific strategy by ID
+ */
+export async function getStrategy(strategyId: string): Promise<Strategy | null> {
+  const { data, error } = await supabase
+    .from('strategies')
+    .select('*')
+    .eq('id', strategyId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Get user's manual strategy for a chain (or create if missing)
+ */
+export async function getOrCreateManualStrategy(userId: number, chain: Chain): Promise<Strategy> {
+  // Check for existing
+  const { data: existing } = await supabase
+    .from('strategies')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('kind', 'MANUAL')
+    .eq('chain', chain)
+    .single();
+
+  if (existing) return existing;
+
+  // Create new manual strategy with defaults
+  const { data, error } = await supabase
+    .from('strategies')
+    .insert({
+      user_id: userId,
+      kind: 'MANUAL',
+      name: `Manual ${chain.toUpperCase()}`,
+      chain,
+      enabled: true,
+      auto_execute: false,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Get all enabled auto strategies that match a chain
+ */
+export async function getEnabledAutoStrategies(chain: Chain): Promise<Strategy[]> {
+  const { data, error } = await supabase
+    .from('strategies')
+    .select('*')
+    .eq('kind', 'AUTO')
+    .eq('chain', chain)
+    .eq('enabled', true)
+    .eq('auto_execute', true);
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get user's default strategy for a chain (MANUAL or first AUTO)
+ */
+export async function getUserDefaultStrategy(userId: number, chain: Chain): Promise<Strategy | null> {
+  // First try to find a MANUAL strategy
+  const { data: manual } = await supabase
+    .from('strategies')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('kind', 'MANUAL')
+    .eq('chain', chain)
+    .single();
+
+  if (manual) return manual;
+
+  // Otherwise return first enabled AUTO strategy
+  const { data: auto } = await supabase
+    .from('strategies')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('kind', 'AUTO')
+    .eq('chain', chain)
+    .eq('enabled', true)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single();
+
+  return auto || null;
+}
+
+/**
+ * Update a strategy
+ */
+export async function updateStrategy(
+  strategyId: string,
+  updates: Partial<Omit<Strategy, 'id' | 'user_id' | 'created_at' | 'updated_at'>>
+): Promise<Strategy> {
+  const { data, error } = await supabase
+    .from('strategies')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', strategyId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// ============================================================================
+// Trade Budget RPC
+// ============================================================================
+
+/**
+ * Reserve trade budget atomically
+ * Checks all safety controls, limits, and cooldowns before reserving
+ */
+export async function reserveTradeBudget(params: {
+  mode: TradeMode;
+  userId: number;
+  strategyId: string;
+  chain: Chain;
+  action: TradeAction;
+  tokenMint: string;
+  amountSol: number;
+  idempotencyKey: string;
+}): Promise<ReserveBudgetResult> {
+  const { data, error } = await supabase.rpc('reserve_trade_budget', {
+    p_mode: params.mode,
+    p_user_id: params.userId,
+    p_strategy_id: params.strategyId,
+    p_chain: params.chain,
+    p_action: params.action,
+    p_token_mint: params.tokenMint,
+    p_amount_sol: params.amountSol,
+    p_idempotency_key: params.idempotencyKey,
+  });
+
+  if (error) throw error;
+  return data as ReserveBudgetResult;
+}
+
+// ============================================================================
+// Trade Job Functions
+// ============================================================================
+
+/**
+ * Claim trade jobs for processing (lease-based)
+ */
+export async function claimTradeJobs(
+  workerId: string,
+  limit: number = 5,
+  leaseSeconds: number = 30,
+  chain?: Chain
+): Promise<TradeJob[]> {
+  const { data, error } = await supabase.rpc('claim_trade_jobs', {
+    p_worker_id: workerId,
+    p_limit: limit,
+    p_lease_seconds: leaseSeconds,
+    p_chain: chain || null,
+  });
+
+  if (error) throw error;
+  return (data || []) as TradeJob[];
+}
+
+/**
+ * Mark a job as running (increments attempts)
+ */
+export async function markJobRunning(jobId: string, workerId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('mark_job_running', {
+    p_job_id: jobId,
+    p_worker_id: workerId,
+  });
+
+  if (error) throw error;
+  return data as boolean;
+}
+
+/**
+ * Extend the lease on a job (heartbeat)
+ */
+export async function extendLease(
+  jobId: string,
+  workerId: string,
+  extensionSeconds: number = 30
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('extend_lease', {
+    p_job_id: jobId,
+    p_worker_id: workerId,
+    p_extension_seconds: extensionSeconds,
+  });
+
+  if (error) throw error;
+  return data as boolean;
+}
+
+/**
+ * Finalize a job (DONE, FAILED, or CANCELED)
+ */
+export async function finalizeJob(params: {
+  jobId: string;
+  workerId: string;
+  status: 'DONE' | 'FAILED' | 'CANCELED';
+  retryable: boolean;
+  error?: string;
+}): Promise<TradeJob | null> {
+  const { data, error } = await supabase.rpc('finalize_job', {
+    p_job_id: params.jobId,
+    p_worker_id: params.workerId,
+    p_status: params.status,
+    p_retryable: params.retryable,
+    p_error: params.error || null,
+  });
+
+  if (error) throw error;
+  return data as TradeJob | null;
+}
+
+/**
+ * Create a trade job
+ */
+export async function createTradeJob(job: {
+  strategyId: string;
+  userId: number;
+  opportunityId?: string;
+  chain: Chain;
+  action: TradeAction;
+  idempotencyKey: string;
+  payload: Record<string, unknown>;
+  priority?: number;
+}): Promise<TradeJob> {
+  const { data, error } = await supabase
+    .from('trade_jobs')
+    .insert({
+      strategy_id: job.strategyId,
+      user_id: job.userId,
+      opportunity_id: job.opportunityId || null,
+      chain: job.chain,
+      action: job.action,
+      idempotency_key: job.idempotencyKey,
+      payload: job.payload,
+      priority: job.priority ?? 100,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    // Handle duplicate key (job already exists)
+    if (error.code === '23505') {
+      const { data: existing } = await supabase
+        .from('trade_jobs')
+        .select('*')
+        .eq('idempotency_key', job.idempotencyKey)
+        .single();
+      if (existing) return existing;
+    }
+    throw error;
+  }
+  return data;
+}
+
+// ============================================================================
+// Execution Functions
+// ============================================================================
+
+/**
+ * Update an execution record after trade
+ */
+export async function updateExecution(params: {
+  executionId: string;
+  status: ExecutionStatus;
+  txSig?: string;
+  tokensOut?: number;
+  pricePerToken?: number;
+  error?: string;
+  errorCode?: string;
+  result?: Record<string, unknown>;
+}): Promise<Execution | null> {
+  const { data, error } = await supabase.rpc('update_execution', {
+    p_execution_id: params.executionId,
+    p_status: params.status,
+    p_tx_sig: params.txSig || null,
+    p_tokens_out: params.tokensOut || null,
+    p_price_per_token: params.pricePerToken || null,
+    p_error: params.error || null,
+    p_error_code: params.errorCode || null,
+    p_result: params.result || null,
+  });
+
+  if (error) throw error;
+  return data as Execution | null;
+}
+
+/**
+ * Get execution by ID
+ */
+export async function getExecution(executionId: string): Promise<Execution | null> {
+  const { data, error } = await supabase
+    .from('executions')
+    .select('*')
+    .eq('id', executionId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+// ============================================================================
+// Position Functions (v3.1)
+// ============================================================================
+
+/**
+ * Get all open positions for the hunter to monitor
+ */
+export async function getOpenPositions(chain?: Chain): Promise<PositionV31[]> {
+  let query = supabase
+    .from('positions')
+    .select('*, strategies(*)')
+    .eq('status', 'OPEN');
+
+  if (chain) {
+    query = query.eq('chain', chain);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw error;
+  return (data || []) as PositionV31[];
+}
+
+/**
+ * Get a position by ID
+ */
+export async function getPositionById(positionId: string): Promise<PositionV31 | null> {
+  const { data, error } = await supabase
+    .from('positions')
+    .select('*')
+    .eq('id', positionId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data as PositionV31;
+}
+
+/**
+ * Create a new position
+ */
+export async function createPositionV31(position: {
+  userId: number;
+  strategyId: string;
+  opportunityId?: string;
+  chain: Chain;
+  tokenMint: string;
+  tokenSymbol?: string;
+  tokenName?: string;
+  entryExecutionId?: string;
+  entryTxSig?: string;
+  entryCostSol: number;
+  entryPrice: number;
+  sizeTokens: number;
+}): Promise<PositionV31> {
+  const { data, error } = await supabase
+    .from('positions')
+    .insert({
+      user_id: position.userId,
+      strategy_id: position.strategyId,
+      opportunity_id: position.opportunityId || null,
+      chain: position.chain,
+      token_mint: position.tokenMint,
+      token_symbol: position.tokenSymbol || null,
+      token_name: position.tokenName || null,
+      entry_execution_id: position.entryExecutionId || null,
+      entry_tx_sig: position.entryTxSig || null,
+      entry_cost_sol: position.entryCostSol,
+      entry_price: position.entryPrice,
+      size_tokens: position.sizeTokens,
+      current_price: position.entryPrice,
+      status: 'OPEN',
+      opened_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Update position price data
+ */
+export async function updatePositionPrice(
+  positionId: string,
+  currentPrice: number,
+  peakPrice?: number
+): Promise<void> {
+  const updates: Record<string, unknown> = {
+    current_price: currentPrice,
+    price_updated_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  if (peakPrice !== undefined) {
+    updates.peak_price = peakPrice;
+  }
+
+  const { error } = await supabase
+    .from('positions')
+    .update(updates)
+    .eq('id', positionId);
+
+  if (error) throw error;
+}
+
+/**
+ * Close a position
+ */
+export async function closePositionV31(params: {
+  positionId: string;
+  exitExecutionId?: string;
+  exitTxSig?: string;
+  exitPrice: number;
+  exitTrigger: ExitTrigger;
+  realizedPnlSol: number;
+  realizedPnlPercent: number;
+}): Promise<PositionV31> {
+  const { data, error } = await supabase
+    .from('positions')
+    .update({
+      status: 'CLOSED',
+      exit_execution_id: params.exitExecutionId || null,
+      exit_tx_sig: params.exitTxSig || null,
+      exit_price: params.exitPrice,
+      exit_trigger: params.exitTrigger,
+      realized_pnl_sol: params.realizedPnlSol,
+      realized_pnl_percent: params.realizedPnlPercent,
+      closed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', params.positionId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// ============================================================================
+// Opportunity Functions
+// ============================================================================
+
+/**
+ * Create or update an opportunity
+ */
+export async function upsertOpportunity(opp: {
+  chain: Chain;
+  source: string;
+  tokenMint: string;
+  tokenName?: string;
+  tokenSymbol?: string;
+  score?: number;
+  reasons?: Array<{ rule: string; value: unknown; passed: boolean; weight: number }>;
+  rawData?: Record<string, unknown>;
+  deployer?: string;
+  bondingCurve?: string;
+  initialLiquiditySol?: number;
+}): Promise<OpportunityV31> {
+  const { data, error } = await supabase
+    .from('opportunities')
+    .upsert({
+      chain: opp.chain,
+      source: opp.source,
+      token_mint: opp.tokenMint,
+      token_name: opp.tokenName || null,
+      token_symbol: opp.tokenSymbol || null,
+      score: opp.score || null,
+      reasons: opp.reasons || null,
+      raw_data: opp.rawData || null,
+      deployer: opp.deployer || null,
+      bonding_curve: opp.bondingCurve || null,
+      initial_liquidity_sol: opp.initialLiquiditySol || null,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'chain,source,token_mint',
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Update opportunity status
+ */
+export async function updateOpportunityStatus(
+  opportunityId: string,
+  status: 'NEW' | 'QUALIFIED' | 'REJECTED' | 'EXPIRED' | 'EXECUTING' | 'COMPLETED',
+  reason?: string
+): Promise<void> {
+  const updates: Record<string, unknown> = {
+    status,
+    status_reason: reason || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (status === 'QUALIFIED') {
+    updates.qualified_at = new Date().toISOString();
+  } else if (status === 'EXPIRED') {
+    updates.expired_at = new Date().toISOString();
+  } else if (status === 'COMPLETED') {
+    updates.completed_at = new Date().toISOString();
+  }
+
+  const { error } = await supabase
+    .from('opportunities')
+    .update(updates)
+    .eq('id', opportunityId);
+
+  if (error) throw error;
+}
+
+// ============================================================================
+// Notification Functions
+// ============================================================================
+
+/**
+ * Claim notifications for delivery
+ */
+export async function claimNotifications(
+  workerId: string,
+  limit: number = 20
+): Promise<NotificationV31[]> {
+  const { data, error } = await supabase.rpc('claim_notifications', {
+    p_worker_id: workerId,
+    p_limit: limit,
+  });
+
+  if (error) throw error;
+  return (data || []) as NotificationV31[];
+}
+
+/**
+ * Mark notification as delivered
+ */
+export async function markNotificationDelivered(notificationId: string): Promise<void> {
+  const { error } = await supabase
+    .from('notifications')
+    .update({
+      delivered_at: new Date().toISOString(),
+    })
+    .eq('id', notificationId);
+
+  if (error) throw error;
+}
+
+/**
+ * Mark notification delivery failed
+ */
+export async function markNotificationFailed(
+  notificationId: string,
+  errorMessage: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('notifications')
+    .update({
+      delivery_attempts: supabase.rpc('increment', { x: 1 }) as unknown as number,
+      last_error: errorMessage,
+      next_attempt_at: new Date(Date.now() + 60000).toISOString(), // Retry in 1 minute
+      claimed_by: null,
+      claimed_at: null,
+    })
+    .eq('id', notificationId);
+
+  if (error) throw error;
+}
+
+/**
+ * Create a notification
+ */
+export async function createNotification(notification: {
+  userId: number;
+  type: string;
+  payload: Record<string, unknown>;
+}): Promise<NotificationV31> {
+  const { data, error } = await supabase
+    .from('notifications')
+    .insert({
+      user_id: notification.userId,
+      type: notification.type,
+      payload: notification.payload,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// ============================================================================
+// Safety Control Functions
+// ============================================================================
+
+/**
+ * Get global safety controls
+ */
+export async function getGlobalSafetyControls(): Promise<SafetyControls | null> {
+  const { data, error } = await supabase
+    .from('safety_controls')
+    .select('*')
+    .eq('scope', 'GLOBAL')
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Check if trading is paused globally
+ */
+export async function isTradingPaused(): Promise<boolean> {
+  const controls = await getGlobalSafetyControls();
+  return controls?.trading_paused ?? false;
+}
+
+/**
+ * Check if circuit breaker is open
+ */
+export async function isCircuitOpen(): Promise<boolean> {
+  const controls = await getGlobalSafetyControls();
+  if (!controls?.circuit_open_until) return false;
+  return new Date(controls.circuit_open_until) > new Date();
+}
+
+// ============================================================================
+// Cooldown Functions
+// ============================================================================
+
+/**
+ * Set a cooldown
+ */
+export async function setCooldown(params: {
+  chain: Chain;
+  cooldownType: 'MINT' | 'USER_MINT' | 'DEPLOYER';
+  target: string;
+  durationSeconds: number;
+  reason?: string;
+}): Promise<void> {
+  const { error } = await supabase.rpc('set_cooldown', {
+    p_chain: params.chain,
+    p_cooldown_type: params.cooldownType,
+    p_target: params.target,
+    p_duration_seconds: params.durationSeconds,
+    p_reason: params.reason || null,
+  });
+
+  if (error) throw error;
+}
+
+/**
+ * Check if a cooldown is active
+ */
+export async function isCooldownActive(
+  chain: Chain,
+  cooldownType: 'MINT' | 'USER_MINT' | 'DEPLOYER',
+  target: string
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('cooldowns')
+    .select('cooldown_until')
+    .eq('chain', chain)
+    .eq('cooldown_type', cooldownType)
+    .eq('target', target)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return false;
+    throw error;
+  }
+
+  return data ? new Date(data.cooldown_until) > new Date() : false;
+}
+
+// ============================================================================
+// Maintenance Functions
+// ============================================================================
+
+/**
+ * Cleanup stale executions
+ */
+export async function cleanupStaleExecutions(staleMinutes: number = 5): Promise<number> {
+  const { data, error } = await supabase.rpc('cleanup_stale_executions', {
+    p_stale_minutes: staleMinutes,
+  });
+
+  if (error) throw error;
+  return data as number;
 }
