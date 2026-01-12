@@ -322,6 +322,28 @@ export function deriveBondingCurvePDA(mint: PublicKey): [PublicKey, number] {
 }
 
 /**
+ * Derive global volume accumulator PDA
+ * Required by pump.fun since August 2025 update for volume tracking
+ */
+export function deriveGlobalVolumeAccumulatorPDA(): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('global_volume_accumulator')],
+    PUMP_FUN_PROGRAM
+  );
+}
+
+/**
+ * Derive user volume accumulator PDA
+ * Required by pump.fun since August 2025 update for per-user volume tracking
+ */
+export function deriveUserVolumeAccumulatorPDA(user: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('user_volume_accumulator'), user.toBuffer()],
+    PUMP_FUN_PROGRAM
+  );
+}
+
+/**
  * Derive associated bonding curve token account
  * pump.fun uses Token-2022 program for all tokens
  */
@@ -445,6 +467,10 @@ export class PumpFunClient {
       TOKEN_2022_PROGRAM_ID
     );
 
+    // Derive volume accumulator PDAs (required since August 2025 pump.fun update)
+    const [globalVolumeAccumulator] = deriveGlobalVolumeAccumulatorPDA();
+    const [userVolumeAccumulator] = deriveUserVolumeAccumulatorPDA(this.wallet.publicKey);
+
     // Get bonding curve state for calculation
     const state = await this.getBondingCurveState(mint);
     if (!state) {
@@ -496,6 +522,7 @@ export class PumpFunClient {
     // SECURITY: P0-4 - Use minTokens (with slippage) instead of expectedTokens
     // This protects against MEV sandwich attacks by setting a minimum acceptable output
     // Note: pump.fun uses Token-2022 program for all tokens
+    // Note: Volume accumulator accounts added in August 2025 pump.fun update
     const buyInstruction = new TransactionInstruction({
       programId: PUMP_FUN_PROGRAM,
       keys: [
@@ -511,6 +538,9 @@ export class PumpFunClient {
         { pubkey: new PublicKey('SysvarRent111111111111111111111111111111111'), isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
+        // Volume accumulator accounts (required since August 2025)
+        { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: true },
+        { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
       ],
       data: encodeBuyData(minTokens, solAmount),
     });
@@ -552,6 +582,10 @@ export class PumpFunClient {
       false,
       TOKEN_2022_PROGRAM_ID
     );
+
+    // Derive volume accumulator PDAs (required since August 2025 pump.fun update)
+    const [globalVolumeAccumulator] = deriveGlobalVolumeAccumulatorPDA();
+    const [userVolumeAccumulator] = deriveUserVolumeAccumulatorPDA(this.wallet.publicKey);
 
     // Get bonding curve state
     const state = await this.getBondingCurveState(mint);
@@ -602,6 +636,9 @@ export class PumpFunClient {
         { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
+        // Volume accumulator accounts (required since August 2025)
+        { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: true },
+        { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
       ],
       data: encodeSellData(tokenAmount, minSol),
     });
