@@ -987,25 +987,16 @@ export class SolanaExecutor {
     );
 
     try {
-      // Check if token is on bonding curve or graduated
-      const tokenInfo = await this.getTokenInfo(tokenMint);
+      // v3.3 FIX (Issue 6): Jupiter-first routing with pump.fun fallback
+      // Jupiter handles most tokens including some bonding curve tokens.
+      // Pump.fun direct sell has InvalidProgramId issues, so we try Jupiter first.
 
       let result;
       let route: string;
 
-      if (tokenInfo && !tokenInfo.graduated) {
-        // Use pump.fun bonding curve
-        console.log('[SolanaExecutor] Token on bonding curve, using pump.fun');
-        result = await this.sellViaPumpFunWithKeypair(
-          tokenMint,
-          tokenAmount,
-          keypair,
-          options
-        );
-        route = 'pump.fun';
-      } else {
-        // Use Jupiter for graduated tokens
-        console.log('[SolanaExecutor] Token graduated, using Jupiter');
+      try {
+        // Try Jupiter first (handles graduated + some bonding curve)
+        console.log('[SolanaExecutor] Attempting Jupiter sell');
         result = await this.sellViaJupiterWithKeypair(
           tokenMint,
           tokenAmount,
@@ -1013,6 +1004,38 @@ export class SolanaExecutor {
           options
         );
         route = 'Jupiter';
+        console.log('[SolanaExecutor] Jupiter sell successful');
+      } catch (jupiterError) {
+        // Jupiter failed - check if we can fall back to pump.fun
+        console.log('[SolanaExecutor] Jupiter sell failed, checking pump.fun fallback',
+          jupiterError instanceof Error ? jupiterError.message : jupiterError);
+
+        const tokenInfo = await this.getTokenInfo(tokenMint);
+
+        if (tokenInfo && !tokenInfo.graduated) {
+          // Token is on bonding curve - try pump.fun as fallback
+          console.log('[SolanaExecutor] Token on bonding curve, trying pump.fun fallback');
+          try {
+            result = await this.sellViaPumpFunWithKeypair(
+              tokenMint,
+              tokenAmount,
+              keypair,
+              options
+            );
+            route = 'pump.fun';
+            console.log('[SolanaExecutor] Pump.fun fallback successful');
+          } catch (pumpError) {
+            // Both Jupiter and pump.fun failed
+            console.error('[SolanaExecutor] Both Jupiter and pump.fun failed');
+            throw new Error(
+              `Sell failed via both routes. Jupiter: ${jupiterError instanceof Error ? jupiterError.message : 'Unknown'}. ` +
+              `Pump.fun: ${pumpError instanceof Error ? pumpError.message : 'Unknown'}`
+            );
+          }
+        } else {
+          // Token is graduated, Jupiter should have worked - re-throw
+          throw jupiterError;
+        }
       }
 
       // P1-2 FIX: Convert lamports to SOL before calculating price

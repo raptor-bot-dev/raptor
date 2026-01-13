@@ -611,6 +611,304 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
+    // ============================================
+    // v3.3 FIX (Issue 3): AUTOHUNT SETTINGS HANDLER
+    // ============================================
+
+    if (data === 'settings_autohunt') {
+      const message =
+        `*AUTOHUNT SETTINGS*\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `Configure your automated sniping strategies.\n\n` +
+        `Create/edit strategies\n` +
+        `Set filters and limits\n` +
+        `Enable/disable auto-execute\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━`;
+
+      const keyboard = new InlineKeyboard()
+        .text('View Strategies', 'settings_strategy')
+        .row()
+        .text('Gas Settings', 'settings_gas')
+        .text('Slippage', 'settings_slippage')
+        .row()
+        .text('Back', 'menu');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // ============================================
+    // v3.3 FIX (Issue 2): MANUAL SETTINGS HANDLERS
+    // ============================================
+
+    // Main manual settings menu
+    if (data === 'settings_manual') {
+      const { getOrCreateManualSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateManualSettings(user.id);
+
+      const slippagePercent = (settings.default_slippage_bps / 100).toFixed(1);
+      const prioritySol = settings.default_priority_sol;
+      const buyAmounts = settings.quick_buy_amounts as number[];
+
+      const message =
+        `*MANUAL SETTINGS*\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `*Default Slippage:* ${slippagePercent}%\n` +
+        `*Default Priority:* ${prioritySol} SOL\n` +
+        `*Quick Buy Amounts:* ${buyAmounts.join(', ')} SOL\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `_These settings apply to manual buy/sell trades._`;
+
+      const keyboard = new InlineKeyboard()
+        .text(`Slippage: ${slippagePercent}%`, 'manual_slippage_menu')
+        .row()
+        .text(`Priority: ${prioritySol} SOL`, 'manual_priority_menu')
+        .row()
+        .text('Quick Buy Amounts', 'manual_buyamts_menu')
+        .row()
+        .text('Back', 'menu');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Slippage selection menu
+    if (data === 'manual_slippage_menu') {
+      const { getOrCreateManualSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateManualSettings(user.id);
+      const currentBps = settings.default_slippage_bps;
+
+      const message =
+        `*SLIPPAGE SETTINGS*\n\n` +
+        `Current: ${(currentBps / 100).toFixed(1)}%\n\n` +
+        `_Higher slippage = more likely to execute_\n` +
+        `_Lower slippage = better price or fail_`;
+
+      const keyboard = new InlineKeyboard()
+        .text(currentBps === 100 ? '> 1%' : '1%', 'manual_slippage:100')
+        .text(currentBps === 300 ? '> 3%' : '3%', 'manual_slippage:300')
+        .text(currentBps === 500 ? '> 5%' : '5%', 'manual_slippage:500')
+        .row()
+        .text(currentBps === 1000 ? '> 10%' : '10%', 'manual_slippage:1000')
+        .text(currentBps === 1500 ? '> 15%' : '15%', 'manual_slippage:1500')
+        .text(currentBps === 2000 ? '> 20%' : '20%', 'manual_slippage:2000')
+        .row()
+        .text('Custom', 'manual_slippage_custom')
+        .row()
+        .text('Back', 'settings_manual');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Handle slippage preset selection
+    if (data.startsWith('manual_slippage:')) {
+      const bps = parseInt(data.replace('manual_slippage:', ''));
+      const { updateManualSettings, getOrCreateManualSettings } = await import('@raptor/shared');
+
+      await updateManualSettings({ userId: user.id, slippageBps: bps });
+
+      await ctx.answerCallbackQuery({ text: `Slippage set to ${(bps / 100).toFixed(1)}%` });
+
+      // Refresh the menu
+      const settings = await getOrCreateManualSettings(user.id);
+      const currentBps = settings.default_slippage_bps;
+
+      const message =
+        `*SLIPPAGE SETTINGS*\n\n` +
+        `Current: ${(currentBps / 100).toFixed(1)}%\n\n` +
+        `_Higher slippage = more likely to execute_\n` +
+        `_Lower slippage = better price or fail_`;
+
+      const keyboard = new InlineKeyboard()
+        .text(currentBps === 100 ? '> 1%' : '1%', 'manual_slippage:100')
+        .text(currentBps === 300 ? '> 3%' : '3%', 'manual_slippage:300')
+        .text(currentBps === 500 ? '> 5%' : '5%', 'manual_slippage:500')
+        .row()
+        .text(currentBps === 1000 ? '> 10%' : '10%', 'manual_slippage:1000')
+        .text(currentBps === 1500 ? '> 15%' : '15%', 'manual_slippage:1500')
+        .text(currentBps === 2000 ? '> 20%' : '20%', 'manual_slippage:2000')
+        .row()
+        .text('Custom', 'manual_slippage_custom')
+        .row()
+        .text('Back', 'settings_manual');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Custom slippage input
+    if (data === 'manual_slippage_custom') {
+      ctx.session.step = 'awaiting_manual_slippage';
+      await ctx.editMessageText(
+        `*CUSTOM SLIPPAGE*\n\n` +
+        `Enter slippage percentage (0.1 - 50):\n\n` +
+        `_Example: 7.5 for 7.5%_`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Priority selection menu
+    if (data === 'manual_priority_menu') {
+      const { getOrCreateManualSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateManualSettings(user.id);
+      const currentPriority = settings.default_priority_sol;
+
+      const message =
+        `*PRIORITY FEE SETTINGS*\n\n` +
+        `Current: ${currentPriority} SOL\n\n` +
+        `_Higher priority = faster execution_\n` +
+        `_Lower priority = lower cost_`;
+
+      const keyboard = new InlineKeyboard()
+        .text(currentPriority === 0.00005 ? '> 0.00005' : '0.00005', 'manual_priority:0.00005')
+        .text(currentPriority === 0.0001 ? '> 0.0001' : '0.0001', 'manual_priority:0.0001')
+        .row()
+        .text(currentPriority === 0.0005 ? '> 0.0005' : '0.0005', 'manual_priority:0.0005')
+        .text(currentPriority === 0.001 ? '> 0.001' : '0.001', 'manual_priority:0.001')
+        .row()
+        .text(currentPriority === 0.005 ? '> 0.005' : '0.005', 'manual_priority:0.005')
+        .text(currentPriority === 0.01 ? '> 0.01' : '0.01', 'manual_priority:0.01')
+        .row()
+        .text('Custom', 'manual_priority_custom')
+        .row()
+        .text('Back', 'settings_manual');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Handle priority preset selection
+    if (data.startsWith('manual_priority:')) {
+      const priority = parseFloat(data.replace('manual_priority:', ''));
+      const { updateManualSettings, getOrCreateManualSettings } = await import('@raptor/shared');
+
+      await updateManualSettings({ userId: user.id, prioritySol: priority });
+
+      await ctx.answerCallbackQuery({ text: `Priority set to ${priority} SOL` });
+
+      // Refresh menu
+      const settings = await getOrCreateManualSettings(user.id);
+      const currentPriority = settings.default_priority_sol;
+
+      const message =
+        `*PRIORITY FEE SETTINGS*\n\n` +
+        `Current: ${currentPriority} SOL\n\n` +
+        `_Higher priority = faster execution_\n` +
+        `_Lower priority = lower cost_`;
+
+      const keyboard = new InlineKeyboard()
+        .text(currentPriority === 0.00005 ? '> 0.00005' : '0.00005', 'manual_priority:0.00005')
+        .text(currentPriority === 0.0001 ? '> 0.0001' : '0.0001', 'manual_priority:0.0001')
+        .row()
+        .text(currentPriority === 0.0005 ? '> 0.0005' : '0.0005', 'manual_priority:0.0005')
+        .text(currentPriority === 0.001 ? '> 0.001' : '0.001', 'manual_priority:0.001')
+        .row()
+        .text(currentPriority === 0.005 ? '> 0.005' : '0.005', 'manual_priority:0.005')
+        .text(currentPriority === 0.01 ? '> 0.01' : '0.01', 'manual_priority:0.01')
+        .row()
+        .text('Custom', 'manual_priority_custom')
+        .row()
+        .text('Back', 'settings_manual');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Custom priority input
+    if (data === 'manual_priority_custom') {
+      ctx.session.step = 'awaiting_manual_priority';
+      await ctx.editMessageText(
+        `*CUSTOM PRIORITY*\n\n` +
+        `Enter priority fee in SOL (0.00001 - 0.1):\n\n` +
+        `_Example: 0.0025_`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Quick buy amounts menu
+    if (data === 'manual_buyamts_menu') {
+      const { getOrCreateManualSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateManualSettings(user.id);
+      const amounts = settings.quick_buy_amounts as number[];
+
+      const message =
+        `*QUICK BUY AMOUNTS*\n\n` +
+        `Current buttons: ${amounts.map(a => `${a} SOL`).join(', ')}\n\n` +
+        `_These appear on the token buy panel._`;
+
+      const keyboard = new InlineKeyboard()
+        .text('Reset to Default', 'manual_buyamts_reset')
+        .row()
+        .text('Customize', 'manual_buyamts_custom')
+        .row()
+        .text('Back', 'settings_manual');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Reset buy amounts to default
+    if (data === 'manual_buyamts_reset') {
+      const { updateManualSettings } = await import('@raptor/shared');
+      await updateManualSettings({ userId: user.id, quickBuyAmounts: [0.1, 0.25, 0.5, 1, 2] });
+      await ctx.answerCallbackQuery({ text: 'Reset to default amounts' });
+
+      // Show updated menu
+      const message =
+        `*QUICK BUY AMOUNTS*\n\n` +
+        `Current buttons: 0.1 SOL, 0.25 SOL, 0.5 SOL, 1 SOL, 2 SOL\n\n` +
+        `_These appear on the token buy panel._`;
+
+      const keyboard = new InlineKeyboard()
+        .text('Reset to Default', 'manual_buyamts_reset')
+        .row()
+        .text('Customize', 'manual_buyamts_custom')
+        .row()
+        .text('Back', 'settings_manual');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Custom buy amounts input
+    if (data === 'manual_buyamts_custom') {
+      ctx.session.step = 'awaiting_manual_buyamts';
+      await ctx.editMessageText(
+        `*CUSTOM BUY AMOUNTS*\n\n` +
+        `Enter 5 amounts separated by commas:\n\n` +
+        `_Example: 0.05, 0.1, 0.25, 0.5, 1_`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
     // === STRATEGY CALLBACKS ===
     // View strategy detail
     if (data.startsWith('strategy_view_')) {
@@ -1316,19 +1614,252 @@ Tap "Show Keys" to reveal your private keys.`;
       }
     }
 
+    // ============================================
+    // v3.3 FIX (Issue 5): SELL PANEL SLIPPAGE/PRIORITY
+    // ============================================
+
     // Sell slippage adjustment (sell_slippage:<mint>)
     if (data.startsWith('sell_slippage:')) {
       const mint = data.replace('sell_slippage:', '');
-      await ctx.answerCallbackQuery({ text: 'Slippage: 5% (default)' });
-      // TODO: Show slippage selection UI
+
+      const { getOrCreateManualSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateManualSettings(user.id);
+      const currentBps = settings.default_slippage_bps;
+
+      const message =
+        `*SELL SLIPPAGE*\n\n` +
+        `Current: ${(currentBps / 100).toFixed(1)}%\n\n` +
+        `Select slippage for sells:`;
+
+      const keyboard = new InlineKeyboard()
+        .text(currentBps === 100 ? '> 1%' : '1%', `set_sell_slip:${mint}_100`)
+        .text(currentBps === 300 ? '> 3%' : '3%', `set_sell_slip:${mint}_300`)
+        .text(currentBps === 500 ? '> 5%' : '5%', `set_sell_slip:${mint}_500`)
+        .row()
+        .text(currentBps === 1000 ? '> 10%' : '10%', `set_sell_slip:${mint}_1000`)
+        .text(currentBps === 1500 ? '> 15%' : '15%', `set_sell_slip:${mint}_1500`)
+        .text(currentBps === 2000 ? '> 20%' : '20%', `set_sell_slip:${mint}_2000`)
+        .row()
+        .text('Back', `open_sell:${mint}`);
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Set sell slippage
+    if (data.startsWith('set_sell_slip:')) {
+      const parts = data.replace('set_sell_slip:', '').split('_');
+      const bps = parseInt(parts[parts.length - 1]);
+      const mint = parts.slice(0, -1).join('_');
+
+      const { updateManualSettings, getOrCreateManualSettings } = await import('@raptor/shared');
+      await updateManualSettings({ userId: user.id, slippageBps: bps });
+
+      await ctx.answerCallbackQuery({ text: `Slippage set to ${(bps / 100).toFixed(1)}%` });
+
+      // Show updated slippage menu
+      const settings = await getOrCreateManualSettings(user.id);
+      const currentBps = settings.default_slippage_bps;
+
+      const message =
+        `*SELL SLIPPAGE*\n\n` +
+        `Current: ${(currentBps / 100).toFixed(1)}%\n\n` +
+        `Select slippage for sells:`;
+
+      const keyboard = new InlineKeyboard()
+        .text(currentBps === 100 ? '> 1%' : '1%', `set_sell_slip:${mint}_100`)
+        .text(currentBps === 300 ? '> 3%' : '3%', `set_sell_slip:${mint}_300`)
+        .text(currentBps === 500 ? '> 5%' : '5%', `set_sell_slip:${mint}_500`)
+        .row()
+        .text(currentBps === 1000 ? '> 10%' : '10%', `set_sell_slip:${mint}_1000`)
+        .text(currentBps === 1500 ? '> 15%' : '15%', `set_sell_slip:${mint}_1500`)
+        .text(currentBps === 2000 ? '> 20%' : '20%', `set_sell_slip:${mint}_2000`)
+        .row()
+        .text('Back', `open_sell:${mint}`);
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
       return;
     }
 
     // Sell priority adjustment (sell_priority:<mint>)
     if (data.startsWith('sell_priority:')) {
       const mint = data.replace('sell_priority:', '');
-      await ctx.answerCallbackQuery({ text: 'Priority: Normal (default)' });
-      // TODO: Show priority selection UI
+
+      const { getOrCreateManualSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateManualSettings(user.id);
+      const current = settings.default_priority_sol;
+
+      const message =
+        `*SELL PRIORITY*\n\n` +
+        `Current: ${current} SOL\n\n` +
+        `Select priority fee for sells:`;
+
+      const keyboard = new InlineKeyboard()
+        .text(current === 0.00005 ? '> 0.00005' : '0.00005', `set_sell_prio:${mint}_0.00005`)
+        .text(current === 0.0001 ? '> 0.0001' : '0.0001', `set_sell_prio:${mint}_0.0001`)
+        .row()
+        .text(current === 0.0005 ? '> 0.0005' : '0.0005', `set_sell_prio:${mint}_0.0005`)
+        .text(current === 0.001 ? '> 0.001' : '0.001', `set_sell_prio:${mint}_0.001`)
+        .row()
+        .text(current === 0.005 ? '> 0.005' : '0.005', `set_sell_prio:${mint}_0.005`)
+        .text(current === 0.01 ? '> 0.01' : '0.01', `set_sell_prio:${mint}_0.01`)
+        .row()
+        .text('Back', `open_sell:${mint}`);
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Set sell priority
+    if (data.startsWith('set_sell_prio:')) {
+      const parts = data.replace('set_sell_prio:', '').split('_');
+      const priority = parseFloat(parts[parts.length - 1]);
+      const mint = parts.slice(0, -1).join('_');
+
+      const { updateManualSettings, getOrCreateManualSettings } = await import('@raptor/shared');
+      await updateManualSettings({ userId: user.id, prioritySol: priority });
+
+      await ctx.answerCallbackQuery({ text: `Priority set to ${priority} SOL` });
+
+      // Show updated priority menu
+      const settings = await getOrCreateManualSettings(user.id);
+      const current = settings.default_priority_sol;
+
+      const message =
+        `*SELL PRIORITY*\n\n` +
+        `Current: ${current} SOL\n\n` +
+        `Select priority fee for sells:`;
+
+      const keyboard = new InlineKeyboard()
+        .text(current === 0.00005 ? '> 0.00005' : '0.00005', `set_sell_prio:${mint}_0.00005`)
+        .text(current === 0.0001 ? '> 0.0001' : '0.0001', `set_sell_prio:${mint}_0.0001`)
+        .row()
+        .text(current === 0.0005 ? '> 0.0005' : '0.0005', `set_sell_prio:${mint}_0.0005`)
+        .text(current === 0.001 ? '> 0.001' : '0.001', `set_sell_prio:${mint}_0.001`)
+        .row()
+        .text(current === 0.005 ? '> 0.005' : '0.005', `set_sell_prio:${mint}_0.005`)
+        .text(current === 0.01 ? '> 0.01' : '0.01', `set_sell_prio:${mint}_0.01`)
+        .row()
+        .text('Back', `open_sell:${mint}`);
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // ============================================
+    // v3.3 FIX (Issue 4): BUY PANEL SLIPPAGE/PRIORITY
+    // ============================================
+
+    // Buy panel slippage adjustment
+    if (data.startsWith('buy_slippage:')) {
+      const parts = data.replace('buy_slippage:', '').split('_');
+      const chain = parts[0];
+      const mint = parts.slice(1).join('_');
+
+      const { getOrCreateManualSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateManualSettings(user.id);
+      const currentBps = settings.default_slippage_bps;
+
+      const message =
+        `*BUY SLIPPAGE*\n\n` +
+        `Current: ${(currentBps / 100).toFixed(1)}%\n\n` +
+        `Select slippage for this trade:`;
+
+      const keyboard = new InlineKeyboard()
+        .text(currentBps === 100 ? '> 1%' : '1%', `set_buy_slip:${chain}_${mint}_100`)
+        .text(currentBps === 300 ? '> 3%' : '3%', `set_buy_slip:${chain}_${mint}_300`)
+        .text(currentBps === 500 ? '> 5%' : '5%', `set_buy_slip:${chain}_${mint}_500`)
+        .row()
+        .text(currentBps === 1000 ? '> 10%' : '10%', `set_buy_slip:${chain}_${mint}_1000`)
+        .text(currentBps === 1500 ? '> 15%' : '15%', `set_buy_slip:${chain}_${mint}_1500`)
+        .text(currentBps === 2000 ? '> 20%' : '20%', `set_buy_slip:${chain}_${mint}_2000`)
+        .row()
+        .text('Back to Token', `token:${mint}`);
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Set buy slippage
+    if (data.startsWith('set_buy_slip:')) {
+      const parts = data.replace('set_buy_slip:', '').split('_');
+      const bps = parseInt(parts[parts.length - 1]);
+      const chain = parts[0];
+      const mint = parts.slice(1, -1).join('_');
+
+      const { updateManualSettings } = await import('@raptor/shared');
+      await updateManualSettings({ userId: user.id, slippageBps: bps });
+
+      await ctx.answerCallbackQuery({ text: `Slippage set to ${(bps / 100).toFixed(1)}%` });
+
+      // Return to token panel
+      await handleTradeChainSelected(ctx, chain as Chain, mint);
+      return;
+    }
+
+    // Buy panel priority adjustment
+    if (data.startsWith('buy_priority:')) {
+      const parts = data.replace('buy_priority:', '').split('_');
+      const chain = parts[0];
+      const mint = parts.slice(1).join('_');
+
+      const { getOrCreateManualSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateManualSettings(user.id);
+      const current = settings.default_priority_sol;
+
+      const message =
+        `*BUY PRIORITY*\n\n` +
+        `Current: ${current} SOL\n\n` +
+        `Select priority fee for this trade:`;
+
+      const keyboard = new InlineKeyboard()
+        .text(current === 0.00005 ? '> 0.00005' : '0.00005', `set_buy_prio:${chain}_${mint}_0.00005`)
+        .text(current === 0.0001 ? '> 0.0001' : '0.0001', `set_buy_prio:${chain}_${mint}_0.0001`)
+        .row()
+        .text(current === 0.0005 ? '> 0.0005' : '0.0005', `set_buy_prio:${chain}_${mint}_0.0005`)
+        .text(current === 0.001 ? '> 0.001' : '0.001', `set_buy_prio:${chain}_${mint}_0.001`)
+        .row()
+        .text(current === 0.005 ? '> 0.005' : '0.005', `set_buy_prio:${chain}_${mint}_0.005`)
+        .text(current === 0.01 ? '> 0.01' : '0.01', `set_buy_prio:${chain}_${mint}_0.01`)
+        .row()
+        .text('Back to Token', `token:${mint}`);
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Set buy priority
+    if (data.startsWith('set_buy_prio:')) {
+      const parts = data.replace('set_buy_prio:', '').split('_');
+      const priority = parseFloat(parts[parts.length - 1]);
+      const chain = parts[0];
+      const mint = parts.slice(1, -1).join('_');
+
+      const { updateManualSettings } = await import('@raptor/shared');
+      await updateManualSettings({ userId: user.id, prioritySol: priority });
+
+      await ctx.answerCallbackQuery({ text: `Priority set to ${priority} SOL` });
+
+      // Return to token panel
+      await handleTradeChainSelected(ctx, chain as Chain, mint);
       return;
     }
 

@@ -442,9 +442,9 @@ function formatSnipeAnalysis(
   message += `⏱️ *Age:* ${analysis.tokenInfo.age}\n\n`;
 
   // Score and decision
-  message += `━━━━━━━━━━━━━━━━━━\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
   message += `*Score:* ${analysis.total}/35 ${decisionEmoji[analysis.decision]} *${analysis.decision}*\n`;
-  message += `━━━━━━━━━━━━━━━━━━\n\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
   // Category breakdown
   const cats = analysis.categories;

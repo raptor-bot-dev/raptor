@@ -103,6 +103,53 @@ async function handleSessionFlow(ctx: MyContext, text: string): Promise<boolean>
       await handleCustomSellInput(ctx, text);
       return true;
 
+    // v3.3 FIX (Issue 2): Handle custom manual settings inputs
+    case 'awaiting_manual_slippage': {
+      const value = parseFloat(text);
+      if (isNaN(value) || value < 0.1 || value > 50) {
+        await ctx.reply('Invalid slippage. Enter a number between 0.1 and 50:');
+        return true;
+      }
+
+      const { updateManualSettings } = await import('@raptor/shared');
+      await updateManualSettings({ userId: ctx.from!.id, slippageBps: Math.round(value * 100) });
+
+      ctx.session.step = null;
+      await ctx.reply(`Slippage set to ${value}%\n\nUse /menu to continue.`);
+      return true;
+    }
+
+    case 'awaiting_manual_priority': {
+      const value = parseFloat(text);
+      if (isNaN(value) || value < 0.00001 || value > 0.1) {
+        await ctx.reply('Invalid priority. Enter a number between 0.00001 and 0.1:');
+        return true;
+      }
+
+      const { updateManualSettings } = await import('@raptor/shared');
+      await updateManualSettings({ userId: ctx.from!.id, prioritySol: value });
+
+      ctx.session.step = null;
+      await ctx.reply(`Priority set to ${value} SOL\n\nUse /menu to continue.`);
+      return true;
+    }
+
+    case 'awaiting_manual_buyamts': {
+      const parts = text.split(',').map(s => parseFloat(s.trim()));
+
+      if (parts.length !== 5 || parts.some(isNaN) || parts.some(v => v <= 0 || v > 100)) {
+        await ctx.reply('Invalid input. Enter exactly 5 positive numbers separated by commas:');
+        return true;
+      }
+
+      const { updateManualSettings } = await import('@raptor/shared');
+      await updateManualSettings({ userId: ctx.from!.id, quickBuyAmounts: parts });
+
+      ctx.session.step = null;
+      await ctx.reply(`Quick buy amounts set to: ${parts.join(', ')} SOL\n\nUse /menu to continue.`);
+      return true;
+    }
+
     default:
       return false;
   }

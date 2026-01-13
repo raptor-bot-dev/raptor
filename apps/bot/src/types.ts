@@ -19,6 +19,9 @@ export interface SessionData {
     | 'awaiting_sell_tokens'
     | 'awaiting_sell_percent'
     | 'awaiting_sell_ca'  // v3.2: For /sell command flow
+    | 'awaiting_manual_slippage'   // v3.3: Manual settings custom slippage
+    | 'awaiting_manual_priority'   // v3.3: Manual settings custom priority
+    | 'awaiting_manual_buyamts'    // v3.3: Manual settings custom buy amounts
     | CustomStrategyStep
     | null;
   pendingWithdrawal: {

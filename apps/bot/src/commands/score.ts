@@ -369,9 +369,9 @@ function formatTokenAnalysis(
   message += `\n`;
 
   // Score and decision
-  message += `━━━━━━━━━━━━━━━━━━\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
   message += `*Score:* ${analysis.total}/35 ${decisionEmoji[analysis.decision]} *${analysis.decision}*\n`;
-  message += `━━━━━━━━━━━━━━━━━━\n\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
   // Category breakdown with visual bars
   const cats = analysis.categories;
