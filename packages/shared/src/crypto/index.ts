@@ -14,6 +14,8 @@ export {
   isV2Encrypted,
   migrateToV2,
   secureClear,
+  secureClearBytes,
+  clearAndNull,
   type EncryptedData,
 } from './encryption.js';
 

@@ -248,13 +248,71 @@ export function isV2Encrypted(data: EncryptedData): boolean {
 
 /**
  * Securely clear sensitive data from memory
- * Note: This is best-effort in JS due to garbage collection
+ *
+ * SECURITY: C-2 documentation - Understanding JavaScript memory limitations
+ *
+ * IMPORTANT LIMITATIONS:
+ * - JavaScript strings are IMMUTABLE and cannot be overwritten in place
+ * - The original string remains in memory until garbage collected
+ * - V8 may keep string references longer due to string interning
+ * - This function provides best-effort clearing but is NOT cryptographically secure
+ *
+ * EFFECTIVE FOR:
+ * - Uint8Array: CAN be zeroed in place (recommended for sensitive data)
+ * - Buffer: CAN be zeroed in place
+ *
+ * NOT EFFECTIVE FOR:
+ * - Strings: Creates a copy buffer and zeros it, but original string persists
+ *
+ * RECOMMENDATIONS:
+ * 1. Use Uint8Array instead of strings for sensitive data where possible
+ * 2. Minimize the lifetime of sensitive string variables
+ * 3. Set variables to null after use to hint GC
+ * 4. Avoid logging or passing sensitive strings to functions that may retain them
+ *
+ * @param data - The sensitive data to clear (string, Buffer, or Uint8Array)
  */
-export function secureClear(data: string): void {
-  // Overwrite string characters (limited effectiveness in JS)
+export function secureClear(data: string | Buffer | Uint8Array | null | undefined): void {
+  if (!data) return;
+
+  if (data instanceof Uint8Array || Buffer.isBuffer(data)) {
+    // Uint8Array and Buffer CAN be zeroed in place - this is effective
+    data.fill(0);
+    return;
+  }
+
   if (typeof data === 'string' && data.length > 0) {
-    // Create a buffer and fill with zeros
+    // WARNING: This only zeros a COPY of the string data
+    // The original string remains in memory - this is a JS limitation
+    // We do this anyway to clear at least the buffer copy
     const buf = Buffer.from(data);
     buf.fill(0);
+    // Dereferencing doesn't help much but doesn't hurt
   }
+}
+
+/**
+ * Clear a Uint8Array in place - guaranteed effective
+ * Use this for cryptographic key material when possible
+ */
+export function secureClearBytes(data: Uint8Array | null | undefined): void {
+  if (data) {
+    data.fill(0);
+  }
+}
+
+/**
+ * Helper to clear sensitive data and return undefined
+ * Useful for setting variables to undefined after use
+ *
+ * @example
+ * let secretKey = getSecretKey();
+ * // ... use secretKey ...
+ * secretKey = clearAndNull(secretKey);
+ */
+export function clearAndNull<T extends string | Buffer | Uint8Array>(
+  data: T | null | undefined
+): undefined {
+  secureClear(data);
+  return undefined;
 }

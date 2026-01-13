@@ -74,11 +74,55 @@ export class SolanaExecutor {
   private pumpFunClient: PumpFunClient | null = null;
   private running: boolean = false;
 
+  // H-1 fix: Default timeout for transaction confirmation (30 seconds)
+  private static readonly TX_CONFIRM_TIMEOUT_MS = 30000;
+
   constructor() {
     this.rpcUrl = SOLANA_CONFIG.rpcUrl;
     this.wssUrl = SOLANA_CONFIG.wssUrl;
     this.jupiterClient = new JupiterClient();
     this.connection = new Connection(this.rpcUrl, 'confirmed');
+  }
+
+  /**
+   * Confirm transaction with explicit timeout
+   *
+   * SECURITY: H-1 fix - Prevents hanging indefinitely on network congestion.
+   * The Solana confirmTransaction method can take up to ~2 minutes with blockhash
+   * strategy. This wrapper ensures we fail fast and allow retry logic to handle it.
+   *
+   * @param signature - Transaction signature to confirm
+   * @param blockhash - Recent blockhash used in transaction
+   * @param lastValidBlockHeight - Block height after which tx is invalid
+   * @param timeoutMs - Maximum time to wait (default: 30s)
+   * @throws Error with 'TIMEOUT' if confirmation takes too long
+   */
+  private async confirmTransactionWithTimeout(
+    signature: string,
+    blockhash: string,
+    lastValidBlockHeight: number,
+    timeoutMs: number = SolanaExecutor.TX_CONFIRM_TIMEOUT_MS
+  ): Promise<void> {
+    const confirmPromise = this.connection.confirmTransaction(
+      {
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      },
+      'confirmed'
+    );
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Transaction confirmation timeout after ${timeoutMs}ms. Signature: ${signature.slice(0, 20)}...`));
+      }, timeoutMs);
+    });
+
+    const confirmation = await Promise.race([confirmPromise, timeoutPromise]);
+
+    if (confirmation.value.err) {
+      throw new Error(`Transaction failed on-chain: ${JSON.stringify(confirmation.value.err)}`);
+    }
   }
 
   /**
@@ -667,19 +711,12 @@ export class SolanaExecutor {
         maxRetries: 3,
       });
 
-      // Wait for confirmation
-      const confirmation = await this.connection.confirmTransaction(
-        {
-          signature: txHash,
-          blockhash: transaction.message.recentBlockhash,
-          lastValidBlockHeight: swapResponse.lastValidBlockHeight,
-        },
-        'confirmed'
+      // Wait for confirmation with timeout (H-1 fix)
+      await this.confirmTransactionWithTimeout(
+        txHash,
+        transaction.message.recentBlockhash,
+        swapResponse.lastValidBlockHeight
       );
-
-      if (confirmation.value.err) {
-        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-      }
 
       const tokensReceived = expectedTokens / 1e6; // Adjust decimals
       console.log(`[SolanaExecutor] Jupiter buy successful: ${txHash}`);
@@ -744,19 +781,12 @@ export class SolanaExecutor {
         maxRetries: 3,
       });
 
-      // Wait for confirmation
-      const confirmation = await this.connection.confirmTransaction(
-        {
-          signature: txHash,
-          blockhash: transaction.message.recentBlockhash,
-          lastValidBlockHeight: swapResponse.lastValidBlockHeight,
-        },
-        'confirmed'
+      // Wait for confirmation with timeout (H-1 fix)
+      await this.confirmTransactionWithTimeout(
+        txHash,
+        transaction.message.recentBlockhash,
+        swapResponse.lastValidBlockHeight
       );
-
-      if (confirmation.value.err) {
-        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-      }
 
       console.log(`[SolanaExecutor] Jupiter sell successful: ${txHash}`);
 
@@ -851,19 +881,12 @@ export class SolanaExecutor {
 
       console.log(`[SolanaExecutor] Transaction sent: ${txHash}`);
 
-      // Wait for confirmation
-      const confirmation = await this.connection.confirmTransaction(
-        {
-          signature: txHash,
-          blockhash: transaction.message.recentBlockhash,
-          lastValidBlockHeight: swapResponse.lastValidBlockHeight,
-        },
-        'confirmed'
+      // Wait for confirmation with timeout (H-1 fix)
+      await this.confirmTransactionWithTimeout(
+        txHash,
+        transaction.message.recentBlockhash,
+        swapResponse.lastValidBlockHeight
       );
-
-      if (confirmation.value.err) {
-        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-      }
 
       console.log(`[SolanaExecutor] Jupiter buy successful: ${txHash}`);
 
@@ -1052,19 +1075,12 @@ export class SolanaExecutor {
 
       console.log(`[SolanaExecutor] Transaction sent: ${txHash}`);
 
-      // Wait for confirmation
-      const confirmation = await this.connection.confirmTransaction(
-        {
-          signature: txHash,
-          blockhash: transaction.message.recentBlockhash,
-          lastValidBlockHeight: swapResponse.lastValidBlockHeight,
-        },
-        'confirmed'
+      // Wait for confirmation with timeout (H-1 fix)
+      await this.confirmTransactionWithTimeout(
+        txHash,
+        transaction.message.recentBlockhash,
+        swapResponse.lastValidBlockHeight
       );
-
-      if (confirmation.value.err) {
-        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-      }
 
       console.log(`[SolanaExecutor] Jupiter sell successful: ${txHash}`);
 

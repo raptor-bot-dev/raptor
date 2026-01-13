@@ -85,50 +85,93 @@ export function generateUserWallets(tgId?: number): UserWalletKeys {
 
 /**
  * Load a Solana keypair from encrypted storage
+ *
+ * SECURITY: C-1 fix - Ensures private key is cleared from memory before
+ * any error is thrown to prevent key leakage in stack traces/logs.
+ *
  * @param encrypted - The encrypted private key data
  * @param tgId - Telegram user ID for v2 decryption (optional for legacy v1 data)
  * @returns Solana Keypair ready for signing
+ * @throws Error if decryption or key parsing fails (sanitized, no key in message)
  */
 export function loadSolanaKeypair(encrypted: EncryptedData, tgId?: number): Keypair {
-  // Decrypt the private key
-  const privateKeyBase58 = decryptPrivateKey(encrypted, tgId);
+  let privateKeyBase58: string | null = null;
+  let secretKey: Uint8Array | null = null;
 
-  // Decode from base58 to Uint8Array
-  const secretKey = bs58.decode(privateKeyBase58);
+  try {
+    // Decrypt the private key
+    privateKeyBase58 = decryptPrivateKey(encrypted, tgId);
 
-  // Create keypair from secret key
-  const keypair = Keypair.fromSecretKey(secretKey);
+    // Decode from base58 to Uint8Array
+    secretKey = bs58.decode(privateKeyBase58);
 
-  // Clear sensitive data
-  secureClear(privateKeyBase58);
+    // Create keypair from secret key
+    const keypair = Keypair.fromSecretKey(secretKey);
 
-  return keypair;
+    return keypair;
+  } catch (error) {
+    // Sanitized error - never include key material in error message
+    const safeMessage = error instanceof Error
+      ? error.message.replace(/[1-9A-HJ-NP-Za-km-z]{32,}/g, '[REDACTED]')
+      : 'Unknown error';
+    throw new Error(`Failed to load Solana keypair: ${safeMessage}`);
+  } finally {
+    // CRITICAL: Always clear sensitive data, even on error
+    if (privateKeyBase58) {
+      secureClear(privateKeyBase58);
+    }
+    if (secretKey) {
+      secretKey.fill(0);
+    }
+  }
 }
 
 /**
  * Load an EVM wallet from encrypted storage
+ *
+ * SECURITY: C-1 fix - Ensures private key is cleared from memory before
+ * any error is thrown to prevent key leakage in stack traces/logs.
+ *
  * @param encrypted - The encrypted private key data
  * @param tgId - Telegram user ID for v2 decryption (optional for legacy v1 data)
  * @param provider - Optional ethers provider for connected wallet
  * @returns ethers Wallet ready for signing
+ * @throws Error if decryption or wallet creation fails (sanitized, no key in message)
  */
 export function loadEvmWallet(
   encrypted: EncryptedData,
   tgId?: number,
   provider?: unknown
 ): ethers.Wallet {
-  // Decrypt the private key
-  const privateKeyHex = decryptPrivateKey(encrypted, tgId);
+  let privateKeyHex: string | null = null;
 
-  // Create wallet from private key
-  const wallet = provider
-    ? new ethers.Wallet(privateKeyHex, provider as ethers.Provider)
-    : new ethers.Wallet(privateKeyHex);
+  try {
+    // Decrypt the private key
+    privateKeyHex = decryptPrivateKey(encrypted, tgId);
 
-  // Clear sensitive data
-  secureClear(privateKeyHex);
+    // Ensure 0x prefix for ethers
+    const normalizedKey = privateKeyHex.startsWith('0x')
+      ? privateKeyHex
+      : `0x${privateKeyHex}`;
 
-  return wallet;
+    // Create wallet from private key
+    const wallet = provider
+      ? new ethers.Wallet(normalizedKey, provider as ethers.Provider)
+      : new ethers.Wallet(normalizedKey);
+
+    return wallet;
+  } catch (error) {
+    // Sanitized error - never include key material in error message
+    const safeMessage = error instanceof Error
+      ? error.message.replace(/0x[a-fA-F0-9]{64}/g, '[REDACTED]').replace(/[a-fA-F0-9]{64}/g, '[REDACTED]')
+      : 'Unknown error';
+    throw new Error(`Failed to load EVM wallet: ${safeMessage}`);
+  } finally {
+    // CRITICAL: Always clear sensitive data, even on error
+    if (privateKeyHex) {
+      secureClear(privateKeyHex);
+    }
+  }
 }
 
 /**
