@@ -24,7 +24,7 @@ import {
   createNotification,
   getActiveWallet,
   getUserWallets,
-  getOpenPositions,
+  getUserOpenPositions,
   createLogger,
   loadSolanaKeypair,
   applySellFeeDecimal,
@@ -91,11 +91,9 @@ export async function handleManualSell(
   await ctx.answerCallbackQuery({ text: `Processing ${sellPercent}% sell...` });
 
   try {
-    // Get position to find details
-    const positions = await getOpenPositions();
-    const position = positions.find(
-      (p) => p.id === positionId && p.user_id === user.id
-    );
+    // M-2: Get user's positions with server-side filtering
+    const positions = await getUserOpenPositions(user.id);
+    const position = positions.find((p) => p.id === positionId);
 
     if (!position) {
       await ctx.reply('Position not found or already closed.');
@@ -174,8 +172,8 @@ export async function showPositionsForSell(ctx: MyContext): Promise<void> {
   const user = ctx.from;
   if (!user) return;
 
-  const positions = await getOpenPositions();
-  const userPositions = positions.filter((p) => p.user_id === user.id);
+  // M-2: Get user's positions with server-side filtering
+  const userPositions = await getUserOpenPositions(user.id);
 
   if (userPositions.length === 0) {
     await ctx.reply(

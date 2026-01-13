@@ -174,8 +174,11 @@ import { getMonitorById, getUserMonitor, createPositionV31, getOrCreateManualStr
 import { solanaExecutor } from '@raptor/executor/solana';
 
 export async function handleCallbackQuery(ctx: MyContext) {
-  const data = ctx.callbackQuery?.data;
-  if (!data) return;
+  const rawData = ctx.callbackQuery?.data;
+  if (!rawData) return;
+
+  // M-1: Sanitize callback data to prevent injection attacks
+  const data = sanitizeCallbackData(rawData);
 
   const user = ctx.from;
   if (!user) return;

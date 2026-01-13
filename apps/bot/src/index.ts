@@ -65,6 +65,10 @@ console.log('==================================================');
 const bot = new Bot<MyContext>(process.env.TELEGRAM_BOT_TOKEN);
 
 // Session middleware
+// M-5 LIMITATION: Uses in-memory storage - session state is lost on restart/redeploy.
+// This affects users in multi-step flows (withdrawal, import) who will need to restart.
+// For production scaling, consider @grammyjs/storage-supabase or Redis adapter.
+// Current impact is minimal since most flows complete quickly (<30s).
 bot.use(
   session({
     initial: (): SessionData => ({

@@ -9,6 +9,11 @@ import { fetchWithRetry } from '../../utils/fetchWithTimeout.js';
 const JUPITER_SWAP_API = 'https://api.jup.ag/swap/v1';
 const JUPITER_PRICE_API = 'https://api.jup.ag/price/v2';
 
+// M-4: Circuit breaker configuration
+const CIRCUIT_BREAKER_THRESHOLD = 5; // Failures before opening circuit
+const CIRCUIT_BREAKER_RESET_MS = 60_000; // 1 minute reset time
+const CIRCUIT_BREAKER_HALF_OPEN_REQUESTS = 1; // Test requests when half-open
+
 export interface JupiterQuote {
   inputMint: string;
   inAmount: string;
@@ -41,13 +46,102 @@ export interface JupiterSwapResponse {
   prioritizationFeeLamports: number;
 }
 
+/**
+ * M-4: Circuit breaker state
+ */
+type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+
+interface CircuitBreakerState {
+  state: CircuitState;
+  failures: number;
+  lastFailure: number;
+  halfOpenRequests: number;
+}
+
 export class JupiterClient {
   private swapApiBase: string;
   private priceApiBase: string;
 
+  // M-4: Circuit breaker for Jupiter API
+  private circuitBreaker: CircuitBreakerState = {
+    state: 'CLOSED',
+    failures: 0,
+    lastFailure: 0,
+    halfOpenRequests: 0,
+  };
+
   constructor(swapApiBase: string = JUPITER_SWAP_API, priceApiBase: string = JUPITER_PRICE_API) {
     this.swapApiBase = swapApiBase;
     this.priceApiBase = priceApiBase;
+  }
+
+  /**
+   * M-4: Check if request should be allowed through circuit breaker
+   */
+  private checkCircuitBreaker(): void {
+    const now = Date.now();
+
+    switch (this.circuitBreaker.state) {
+      case 'OPEN':
+        // Check if we should transition to half-open
+        if (now - this.circuitBreaker.lastFailure > CIRCUIT_BREAKER_RESET_MS) {
+          console.log('[Jupiter] Circuit breaker transitioning to HALF_OPEN');
+          this.circuitBreaker.state = 'HALF_OPEN';
+          this.circuitBreaker.halfOpenRequests = 0;
+        } else {
+          throw new Error('Jupiter API circuit breaker is OPEN. Try again later.');
+        }
+        break;
+
+      case 'HALF_OPEN':
+        // Only allow limited requests in half-open state
+        if (this.circuitBreaker.halfOpenRequests >= CIRCUIT_BREAKER_HALF_OPEN_REQUESTS) {
+          throw new Error('Jupiter API circuit breaker is testing. Try again shortly.');
+        }
+        this.circuitBreaker.halfOpenRequests++;
+        break;
+
+      case 'CLOSED':
+        // Normal operation
+        break;
+    }
+  }
+
+  /**
+   * M-4: Record successful request
+   */
+  private recordSuccess(): void {
+    if (this.circuitBreaker.state === 'HALF_OPEN') {
+      console.log('[Jupiter] Circuit breaker transitioning to CLOSED (success in half-open)');
+      this.circuitBreaker.state = 'CLOSED';
+      this.circuitBreaker.failures = 0;
+    }
+  }
+
+  /**
+   * M-4: Record failed request
+   */
+  private recordFailure(): void {
+    this.circuitBreaker.failures++;
+    this.circuitBreaker.lastFailure = Date.now();
+
+    if (this.circuitBreaker.state === 'HALF_OPEN') {
+      console.log('[Jupiter] Circuit breaker transitioning to OPEN (failure in half-open)');
+      this.circuitBreaker.state = 'OPEN';
+    } else if (this.circuitBreaker.failures >= CIRCUIT_BREAKER_THRESHOLD) {
+      console.log(`[Jupiter] Circuit breaker OPEN after ${this.circuitBreaker.failures} failures`);
+      this.circuitBreaker.state = 'OPEN';
+    }
+  }
+
+  /**
+   * Get circuit breaker status (for monitoring)
+   */
+  getCircuitBreakerStatus(): { state: CircuitState; failures: number } {
+    return {
+      state: this.circuitBreaker.state,
+      failures: this.circuitBreaker.failures,
+    };
   }
 
   /**
@@ -63,6 +157,9 @@ export class JupiterClient {
     amount: bigint,
     slippageBps: number = 100
   ): Promise<JupiterQuote> {
+    // M-4: Check circuit breaker before making request
+    this.checkCircuitBreaker();
+
     const params = new URLSearchParams({
       inputMint,
       outputMint,
@@ -72,14 +169,24 @@ export class JupiterClient {
       asLegacyTransaction: 'false',
     });
 
-    const response = await fetchWithRetry(`${this.swapApiBase}/quote?${params}`, {}, 5000, 3);
+    try {
+      const response = await fetchWithRetry(`${this.swapApiBase}/quote?${params}`, {}, 5000, 3);
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Jupiter quote failed: ${error}`);
+      if (!response.ok) {
+        const error = await response.text();
+        this.recordFailure();
+        throw new Error(`Jupiter quote failed: ${error}`);
+      }
+
+      this.recordSuccess();
+      return response.json() as Promise<JupiterQuote>;
+    } catch (error) {
+      // Don't double-count circuit breaker errors
+      if (!(error instanceof Error && error.message.includes('circuit breaker'))) {
+        this.recordFailure();
+      }
+      throw error;
     }
-
-    return response.json() as Promise<JupiterQuote>;
   }
 
   /**
@@ -91,26 +198,39 @@ export class JupiterClient {
     quote: JupiterQuote,
     userPublicKey: string
   ): Promise<JupiterSwapResponse> {
-    const response = await fetchWithRetry(`${this.swapApiBase}/swap`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey,
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: 'auto',
-      }),
-    }, 5000, 3);
+    // M-4: Check circuit breaker before making request
+    this.checkCircuitBreaker();
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Jupiter swap failed: ${error}`);
+    try {
+      const response = await fetchWithRetry(`${this.swapApiBase}/swap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          quoteResponse: quote,
+          userPublicKey,
+          wrapAndUnwrapSol: true,
+          dynamicComputeUnitLimit: true,
+          prioritizationFeeLamports: 'auto',
+        }),
+      }, 5000, 3);
+
+      if (!response.ok) {
+        const error = await response.text();
+        this.recordFailure();
+        throw new Error(`Jupiter swap failed: ${error}`);
+      }
+
+      this.recordSuccess();
+      return response.json() as Promise<JupiterSwapResponse>;
+    } catch (error) {
+      // Don't double-count circuit breaker errors
+      if (!(error instanceof Error && error.message.includes('circuit breaker'))) {
+        this.recordFailure();
+      }
+      throw error;
     }
-
-    return response.json() as Promise<JupiterSwapResponse>;
   }
 
   /**

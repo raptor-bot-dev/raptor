@@ -1649,6 +1649,7 @@ export async function getExecution(executionId: string): Promise<Execution | nul
 
 /**
  * Get all open positions for the hunter to monitor
+ * WARNING: Returns ALL open positions - use getUserOpenPositions for user-specific queries
  */
 export async function getOpenPositions(chain?: Chain): Promise<PositionV31[]> {
   let query = supabase
@@ -1661,6 +1662,27 @@ export async function getOpenPositions(chain?: Chain): Promise<PositionV31[]> {
   }
 
   const { data, error } = await query;
+
+  if (error) throw error;
+  return (data || []) as PositionV31[];
+}
+
+/**
+ * M-2: Get open positions for a specific user (server-side filtering)
+ * Use this instead of getOpenPositions() when querying for a specific user's positions
+ */
+export async function getUserOpenPositions(userId: number, chain?: Chain): Promise<PositionV31[]> {
+  let query = supabase
+    .from('positions')
+    .select('*, strategies(*)')
+    .eq('user_id', userId)
+    .eq('status', 'OPEN');
+
+  if (chain) {
+    query = query.eq('chain', chain);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) throw error;
   return (data || []) as PositionV31[];
