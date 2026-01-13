@@ -3,9 +3,24 @@
  *
  * SECURITY: Prevents DoS attacks and abuse by limiting requests per user.
  * Uses a sliding window approach with separate limits for different operations.
+ *
+ * H-2 LIMITATION: Rate limit state is stored in-memory and will be lost on
+ * bot restart/redeploy. This is acceptable for short windows (1-5 min) but
+ * creates a brief abuse window on deployment. Mitigations:
+ * - Short windows (1 min) naturally limit abuse impact
+ * - Security events are logged for post-incident analysis
+ * - Withdrawal rate limits in withdrawalValidation.ts provide additional protection
+ * - Consider Supabase persistence for production-critical deployments
+ *
+ * STARTUP TRACKING: We log the startup time to correlate any abuse patterns
+ * with deployment events in post-incident analysis.
  */
 
 import type { Context, NextFunction } from 'grammy';
+
+// H-2: Track startup time for security analysis
+const STARTUP_TIME = Date.now();
+console.log(`[RateLimit] Module initialized at ${new Date(STARTUP_TIME).toISOString()}`);
 
 interface RateLimitState {
   count: number;
@@ -20,9 +35,11 @@ interface RateLimitConfig {
 }
 
 // Per-user rate limit state
+// H-2 NOTE: In-memory storage - resets on restart
 const userRateLimits = new Map<number, RateLimitState>();
 
 // Stricter limits for expensive operations (API calls)
+// H-2 NOTE: In-memory storage - resets on restart
 const expensiveOpLimits = new Map<number, RateLimitState>();
 
 // Default configuration
@@ -185,6 +202,10 @@ setInterval(cleanupRateLimits, 5 * 60 * 1000);
 /**
  * Stricter rate limit for specific operations (withdrawals, key exports)
  * Returns true if allowed, false if rate limited
+ *
+ * H-2 NOTE: In-memory storage - resets on restart. For sensitive operations,
+ * this creates a brief window after deploy where limits reset. The withdrawal
+ * validation module provides additional hourly limits as a second layer.
  */
 const sensitiveOpLimits = new Map<string, { count: number; windowStart: number }>();
 const SENSITIVE_CONFIG = {
@@ -206,9 +227,24 @@ export function checkSensitiveRateLimit(userId: number, operation: string): bool
   sensitiveOpLimits.set(key, state);
 
   if (state.count > SENSITIVE_CONFIG.maxRequests) {
-    console.warn(`[RateLimit] User ${userId} exceeded ${operation} rate limit`);
+    // H-2: Enhanced security logging for sensitive operation rate limits
+    const timeSinceStartup = now - STARTUP_TIME;
+    const isShortlyAfterStartup = timeSinceStartup < 60000; // Within 1 min of startup
+    console.warn(
+      `[SECURITY:RateLimit] User ${userId} exceeded ${operation} rate limit. ` +
+      `Count: ${state.count}/${SENSITIVE_CONFIG.maxRequests}. ` +
+      `Time since startup: ${Math.round(timeSinceStartup / 1000)}s` +
+      (isShortlyAfterStartup ? ' [SHORTLY_AFTER_DEPLOY]' : '')
+    );
     return false;
   }
 
   return true;
+}
+
+/**
+ * Get time since bot startup (for security analysis)
+ */
+export function getStartupTime(): number {
+  return STARTUP_TIME;
 }

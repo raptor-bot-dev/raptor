@@ -62,8 +62,14 @@ export function generateEvmKeypair(tgId?: number): GeneratedWallet {
   // Generate new random wallet
   const wallet = ethers.Wallet.createRandom();
 
+  // H-5: Store private key without 0x prefix for consistency with importEvmKeypair
+  // loadEvmWallet normalizes by adding 0x prefix when loading
+  const privateKeyWithout0x = wallet.privateKey.startsWith('0x')
+    ? wallet.privateKey.slice(2)
+    : wallet.privateKey;
+
   // Encrypt the private key with per-user key derivation
-  const privateKeyEncrypted = encryptPrivateKey(wallet.privateKey, tgId);
+  const privateKeyEncrypted = encryptPrivateKey(privateKeyWithout0x, tgId);
 
   return {
     publicKey: wallet.address,

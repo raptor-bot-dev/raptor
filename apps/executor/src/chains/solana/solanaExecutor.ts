@@ -126,6 +126,32 @@ export class SolanaExecutor {
   }
 
   /**
+   * Get raw token balance for a wallet (in smallest units, no decimals applied)
+   *
+   * H-3: Used to verify actual swap output instead of relying on quote estimates.
+   * This helps detect slippage differences between quoted and actual amounts.
+   *
+   * @param tokenMint - Token mint address
+   * @param walletAddress - Wallet public key
+   * @returns Token balance (in raw units) or 0 if no account
+   */
+  private async getTokenBalanceRaw(tokenMint: string, walletAddress: string): Promise<bigint> {
+    try {
+      const mint = new PublicKey(tokenMint);
+      const wallet = new PublicKey(walletAddress);
+
+      // Try standard SPL token first
+      const ata = await getAssociatedTokenAddress(mint, wallet);
+
+      const accountInfo = await this.connection.getTokenAccountBalance(ata);
+      return BigInt(accountInfo.value.amount);
+    } catch (error) {
+      // Account may not exist yet (balance = 0)
+      return BigInt(0);
+    }
+  }
+
+  /**
    * Get or create the PumpFunClient (lazy initialization)
    */
   private getPumpFunClient(): PumpFunClient {
@@ -841,6 +867,9 @@ export class SolanaExecutor {
 
   /**
    * Buy via Jupiter aggregator with external keypair
+   *
+   * H-3: Now verifies actual tokens received by checking balance before/after swap.
+   * This ensures accurate reporting even when slippage differs from quote.
    */
   private async buyViaJupiterWithKeypair(
     tokenMint: string,
@@ -852,6 +881,10 @@ export class SolanaExecutor {
 
     try {
       const slippageBps = options?.slippageBps || 500; // Default 5% slippage
+      const userPublicKey = keypair.publicKey.toBase58();
+
+      // H-3: Get balance before swap for accurate output verification
+      const balanceBefore = await this.getTokenBalanceRaw(tokenMint, userPublicKey);
 
       // Get quote
       const quote = await this.jupiterClient.quoteBuy(tokenMint, solAmount, slippageBps);
@@ -860,7 +893,6 @@ export class SolanaExecutor {
       console.log(`[SolanaExecutor] Jupiter quote: ${Number(expectedTokens) / 1e6} tokens (slippage: ${quote.slippageBps}bps)`);
 
       // Get the swap transaction from Jupiter
-      const userPublicKey = keypair.publicKey.toBase58();
       const swapResponse = await this.jupiterClient.getSwapTransaction(quote, userPublicKey);
 
       // Deserialize and sign the transaction
@@ -888,11 +920,22 @@ export class SolanaExecutor {
         swapResponse.lastValidBlockHeight
       );
 
-      console.log(`[SolanaExecutor] Jupiter buy successful: ${txHash}`);
+      // H-3: Verify actual tokens received
+      const balanceAfter = await this.getTokenBalanceRaw(tokenMint, userPublicKey);
+      const actualTokensReceived = balanceAfter - balanceBefore;
+
+      // Log if slippage was significant
+      const slippageDiff = Number(expectedTokens - actualTokensReceived);
+      if (slippageDiff > 0) {
+        const slippagePercent = (slippageDiff / Number(expectedTokens)) * 100;
+        console.log(`[SolanaExecutor] Actual slippage: ${slippagePercent.toFixed(2)}% (expected: ${expectedTokens}, actual: ${actualTokensReceived})`);
+      }
+
+      console.log(`[SolanaExecutor] Jupiter buy successful: ${txHash}, tokens received: ${actualTokensReceived}`);
 
       return {
         txHash,
-        tokensReceived: expectedTokens,
+        tokensReceived: actualTokensReceived > 0 ? actualTokensReceived : expectedTokens, // Fallback to expected if balance check fails
       };
     } catch (error) {
       console.error('[SolanaExecutor] Jupiter buy with keypair failed:', error);
