@@ -145,13 +145,13 @@ export function loadSolanaKeypair(
       : 'Unknown error';
     throw new Error(`Failed to load Solana keypair: ${safeMessage}`);
   } finally {
-    // CRITICAL: Always clear sensitive data, even on error
+    // Clear the base58 string (safe to clear)
     if (privateKeyBase58) {
       secureClear(privateKeyBase58);
     }
-    if (secretKey) {
-      secretKey.fill(0);
-    }
+    // NOTE: Cannot clear secretKey here - Keypair.fromSecretKey() stores a reference
+    // to the same Uint8Array. Clearing it would zero the keypair's internal secretKey,
+    // causing all signatures to fail. The buffer will be GC'd when keypair is released.
   }
 }
 
