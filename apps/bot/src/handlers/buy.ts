@@ -36,6 +36,8 @@ import { parseError, isRetryableError } from '@raptor/shared';
 import { solanaExecutor } from '@raptor/executor/solana';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { escapeMarkdown } from '../utils/formatters.js';
+import { createTradeMonitor } from '../services/tradeMonitor.js';
+import { Bot, Context } from 'grammy';
 
 const logger = createLogger('ManualBuy');
 

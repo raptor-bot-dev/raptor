@@ -369,7 +369,7 @@ export function deriveFeeConfigPDA(): [PublicKey, number] {
  */
 export function deriveCreatorVaultPDA(creator: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from('creator_vault'), creator.toBuffer()],
+    [Buffer.from('creator-vault'), creator.toBuffer()],
     PUMP_FUN_PROGRAM
   );
 }

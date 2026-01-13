@@ -160,6 +160,18 @@ import {
 import { handleScoreRequest } from '../commands/score.js';
 import { getOrCreateDepositAddress, processWithdrawal } from '../services/wallet.js';
 
+// Trade Monitor imports
+import {
+  createTradeMonitor,
+  handleManualRefresh,
+  openSellPanel,
+  closeMonitorAfterSell,
+  formatTradeMonitorMessage,
+  buildTradeMonitorKeyboard,
+} from '../services/tradeMonitor.js';
+import { getMonitorById, getUserMonitor } from '@raptor/shared';
+import { solanaExecutor } from '@raptor/executor/solana';
+
 export async function handleCallbackQuery(ctx: MyContext) {
   const data = ctx.callbackQuery?.data;
   if (!data) return;
@@ -1165,6 +1177,138 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
+    // === TRADE MONITOR CALLBACKS ===
+
+    // Copy CA button (copy_ca:<mint>)
+    if (data.startsWith('copy_ca:')) {
+      const mint = data.replace('copy_ca:', '');
+      await ctx.answerCallbackQuery({ text: `📋 ${mint}`, show_alert: true });
+      return;
+    }
+
+    // Refresh monitor (refresh_monitor:<monitorId>)
+    if (data.startsWith('refresh_monitor:')) {
+      const monitorId = parseInt(data.replace('refresh_monitor:', ''));
+      await ctx.answerCallbackQuery({ text: '🔄 Refreshing...' });
+
+      try {
+        const monitor = await handleManualRefresh(ctx.api, monitorId, solanaExecutor);
+        if (monitor) {
+          await ctx.answerCallbackQuery({ text: '✅ Refreshed!' });
+        } else {
+          await ctx.answerCallbackQuery({ text: '❌ Monitor not found' });
+        }
+      } catch (error) {
+        console.error('[Callbacks] Refresh monitor error:', error);
+        await ctx.answerCallbackQuery({ text: '❌ Refresh failed' });
+      }
+      return;
+    }
+
+    // Open sell panel (open_sell:<mint>)
+    if (data.startsWith('open_sell:')) {
+      const mint = data.replace('open_sell:', '');
+      await ctx.answerCallbackQuery({ text: '💰 Opening sell panel...' });
+
+      try {
+        await openSellPanel(
+          ctx.api,
+          user.id,
+          ctx.chat!.id,
+          ctx.callbackQuery?.message?.message_id || 0,
+          mint,
+          solanaExecutor
+        );
+      } catch (error) {
+        console.error('[Callbacks] Open sell panel error:', error);
+        await ctx.reply('❌ Failed to open sell panel');
+      }
+      return;
+    }
+
+    // View monitor (view_monitor:<mint>) - go back from sell panel
+    if (data.startsWith('view_monitor:')) {
+      const mint = data.replace('view_monitor:', '');
+      await ctx.answerCallbackQuery();
+
+      try {
+        const monitor = await getUserMonitor(user.id, mint);
+        if (monitor) {
+          const message = formatTradeMonitorMessage(monitor);
+          const keyboard = buildTradeMonitorKeyboard(mint, monitor.id);
+          await ctx.editMessageText(message, {
+            parse_mode: 'Markdown',
+            reply_markup: keyboard,
+          });
+        } else {
+          await ctx.reply('Monitor not found. Position may have been closed.');
+        }
+      } catch (error) {
+        console.error('[Callbacks] View monitor error:', error);
+      }
+      return;
+    }
+
+    // Sell percentage (sell_pct:<mint>:<percent>)
+    if (data.startsWith('sell_pct:')) {
+      const parts = data.replace('sell_pct:', '').split(':');
+      if (parts.length === 2) {
+        const [mint, percentStr] = parts;
+        const percent = parseInt(percentStr);
+        await handleSellPctFromMonitor(ctx, mint, percent);
+        return;
+      }
+    }
+
+    // Custom sell amount (sell_custom:<mint>:<type>)
+    if (data.startsWith('sell_custom:')) {
+      const parts = data.replace('sell_custom:', '').split(':');
+      if (parts.length === 2) {
+        const [mint, type] = parts;
+        // Store in session for next message
+        ctx.session.step = type === 'tokens' ? 'awaiting_sell_tokens' : 'awaiting_sell_percent';
+        ctx.session.pendingSellMint = mint;
+        await ctx.answerCallbackQuery();
+        await ctx.reply(
+          type === 'tokens'
+            ? 'Enter the number of tokens to sell:'
+            : 'Enter the percentage to sell (1-100):'
+        );
+        return;
+      }
+    }
+
+    // Sell slippage adjustment (sell_slippage:<mint>)
+    if (data.startsWith('sell_slippage:')) {
+      const mint = data.replace('sell_slippage:', '');
+      await ctx.answerCallbackQuery({ text: 'Slippage: 5% (default)' });
+      // TODO: Show slippage selection UI
+      return;
+    }
+
+    // Sell priority adjustment (sell_priority:<mint>)
+    if (data.startsWith('sell_priority:')) {
+      const mint = data.replace('sell_priority:', '');
+      await ctx.answerCallbackQuery({ text: 'Priority: Normal (default)' });
+      // TODO: Show priority selection UI
+      return;
+    }
+
+    // Token details (token:<mint>) - back to token card
+    if (data.startsWith('token:')) {
+      const mint = data.replace('token:', '');
+      await handleTradeChainSelected(ctx, 'sol', mint);
+      return;
+    }
+
+    // Chart link (chart:<mint>)
+    if (data.startsWith('chart:')) {
+      const mint = data.replace('chart:', '');
+      const chartUrl = `https://dexscreener.com/solana/${mint}`;
+      await ctx.answerCallbackQuery({ text: '📊 Opening chart...', url: chartUrl });
+      return;
+    }
+
     // Confirm withdrawal
     if (data === 'confirm_withdraw') {
       await handleWithdrawConfirm(ctx);
@@ -1561,6 +1705,26 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
           link_preview_options: { is_disabled: true },
         }
       );
+
+      // Create Trade Monitor for this position
+      try {
+        await createTradeMonitor(
+          ctx.api,
+          user.id,
+          ctx.chat!.id,
+          'sol',
+          tokenAddress,
+          undefined, // tokenSymbol - will be fetched
+          undefined, // tokenName - will be fetched
+          result.netAmount || solAmount,
+          tokensReceived,
+          pricePerToken,
+          result.route || 'Unknown'
+        );
+      } catch (monitorError) {
+        console.error('[Callbacks] Failed to create trade monitor:', monitorError);
+        // Don't fail the buy if monitor creation fails
+      }
     } else {
       // Error message - escape special chars to prevent Markdown parse errors
       await ctx.reply(
@@ -2263,4 +2427,177 @@ This aligns our incentives with yours.
   });
 
   await ctx.answerCallbackQuery();
+}
+
+// === TRADE MONITOR SELL HANDLER ===
+
+/**
+ * Handle sell from trade monitor panel
+ * P0-1 FIX: Now uses idempotency via callbackQuery.id to prevent double-sells
+ */
+async function handleSellPctFromMonitor(ctx: MyContext, mint: string, percent: number) {
+  const user = ctx.from;
+  if (!user) return;
+
+  // P0-1: Get callback query ID for idempotency
+  const callbackQueryId = ctx.callbackQuery?.id;
+  if (!callbackQueryId) {
+    await ctx.answerCallbackQuery({ text: 'Invalid request', show_alert: true });
+    return;
+  }
+
+  await ctx.answerCallbackQuery({ text: `Processing ${percent}% sell...` });
+
+  try {
+    // Import required functions
+    const { getActivePositions, getUserWallets, loadSolanaKeypair } = await import('@raptor/shared');
+    const { idKeyManualSell, reserveTradeBudget, updateExecution, closePositionV31 } = await import('@raptor/shared');
+
+    // Get user's active Solana wallet for balance check
+    const wallets = await getUserWallets(user.id);
+    const activeWallet = wallets.find(w => w.chain === 'sol' && w.is_active);
+
+    if (!activeWallet) {
+      await ctx.reply('⚠️ *No Active Wallet*\n\nPlease create a Solana wallet first.', {
+        parse_mode: 'Markdown',
+      });
+      return;
+    }
+
+    // Get token balance from USER's wallet (not executor wallet) - P1-1 fix
+    const walletAddress = activeWallet.public_key || activeWallet.solana_address;
+    const tokensHeld = await solanaExecutor.getTokenBalance(mint, walletAddress);
+
+    if (!tokensHeld || tokensHeld <= 0) {
+      await ctx.reply('⚠️ *No Balance Detected*\n\nYour wallet has no tokens for this mint.', {
+        parse_mode: 'Markdown',
+      });
+      return;
+    }
+
+    // Find position for this token (needed for idempotency key)
+    const positions = await getActivePositions(user.id);
+    const position = positions.find(p => p.token_address === mint && p.chain === 'sol');
+
+    // Generate idempotency key - P0-1 core fix
+    const idempotencyKey = idKeyManualSell({
+      chain: 'sol',
+      userId: user.id,
+      mint,
+      positionId: position?.id?.toString() || 'no-position',
+      tgEventId: callbackQueryId,
+      sellPercent: percent,
+    });
+
+    // Reserve budget (tracks execution, prevents duplicates)
+    const reservation = await reserveTradeBudget({
+      mode: 'MANUAL',
+      userId: user.id,
+      strategyId: '00000000-0000-0000-0000-000000000000', // Manual sells use default strategy
+      chain: 'sol',
+      action: 'SELL',
+      tokenMint: mint,
+      amountSol: 0, // SELL doesn't spend SOL
+      idempotencyKey,
+    });
+
+    // Check if already executed (idempotency protection)
+    if (!reservation.allowed) {
+      if (reservation.reason === 'Already executed') {
+        await ctx.reply(
+          `⚠️ *Already Processed*\n\n` +
+            `This sell was already executed.\n` +
+            `Execution ID: \`${reservation.execution_id}\``,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+      await ctx.reply(
+        `❌ *SELL BLOCKED*\n\n${escapeMarkdown(reservation.reason || 'Trade not allowed')}`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    const executionId = reservation.execution_id;
+    const sellAmount = (tokensHeld * percent) / 100;
+
+    // Show processing message
+    await ctx.reply(
+      `⏳ *PROCESSING SELL*\n\n` +
+        `Selling ${percent}% (${sellAmount.toLocaleString()} tokens)...\n\n` +
+        `_Finding best route..._`,
+      { parse_mode: 'Markdown' }
+    );
+
+    // Mark execution as SUBMITTED
+    if (executionId) {
+      await updateExecution({
+        executionId,
+        status: 'SUBMITTED',
+      });
+    }
+
+    // Import sell execution
+    const { executeSolanaSell } = await import('../services/solanaTrade.js');
+
+    const result = await executeSolanaSell(user.id, mint, sellAmount);
+
+    if (result.success && result.txHash) {
+      // Update execution as CONFIRMED
+      if (executionId) {
+        await updateExecution({
+          executionId,
+          status: 'CONFIRMED',
+          txSig: result.txHash,
+          tokensOut: result.solReceived,
+          result: { route: result.route },
+        });
+      }
+
+      const explorerUrl = `https://solscan.io/tx/${result.txHash}`;
+
+      await ctx.reply(
+        `✅ *SELL SUCCESSFUL*\n\n` +
+          `*Tokens Sold:* ${sellAmount.toLocaleString()}\n` +
+          `*SOL Received:* ${result.solReceived?.toFixed(4) || '—'} SOL\n` +
+          `*Route:* ${result.route || 'Unknown'}\n\n` +
+          `[View Transaction](${explorerUrl})`,
+        {
+          parse_mode: 'Markdown',
+          link_preview_options: { is_disabled: true },
+        }
+      );
+
+      // If 100% sell, close the monitor
+      if (percent >= 100) {
+        await closeMonitorAfterSell(ctx.api, user.id, mint);
+      }
+    } else {
+      // Update execution as FAILED
+      if (executionId) {
+        await updateExecution({
+          executionId,
+          status: 'FAILED',
+          error: result.error || 'Unknown error',
+        });
+      }
+
+      await ctx.reply(
+        `❌ *SELL FAILED*\n\n` +
+          `${escapeMarkdown(result.error || 'Unknown error')}\n\n` +
+          `Please try again.`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+  } catch (error) {
+    console.error('[Callbacks] Sell from monitor error:', error);
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    await ctx.reply(
+      `❌ *SELL FAILED*\n\n` +
+        `${escapeMarkdown(errorMsg)}\n\n` +
+        `Please try again.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
 }

@@ -28,6 +28,9 @@ import { handleTextMessage } from './handlers/messages.js';
 import { depositMonitor } from './services/depositMonitor.js';
 // v2.3.1 Security middleware
 import { rateLimitMiddleware } from './middleware/rateLimit.js';
+// v3.1 Trade monitor service
+import { startMonitorRefreshLoop, stopMonitorRefreshLoop } from './services/tradeMonitor.js';
+import { solanaExecutor } from '@raptor/executor/solana';
 
 // SECURITY: L-007 - Global promise rejection and error handlers
 process.on('unhandledRejection', (reason, promise) => {
@@ -137,11 +140,19 @@ depositMonitor.start().catch((err) => {
   console.error('Failed to start deposit monitor:', err);
 });
 
+// Start trade monitor refresh loop
+// Cast to any to avoid Bot<MyContext> vs Bot<Context> type mismatch
+startMonitorRefreshLoop(bot as any, solanaExecutor).catch((err) => {
+  console.error('Failed to start trade monitor loop:', err);
+});
+
 console.log('✅ RAPTOR Bot is running');
 
 // Graceful shutdown
 const stopRunner = async () => {
   console.log('Shutting down...');
+  // P1-3 FIX: Stop trade monitor refresh loop
+  stopMonitorRefreshLoop();
   await depositMonitor.stop();
   if (runner.isRunning()) {
     runner.stop();

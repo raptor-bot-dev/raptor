@@ -2039,3 +2039,196 @@ export async function cleanupStaleExecutions(staleMinutes: number = 5): Promise<
   if (error) throw error;
   return data as number;
 }
+
+// ============================================================================
+// Trade Monitor Functions (v3.1)
+// ============================================================================
+
+import type {
+  TradeMonitor,
+  TradeMonitorInput,
+  MonitorUpdateData,
+  RecentPosition,
+} from './types.js';
+
+/**
+ * Create or update a trade monitor
+ */
+export async function upsertTradeMonitor(input: TradeMonitorInput): Promise<TradeMonitor> {
+  const { data, error } = await supabase.rpc('upsert_trade_monitor', {
+    p_user_id: input.user_id,
+    p_chain: input.chain,
+    p_mint: input.mint,
+    p_token_symbol: input.token_symbol || null,
+    p_token_name: input.token_name || null,
+    p_chat_id: input.chat_id,
+    p_message_id: input.message_id,
+    p_position_id: input.position_id || null,
+    p_entry_price_sol: input.entry_price_sol || null,
+    p_entry_amount_sol: input.entry_amount_sol || null,
+    p_entry_tokens: input.entry_tokens || null,
+    p_route_label: input.route_label || null,
+    p_ttl_hours: input.ttl_hours || 24,
+  });
+
+  if (error) throw error;
+  return data as TradeMonitor;
+}
+
+/**
+ * Get monitors that need refreshing
+ */
+export async function getMonitorsForRefresh(
+  batchSize: number = 20,
+  minAgeSeconds: number = 15
+): Promise<TradeMonitor[]> {
+  const { data, error } = await supabase.rpc('get_monitors_for_refresh', {
+    p_batch_size: batchSize,
+    p_min_age_seconds: minAgeSeconds,
+  });
+
+  if (error) throw error;
+  return (data || []) as TradeMonitor[];
+}
+
+/**
+ * Update monitor with fresh price data
+ */
+export async function updateMonitorData(update: MonitorUpdateData): Promise<TradeMonitor> {
+  const { data, error } = await supabase.rpc('update_monitor_data', {
+    p_monitor_id: update.monitor_id,
+    p_current_price_sol: update.current_price_sol,
+    p_current_tokens: update.current_tokens,
+    p_current_value_sol: update.current_value_sol,
+    p_pnl_sol: update.pnl_sol,
+    p_pnl_percent: update.pnl_percent,
+    p_market_cap_usd: update.market_cap_usd || null,
+    p_liquidity_usd: update.liquidity_usd || null,
+    p_volume_24h_usd: update.volume_24h_usd || null,
+  });
+
+  if (error) throw error;
+  return data as TradeMonitor;
+}
+
+/**
+ * Reset monitor TTL (on manual refresh)
+ */
+export async function resetMonitorTTL(
+  monitorId: number,
+  ttlHours: number = 24
+): Promise<TradeMonitor> {
+  const { data, error } = await supabase.rpc('reset_monitor_ttl', {
+    p_monitor_id: monitorId,
+    p_ttl_hours: ttlHours,
+  });
+
+  if (error) throw error;
+  return data as TradeMonitor;
+}
+
+/**
+ * Close a monitor (after sell)
+ */
+export async function closeMonitor(userId: number, mint: string): Promise<void> {
+  const { error } = await supabase.rpc('close_monitor', {
+    p_user_id: userId,
+    p_mint: mint,
+  });
+
+  if (error) throw error;
+}
+
+/**
+ * Get user's active monitor for a mint
+ */
+export async function getUserMonitor(
+  userId: number,
+  mint: string
+): Promise<TradeMonitor | null> {
+  const { data, error } = await supabase.rpc('get_user_monitor', {
+    p_user_id: userId,
+    p_mint: mint,
+  });
+
+  if (error) throw error;
+  return data as TradeMonitor | null;
+}
+
+/**
+ * Expire old monitors (maintenance)
+ */
+export async function expireOldMonitors(): Promise<number> {
+  const { data, error } = await supabase.rpc('expire_old_monitors');
+
+  if (error) throw error;
+  return data as number;
+}
+
+/**
+ * Get user's recent positions (last 24h by default)
+ */
+export async function getRecentPositions(
+  userId: number,
+  hours: number = 24,
+  limit: number = 10,
+  offset: number = 0
+): Promise<RecentPosition[]> {
+  const { data, error } = await supabase.rpc('get_recent_positions', {
+    p_user_id: userId,
+    p_hours: hours,
+    p_limit: limit,
+    p_offset: offset,
+  });
+
+  if (error) throw error;
+  return (data || []) as RecentPosition[];
+}
+
+/**
+ * Count user's recent positions for pagination
+ */
+export async function countRecentPositions(
+  userId: number,
+  hours: number = 24
+): Promise<number> {
+  const { data, error } = await supabase.rpc('count_recent_positions', {
+    p_user_id: userId,
+    p_hours: hours,
+  });
+
+  if (error) throw error;
+  return data as number;
+}
+
+/**
+ * Get monitor by ID
+ */
+export async function getMonitorById(monitorId: number): Promise<TradeMonitor | null> {
+  const { data, error } = await supabase
+    .from('trade_monitors')
+    .select('*')
+    .eq('id', monitorId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data as TradeMonitor;
+}
+
+/**
+ * Update monitor message_id (after editing message)
+ */
+export async function updateMonitorMessageId(
+  monitorId: number,
+  messageId: number
+): Promise<void> {
+  const { error } = await supabase
+    .from('trade_monitors')
+    .update({ message_id: messageId })
+    .eq('id', monitorId);
+
+  if (error) throw error;
+}

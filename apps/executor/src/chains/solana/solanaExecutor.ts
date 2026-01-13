@@ -20,7 +20,12 @@ import {
 } from '@raptor/shared';
 
 import { PublicKey, Connection, Keypair } from '@solana/web3.js';
-import { getAssociatedTokenAddress } from '@solana/spl-token';
+import {
+  getAssociatedTokenAddress,
+  getMint,
+  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+} from '@solana/spl-token';
 import bs58 from 'bs58';
 import { JupiterClient, jupiter } from './jupiter.js';
 import { fetchWithTimeout } from '../../utils/fetchWithTimeout.js';
@@ -923,11 +928,14 @@ export class SolanaExecutor {
         route = 'Jupiter';
       }
 
-      const price = Number(result.solReceived) / tokenAmount;
+      // P1-2 FIX: Convert lamports to SOL before calculating price
+      const solReceived = lamportsToSol(result.solReceived);
+      const price = solReceived / tokenAmount;
 
       console.log('[SolanaExecutor] Sell successful', {
         txHash: result.txHash,
-        solReceived: result.solReceived.toString(),
+        solReceivedLamports: result.solReceived.toString(),
+        solReceivedSOL: solReceived,
         price,
         route,
       });
@@ -937,7 +945,7 @@ export class SolanaExecutor {
         success: true,
         txHash: result.txHash,
         amountIn: tokenAmount,
-        amountOut: Number(result.solReceived),
+        amountOut: solReceived, // P1-2 FIX: Return SOL, not lamports
         fee: 0, // Fee calculated by caller
         price,
         route,
@@ -972,7 +980,11 @@ export class SolanaExecutor {
       const client = new PumpFunClient(keypair);
 
       const mint = new PublicKey(tokenMint);
-      const tokensRaw = BigInt(Math.floor(tokenAmount * 1e6));
+
+      // P0-2 FIX: Get actual token decimals instead of assuming 6
+      const decimals = await this.getTokenDecimals(tokenMint);
+      const tokensRaw = BigInt(Math.floor(tokenAmount * Math.pow(10, decimals)));
+
       const slippageBps = options?.slippageBps || 500; // Default 5% slippage
 
       const result = await client.sell({
@@ -1007,7 +1019,10 @@ export class SolanaExecutor {
 
     try {
       const slippageBps = options?.slippageBps || 500; // Default 5% slippage
-      const tokensRaw = BigInt(Math.floor(tokenAmount * 1e6));
+
+      // P0-2 FIX: Get actual token decimals instead of assuming 6
+      const decimals = await this.getTokenDecimals(tokenMint);
+      const tokensRaw = BigInt(Math.floor(tokenAmount * Math.pow(10, decimals)));
 
       // Get quote
       const quote = await this.jupiterClient.quoteSell(tokenMint, tokensRaw, slippageBps);
@@ -1094,6 +1109,132 @@ export class SolanaExecutor {
     const GRADUATION_THRESHOLD = 85; // ~85 SOL
     const currentSol = lamportsToSol(state.realSolReserves);
     return Math.min(100, (currentSol / GRADUATION_THRESHOLD) * 100);
+  }
+
+  /**
+   * P0-2 FIX: Get token decimals from on-chain mint info
+   * Returns actual decimals instead of assuming 6
+   */
+  async getTokenDecimals(tokenMint: string): Promise<number> {
+    try {
+      const mint = new PublicKey(tokenMint);
+
+      // Try standard SPL Token program first
+      try {
+        const mintInfo = await getMint(this.connection, mint, 'confirmed', TOKEN_PROGRAM_ID);
+        return mintInfo.decimals;
+      } catch {
+        // Try Token-2022 program
+        try {
+          const mintInfo = await getMint(this.connection, mint, 'confirmed', TOKEN_2022_PROGRAM_ID);
+          return mintInfo.decimals;
+        } catch {
+          // Default to 6 decimals (most common for pump.fun tokens)
+          console.warn(`[SolanaExecutor] Could not fetch decimals for ${tokenMint}, defaulting to 6`);
+          return 6;
+        }
+      }
+    } catch (error) {
+      console.error('[SolanaExecutor] Error getting token decimals:', error);
+      return 6; // Default fallback
+    }
+  }
+
+  /**
+   * P0-3 FIX: Detect which token program owns the mint
+   * Returns TOKEN_2022_PROGRAM_ID for pump.fun tokens, TOKEN_PROGRAM_ID otherwise
+   */
+  private async getTokenProgramId(mint: PublicKey): Promise<PublicKey> {
+    try {
+      const accountInfo = await this.connection.getAccountInfo(mint);
+      if (accountInfo) {
+        // Check if owner is Token-2022 program
+        if (accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID)) {
+          return TOKEN_2022_PROGRAM_ID;
+        }
+      }
+      return TOKEN_PROGRAM_ID;
+    } catch {
+      // Default to standard SPL Token program
+      return TOKEN_PROGRAM_ID;
+    }
+  }
+
+  /**
+   * Get token balance for a given wallet and mint
+   * Used by Trade Monitor to display current holdings
+   * P0-3 FIX: Now handles both SPL Token and Token-2022 programs
+   */
+  async getTokenBalance(
+    tokenMint: string,
+    walletAddress?: string
+  ): Promise<number | null> {
+    try {
+      const mint = new PublicKey(tokenMint);
+      let owner: PublicKey;
+
+      if (walletAddress) {
+        owner = new PublicKey(walletAddress);
+      } else {
+        // Use executor wallet if no address provided
+        const privateKey = process.env.SOLANA_EXECUTOR_PRIVATE_KEY;
+        if (!privateKey) {
+          console.warn('[SolanaExecutor] No wallet address provided and SOLANA_EXECUTOR_PRIVATE_KEY not set');
+          return null;
+        }
+        const wallet = Keypair.fromSecretKey(bs58.decode(privateKey));
+        owner = wallet.publicKey;
+      }
+
+      // P0-3 FIX: Detect correct token program for ATA derivation
+      const tokenProgramId = await this.getTokenProgramId(mint);
+
+      // Derive the Associated Token Account (ATA) with correct program
+      const ata = await getAssociatedTokenAddress(
+        mint,
+        owner,
+        false, // allowOwnerOffCurve
+        tokenProgramId
+      );
+
+      // Try to get the token account balance
+      try {
+        const balance = await this.connection.getTokenAccountBalance(ata);
+        const amount = parseFloat(balance.value.amount) / Math.pow(10, balance.value.decimals);
+        return amount;
+      } catch {
+        // Token account doesn't exist - no balance
+        return 0;
+      }
+    } catch (error) {
+      console.error('[SolanaExecutor] Error getting token balance:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get token balance for a keypair
+   * Used by Bot with user's self-custodial wallet
+   */
+  async getTokenBalanceForKeypair(
+    tokenMint: string,
+    keypair: Keypair
+  ): Promise<number | null> {
+    return this.getTokenBalance(tokenMint, keypair.publicKey.toBase58());
+  }
+
+  /**
+   * Get Jupiter client for external use (e.g., Trade Monitor)
+   */
+  get jupiter(): JupiterClient {
+    return this.jupiterClient;
+  }
+
+  /**
+   * Get the RPC connection for external use
+   */
+  getConnection(): Connection {
+    return this.connection;
   }
 }
 

@@ -328,6 +328,96 @@ export interface Cooldown {
 }
 
 // =============================================================================
+// Trade Monitor Types (v3.1)
+// =============================================================================
+
+/** Trade monitor status */
+export type MonitorStatus = 'ACTIVE' | 'PAUSED' | 'EXPIRED' | 'CLOSED';
+
+/** Trade monitor for real-time PnL tracking */
+export interface TradeMonitor {
+  id: number;
+  user_id: number;
+  chain: Chain;
+  mint: string;
+  token_symbol: string | null;
+  token_name: string | null;
+  chat_id: number;
+  message_id: number;
+  position_id: number | null;
+
+  // Entry data
+  entry_price_sol: number | null;
+  entry_amount_sol: number | null;
+  entry_tokens: number | null;
+  route_label: string | null;
+
+  // Current data
+  current_price_sol: number | null;
+  current_tokens: number | null;
+  current_value_sol: number | null;
+  pnl_sol: number | null;
+  pnl_percent: number | null;
+  market_cap_usd: number | null;
+  liquidity_usd: number | null;
+  volume_24h_usd: number | null;
+
+  // Status
+  status: MonitorStatus;
+  last_refreshed_at: string;
+  expires_at: string;
+  refresh_count: number;
+
+  created_at: string;
+  updated_at: string;
+}
+
+/** Data for creating/updating a trade monitor */
+export interface TradeMonitorInput {
+  user_id: number;
+  chain: Chain;
+  mint: string;
+  token_symbol?: string;
+  token_name?: string;
+  chat_id: number;
+  message_id: number;
+  position_id?: number;
+  entry_price_sol?: number;
+  entry_amount_sol?: number;
+  entry_tokens?: number;
+  route_label?: string;
+  ttl_hours?: number;
+}
+
+/** Data for updating monitor with fresh prices */
+export interface MonitorUpdateData {
+  monitor_id: number;
+  current_price_sol: number;
+  current_tokens: number;
+  current_value_sol: number;
+  pnl_sol: number;
+  pnl_percent: number;
+  market_cap_usd?: number;
+  liquidity_usd?: number;
+  volume_24h_usd?: number;
+}
+
+/** Recent position row for /positions command */
+export interface RecentPosition {
+  id: number;
+  token_address: string;
+  token_symbol: string;
+  chain: Chain;
+  status: string;
+  entry_price: number;
+  amount_in: number;
+  tokens_held: number;
+  unrealized_pnl_percent: number;
+  created_at: string;
+  has_monitor: boolean;
+}
+
+// =============================================================================
 // RPC Function Types
 // =============================================================================
 

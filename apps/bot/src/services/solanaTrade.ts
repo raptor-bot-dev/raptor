@@ -36,6 +36,15 @@ export interface SolanaBuyResult {
   route?: string;        // 'pump.fun' or 'Jupiter'
 }
 
+export interface SolanaSellResult {
+  success: boolean;
+  txHash?: string;
+  error?: string;
+  tokensSold: number;
+  solReceived?: number;
+  route?: string;
+}
+
 /**
  * Execute a buy transaction on Solana
  * Routes automatically between pump.fun and Jupiter via executor
@@ -241,4 +250,95 @@ function translateExecutorError(error: unknown): string {
 
   // Default: return the actual error message (not generic)
   return `❌ ${errorMessage}`;
+}
+
+/**
+ * Execute a sell transaction on Solana
+ * Routes automatically between pump.fun and Jupiter via executor
+ */
+export async function executeSolanaSell(
+  tgId: number,
+  tokenMint: string,
+  tokenAmount: number
+): Promise<SolanaSellResult> {
+  logger.info('Starting Solana sell', { tgId, tokenMint, tokenAmount });
+
+  try {
+    // 1. Get user's active Solana wallet
+    const wallets = await getUserWallets(tgId);
+    const solanaWallet = wallets.find((w) => w.chain === 'sol' && w.is_active);
+
+    if (!solanaWallet) {
+      return {
+        success: false,
+        error: 'No active Solana wallet found. Please create a wallet first.',
+        tokensSold: tokenAmount,
+      };
+    }
+
+    // 2. Load user's keypair
+    const keypair = loadSolanaKeypair(
+      solanaWallet.solana_private_key_encrypted as EncryptedData,
+      tgId
+    );
+
+    logger.info('Executing sell via executor', { tokenAmount });
+
+    // 3. Execute via executor (handles routing automatically)
+    const result = await solanaExecutor.executeSellWithKeypair(
+      tokenMint,
+      tokenAmount,
+      keypair,
+      { slippageBps: 500 }  // 5% slippage for sells
+    );
+
+    if (!result.success) {
+      const userMessage = translateExecutorError(result.error || 'Unknown error');
+      return {
+        success: false,
+        error: userMessage,
+        tokensSold: tokenAmount,
+      };
+    }
+
+    logger.info('Sell successful', {
+      txHash: result.txHash,
+      solReceived: result.amountOut,
+      route: result.route,
+    });
+
+    // 4. Record trade in database
+    await recordTrade({
+      tg_id: tgId,
+      chain: 'sol',
+      mode: 'snipe',
+      token_address: tokenMint,
+      token_symbol: 'UNKNOWN',
+      type: 'SELL',
+      amount_in: tokenAmount.toString(),
+      amount_out: result.amountOut.toString(),
+      price: result.price.toString(),
+      fee_amount: '0',  // No fee on sells currently
+      source: 'manual',
+      tx_hash: result.txHash!,
+      status: 'CONFIRMED',
+    });
+
+    return {
+      success: true,
+      txHash: result.txHash,
+      tokensSold: tokenAmount,
+      solReceived: result.amountOut,
+      route: result.route,
+    };
+  } catch (error) {
+    logger.error('Sell execution failed', error);
+    const userMessage = translateExecutorError(error);
+
+    return {
+      success: false,
+      error: userMessage,
+      tokensSold: tokenAmount,
+    };
+  }
 }

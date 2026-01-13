@@ -16,6 +16,8 @@ export interface SessionData {
     | 'awaiting_custom_value'
     | 'awaiting_send_amount'
     | 'awaiting_send_confirm'
+    | 'awaiting_sell_tokens'
+    | 'awaiting_sell_percent'
     | CustomStrategyStep
     | null;
   pendingWithdrawal: {
@@ -35,6 +37,7 @@ export interface SessionData {
     chain: Chain;
   };
   awaitingImport?: Chain;
+  pendingSellMint?: string;
 }
 
 export type MyContext = Context & SessionFlavor<SessionData>;
