@@ -50,6 +50,17 @@ if (!process.env.TELEGRAM_BOT_TOKEN) {
   process.exit(1);
 }
 
+// Build info for debugging production deployments
+console.log('==================================================');
+console.log('RAPTOR Bot Startup');
+console.log(`  Version:  ${process.env.npm_package_version || '3.1.0'}`);
+console.log(`  Commit:   ${process.env.GIT_COMMIT || process.env.FLY_IMAGE_REF || 'unknown'}`);
+console.log(`  Env:      ${process.env.NODE_ENV || 'development'}`);
+console.log(`  Region:   ${process.env.FLY_REGION || 'local'}`);
+console.log(`  App:      ${process.env.FLY_APP_NAME || 'raptor-bot'}`);
+console.log(`  Started:  ${new Date().toISOString()}`);
+console.log('==================================================');
+
 // Initialize bot
 const bot = new Bot<MyContext>(process.env.TELEGRAM_BOT_TOKEN);
 

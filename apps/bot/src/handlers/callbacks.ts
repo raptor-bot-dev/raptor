@@ -169,7 +169,7 @@ import {
   formatTradeMonitorMessage,
   buildTradeMonitorKeyboard,
 } from '../services/tradeMonitor.js';
-import { getMonitorById, getUserMonitor } from '@raptor/shared';
+import { getMonitorById, getUserMonitor, createPositionV31, getOrCreateManualStrategy } from '@raptor/shared';
 import { solanaExecutor } from '@raptor/executor/solana';
 
 export async function handleCallbackQuery(ctx: MyContext) {
@@ -1104,6 +1104,15 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
+    // Refresh positions list (from /positions command)
+    if (data === 'refresh_positions') {
+      await ctx.answerCallbackQuery({ text: '🔄 Refreshing...' });
+      // Import and call positionsCommand to refresh
+      const { positionsCommand } = await import('../commands/positions.js');
+      await positionsCommand(ctx);
+      return;
+    }
+
     // Set TP for position (set_tp_123_50)
     if (data.match(/^set_tp_\d+_\d+$/)) {
       const parts = data.split('_');
@@ -1706,6 +1715,32 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
         }
       );
 
+      // Create Position record for this buy
+      let positionId: number | undefined;
+      try {
+        // Get or create a MANUAL strategy for this user+chain (required FK)
+        const strategy = await getOrCreateManualStrategy(user.id, 'sol');
+
+        const position = await createPositionV31({
+          userId: user.id,
+          strategyId: strategy.id,
+          chain: 'sol',
+          tokenMint: tokenAddress,
+          tokenSymbol: 'UNKNOWN', // TODO: fetch metadata
+          entryExecutionId: undefined,
+          entryTxSig: result.txHash!,
+          entryCostSol: result.netAmount || solAmount,
+          entryPrice: pricePerToken,
+          sizeTokens: tokensReceived,
+        });
+        // position.id is typed as string but DB returns number (SERIAL)
+        positionId = typeof position.id === 'string' ? parseInt(position.id, 10) : position.id;
+        console.log('[Callbacks] Position created:', positionId, 'with strategy:', strategy.id);
+      } catch (positionError) {
+        console.error('[Callbacks] Failed to create position:', positionError);
+        // Continue to create monitor even if position fails
+      }
+
       // Create Trade Monitor for this position
       try {
         await createTradeMonitor(
@@ -1719,7 +1754,8 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
           result.netAmount || solAmount,
           tokensReceived,
           pricePerToken,
-          result.route || 'Unknown'
+          result.route || 'Unknown',
+          positionId // Link monitor to position
         );
       } catch (monitorError) {
         console.error('[Callbacks] Failed to create trade monitor:', monitorError);

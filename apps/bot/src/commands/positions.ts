@@ -1,17 +1,19 @@
+import { InlineKeyboard } from 'grammy';
 import type { MyContext } from '../types.js';
-import { getActivePositions } from '@raptor/shared';
+import { getRecentPositions, type RecentPosition } from '@raptor/shared';
 
 export async function positionsCommand(ctx: MyContext) {
   const user = ctx.from;
   if (!user) return;
 
   try {
-    const positions = await getActivePositions(user.id);
+    // Fetch positions from last 24 hours, limit 15
+    const positions = await getRecentPositions(user.id, 24, 15, 0);
 
     if (positions.length === 0) {
       await ctx.reply(
-        '📈 *Active Positions*\n\n' +
-          '_No active positions_\n\n' +
+        '📈 *Recent Positions (24h)*\n\n' +
+          '_No positions in the last 24 hours_\n\n' +
           "Funds are waiting for prey.\n" +
           "You'll be notified when we strike.",
         { parse_mode: 'Markdown' }
@@ -19,7 +21,10 @@ export async function positionsCommand(ctx: MyContext) {
       return;
     }
 
-    let message = '📈 *Active Positions*\n\n';
+    let message = '📈 *Recent Positions (24h)*\n\n';
+
+    // Build keyboard with View buttons for positions with monitors
+    const keyboard = new InlineKeyboard();
 
     for (const pos of positions) {
       const pnlEmoji =
@@ -29,21 +34,36 @@ export async function positionsCommand(ctx: MyContext) {
             ? '🟡'
             : '🔴';
       const pnlSign = pos.unrealized_pnl_percent >= 0 ? '+' : '';
-      const chainEmoji = pos.chain === 'bsc' ? '🟡' : '🔵';
-      const token = pos.chain === 'bsc' ? 'BNB' : 'ETH';
+      const chainEmoji = pos.chain === 'sol' ? '🟣' : pos.chain === 'bsc' ? '🟡' : '🔵';
+      const statusIcon = pos.status === 'OPEN' ? '🟢' : pos.status === 'CLOSING' ? '🟠' : '⚪';
 
       const age = getTimeAgo(new Date(pos.created_at));
 
-      message += `${pnlEmoji} *${pos.token_symbol}* ${chainEmoji}\n`;
-      message += `   Entry: ${parseFloat(pos.amount_in).toFixed(4)} ${token}\n`;
-      message += `   P&L: ${pnlSign}${pos.unrealized_pnl_percent.toFixed(1)}%\n`;
-      message += `   TP: ${pos.take_profit_percent}% | SL: ${pos.stop_loss_percent}%\n`;
-      message += `   Age: ${age}\n\n`;
+      message += `${statusIcon} *${pos.token_symbol || 'UNKNOWN'}* ${chainEmoji}\n`;
+      message += `   Entry: ${pos.amount_in.toFixed(4)} SOL\n`;
+      message += `   P&L: ${pnlSign}${pos.unrealized_pnl_percent?.toFixed(1) || '0.0'}%\n`;
+      message += `   Status: ${pos.status} | Age: ${age}\n`;
+
+      if (pos.has_monitor) {
+        message += `   📊 _Monitor active_\n`;
+      }
+      message += '\n';
+
+      // Add View button if position has an active monitor
+      if (pos.has_monitor && pos.token_address) {
+        keyboard.text(`📊 ${pos.token_symbol || 'View'}`, `view_monitor:${pos.token_address}`).row();
+      }
     }
 
-    await ctx.reply(message, { parse_mode: 'Markdown' });
+    // Add refresh button
+    keyboard.text('🔄 Refresh', 'refresh_positions');
+
+    await ctx.reply(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
   } catch (error) {
-    console.error('Error fetching positions:', error);
+    console.error('[Positions] Error fetching positions:', error);
     await ctx.reply('❌ Error fetching positions. Please try again.');
   }
 }
