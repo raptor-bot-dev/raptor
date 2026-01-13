@@ -860,6 +860,10 @@ export async function createWallet(wallet: {
   private_key_encrypted: Record<string, unknown>;
   wallet_label?: string;
 }): Promise<UserWallet> {
+  // v3.4.1 FIX: Ensure user exists before creating wallet (FK constraint)
+  // This handles cases where user skipped /start and went directly to wallet creation
+  await upsertUser({ tg_id: wallet.tg_id });
+
   // Get the count of existing wallets for this chain
   const existingCount = await getWalletCount(wallet.tg_id, wallet.chain);
 
@@ -867,7 +871,18 @@ export async function createWallet(wallet: {
     throw new Error(`Maximum 5 wallets per chain reached for ${wallet.chain}`);
   }
 
-  const walletIndex = existingCount + 1;
+  // v3.4.1 FIX: Find the MAX wallet_index to handle gaps from deleted wallets
+  // Using count+1 fails if wallets were deleted (e.g., indexes 1,2,4 -> count=3, new=4 conflicts)
+  const { data: maxData } = await supabase
+    .from('user_wallets')
+    .select('wallet_index')
+    .eq('tg_id', wallet.tg_id)
+    .eq('chain', wallet.chain)
+    .order('wallet_index', { ascending: false })
+    .limit(1)
+    .single();
+
+  const walletIndex = (maxData?.wallet_index || 0) + 1;
   const isFirstWallet = existingCount === 0;
   const isSolana = wallet.chain === 'sol';
 
