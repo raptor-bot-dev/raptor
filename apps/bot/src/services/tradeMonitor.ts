@@ -113,11 +113,20 @@ export function formatTradeMonitorMessage(
     pnl_percent,
     market_cap_usd,
     liquidity_usd,
+    entry_market_cap_usd,  // v3.4.1: Entry market cap
   } = monitor;
 
+  // v3.4.1: Calculate MCap-based PnL if we have both entry and current MCap
+  const mcapPnlPercent = entry_market_cap_usd && market_cap_usd
+    ? ((market_cap_usd - entry_market_cap_usd) / entry_market_cap_usd) * 100
+    : null;
+
+  // Use MCap PnL if available, otherwise fall back to SOL-based PnL
+  const displayPnlPercent = mcapPnlPercent !== null ? mcapPnlPercent : (pnl_percent || 0);
+
   // PnL emoji
-  const pnlEmoji = (pnl_percent || 0) >= 0 ? '🟢' : '🔴';
-  const pnlSign = (pnl_percent || 0) >= 0 ? '+' : '';
+  const pnlEmoji = displayPnlPercent >= 0 ? '🟢' : '🔴';
+  const pnlSign = displayPnlPercent >= 0 ? '+' : '';
 
   // Format numbers
   const formatSol = (n: number | null) => (n !== null ? n.toFixed(4) : '—');
@@ -155,13 +164,22 @@ export function formatTradeMonitorMessage(
   const currentValueUsd = current_value_sol !== null ? current_value_sol * solPriceUsd : null;
   const pnlUsd = pnl_sol !== null ? pnl_sol * solPriceUsd : null;
 
-  // Truncate mint for display - tap to copy
-  const shortMint = `${mint.slice(0, 6)}...${mint.slice(-4)}`;
+  // v3.4.1: Show full CA for tap-to-copy
 
-  let message = `📊 *TRADE MONITOR*\n\n`;
+  // v3.4.1: Calculate position age (timer)
+  const openedAt = new Date(monitor.created_at);
+  const now = new Date();
+  const ageMs = now.getTime() - openedAt.getTime();
+  const hours = Math.floor(ageMs / (1000 * 60 * 60));
+  const minutes = Math.floor((ageMs % (1000 * 60 * 60)) / (1000 * 60));
+  const timerStr = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+
+  // v3.4.1: Add line under heading
+  let message = `📊 *TRADE MONITOR*\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
   message += `*${token_symbol || 'Unknown'}* ${token_name ? `(${token_name})` : ''}\n`;
-  message += `\`${shortMint}\`\n`;
-  message += `Route: ${route_label || 'Unknown'}\n\n`;
+  message += `\`${mint}\`\n`;  // v3.4.1: Full CA for tap-to-copy
+  message += `Route: ${route_label || 'Unknown'} • ⏱️ Open: ${timerStr}\n\n`;
 
   message += `━━━━ *Position* ━━━━\n`;
   message += `Entry: ${formatSol(entry_amount_sol)} SOL (${solToUsd(entry_amount_sol)})\n`;
@@ -178,18 +196,31 @@ export function formatTradeMonitorMessage(
   if (currentPriceUsd !== null) message += ` ($${currentPriceUsd.toFixed(8)})`;
   message += `\n\n`;
 
+  // v3.4.1: Show Market Cap section prominently with entry MCap
+  if (entry_market_cap_usd || market_cap_usd) {
+    message += `━━━━ *Market Cap* ━━━━\n`;
+    if (entry_market_cap_usd) message += `Entry: ${formatUsd(entry_market_cap_usd)}\n`;
+    if (market_cap_usd) message += `Current: ${formatUsd(market_cap_usd)}\n`;
+    if (mcapPnlPercent !== null) {
+      message += `Change: ${pnlSign}${mcapPnlPercent.toFixed(2)}%\n`;
+    }
+    message += '\n';
+  }
+
   message += `━━━━ *P&L* ━━━━\n`;
-  message += `${pnlEmoji} ${pnlSign}${formatSol(pnl_sol)} SOL (${pnlSign}${(pnl_percent || 0).toFixed(2)}%)\n`;
+  // v3.4.1: Use MCap-based PnL when available
+  message += `${pnlEmoji} ${pnlSign}${displayPnlPercent.toFixed(2)}%`;
+  if (pnl_sol !== null) {
+    message += ` (${pnlSign}${formatSol(pnl_sol)} SOL)`;
+  }
+  message += `\n`;
   if (pnlUsd !== null) {
     message += `   ${pnlSign}${formatUsd(Math.abs(pnlUsd))} USD\n`;
   }
   message += '\n';
 
-  if (market_cap_usd || liquidity_usd) {
-    message += `━━━━ *Market* ━━━━\n`;
-    if (market_cap_usd) message += `MCap: ${formatUsd(market_cap_usd)}\n`;
-    if (liquidity_usd) message += `Liq: ${formatUsd(liquidity_usd)}\n`;
-    message += '\n';
+  if (liquidity_usd) {
+    message += `💧 *Liquidity:* ${formatUsd(liquidity_usd)}\n\n`;
   }
 
   // v3.4: Add embedded chart links (E5)
@@ -206,8 +237,8 @@ export function formatTradeMonitorMessage(
 
   // Last updated timestamp
   const lastRefresh = new Date(monitor.last_refreshed_at);
-  const now = new Date();
-  const ageSeconds = Math.floor((now.getTime() - lastRefresh.getTime()) / 1000);
+  const currentTime = new Date();
+  const ageSeconds = Math.floor((currentTime.getTime() - lastRefresh.getTime()) / 1000);
   message += `_Updated ${ageSeconds}s ago_`;
 
   return message;
@@ -295,9 +326,11 @@ export async function resetToMonitorView(
     const message = formatTradeMonitorMessage(monitor);
     const keyboard = buildTradeMonitorKeyboard(mint, monitor.id, monitor.chain);
 
+    // v3.4.1: Disable link preview to avoid DexScreener popup
     await api.editMessageText(chatId, messageId, message, {
       parse_mode: 'Markdown',
       reply_markup: keyboard,
+      link_preview_options: { is_disabled: true },
     });
 
     return true;
@@ -440,7 +473,8 @@ export async function createTradeMonitor(
   entryTokens: number,
   entryPriceSol: number,
   routeLabel: string,
-  positionId?: number
+  positionId?: number,
+  entryMarketCapUsd?: number  // v3.4.1: Entry market cap for PnL calculation
 ): Promise<TradeMonitor | null> {
   try {
     // Send initial monitor message
@@ -457,7 +491,8 @@ export async function createTradeMonitor(
       current_value_sol: entryAmountSol,
       pnl_sol: 0,
       pnl_percent: 0,
-      market_cap_usd: null,
+      market_cap_usd: entryMarketCapUsd || null,  // v3.4.1: Use entry MCap as initial current MCap
+      entry_market_cap_usd: entryMarketCapUsd || null,  // v3.4.1: Store entry market cap
       liquidity_usd: null,
       last_refreshed_at: new Date().toISOString(),
     };
@@ -465,9 +500,11 @@ export async function createTradeMonitor(
     const message = formatTradeMonitorMessage(tempMonitor as TradeMonitor);
     const keyboard = buildTradeMonitorKeyboard(mint, 0, chain); // Will update with real ID
 
+    // v3.4.1: Disable link preview to avoid DexScreener popup
     const sentMessage = await api.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
       reply_markup: keyboard,
+      link_preview_options: { is_disabled: true },
     });
 
     // Save monitor to database
@@ -485,6 +522,7 @@ export async function createTradeMonitor(
       entry_tokens: entryTokens,
       route_label: routeLabel,
       ttl_hours: MONITOR_TTL_HOURS,
+      entry_market_cap_usd: entryMarketCapUsd,  // v3.4.1: Store entry market cap
     });
 
     // Update message with real monitor ID in keyboard
@@ -492,6 +530,15 @@ export async function createTradeMonitor(
     await api.editMessageReplyMarkup(chatId, sentMessage.message_id, {
       reply_markup: updatedKeyboard,
     });
+
+    // v3.4.1: Auto-pin the monitor message
+    try {
+      await api.pinChatMessage(chatId, sentMessage.message_id, {
+        disable_notification: true,  // Don't notify on pin
+      });
+    } catch {
+      // Pinning may fail if bot doesn't have pin permissions - ignore
+    }
 
     console.log(`[TradeMonitor] Created monitor ${monitor.id} for ${tokenSymbol} (${mint})`);
     return monitor;
@@ -550,10 +597,26 @@ export async function refreshMonitor(
       currentTokens = monitor.current_tokens;
     }
 
-    // Calculate PnL
-    let currentValueSol = 0;
-    let pnlSol = 0;
-    let pnlPercent = 0;
+    // v3.4.1: Fetch current market cap from DexScreener
+    let currentMarketCap: number | undefined;
+    let currentLiquidity: number | undefined;
+    try {
+      const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+      const dexData = await dexRes.json() as { pairs?: Array<{ fdv?: number; liquidity?: { usd?: number } }> };
+      if (dexData.pairs?.[0]) {
+        currentMarketCap = dexData.pairs[0].fdv;
+        currentLiquidity = dexData.pairs[0].liquidity?.usd;
+      }
+    } catch {
+      // Keep existing values on fetch failure
+      currentMarketCap = monitor.market_cap_usd ?? undefined;
+      currentLiquidity = monitor.liquidity_usd ?? undefined;
+    }
+
+    // Calculate PnL - v3.4.1: Preserve existing values on failure
+    let currentValueSol = monitor.current_value_sol || 0;
+    let pnlSol = monitor.pnl_sol || 0;
+    let pnlPercent = monitor.pnl_percent || 0;
 
     if (currentPrice && currentTokens && entry_price_sol && entry_amount_sol) {
       currentValueSol = currentTokens * currentPrice;
@@ -561,14 +624,16 @@ export async function refreshMonitor(
       pnlPercent = (pnlSol / entry_amount_sol) * 100;
     }
 
-    // Update database
+    // Update database - v3.4.1: Only update fields with valid new data
     const updatedMonitor = await updateMonitorData({
       monitor_id: monitor.id,
-      current_price_sol: currentPrice || monitor.current_price_sol || 0,
-      current_tokens: currentTokens || monitor.current_tokens || 0,
+      current_price_sol: currentPrice ?? monitor.current_price_sol ?? 0,
+      current_tokens: currentTokens ?? monitor.current_tokens ?? 0,
       current_value_sol: currentValueSol,
       pnl_sol: pnlSol,
       pnl_percent: pnlPercent,
+      market_cap_usd: currentMarketCap ?? (monitor.market_cap_usd ?? undefined),
+      liquidity_usd: currentLiquidity ?? (monitor.liquidity_usd ?? undefined),
     });
 
     // Update Telegram message
@@ -576,9 +641,11 @@ export async function refreshMonitor(
     const keyboard = buildTradeMonitorKeyboard(mint, monitor.id, monitor.chain);
 
     try {
+      // v3.4.1: Disable link preview to avoid DexScreener popup
       await api.editMessageText(chat_id, message_id, message, {
         parse_mode: 'Markdown',
         reply_markup: keyboard,
+        link_preview_options: { is_disabled: true },
       });
     } catch (editError: unknown) {
       // Message may be unchanged or deleted

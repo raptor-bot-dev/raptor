@@ -314,8 +314,22 @@ Make sure to save your private key!`,
     await ctx.answerCallbackQuery({ text: 'Wallet created successfully!' });
   } catch (error) {
     console.error('[Wallet] Error creating wallet:', error);
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+
+    // v3.4.1: Better error handling with specific messages
+    let userMessage = 'Error creating wallet. Please try again.';
+    if (errorMsg.includes('Maximum 5 wallets') || errorMsg.includes('maximum')) {
+      userMessage = 'Maximum 5 wallets reached for this chain.';
+    } else if (errorMsg.includes('duplicate') || errorMsg.includes('unique')) {
+      userMessage = 'Wallet already exists. Try refreshing.';
+    } else if (errorMsg.includes('connection') || errorMsg.includes('timeout')) {
+      userMessage = 'Database connection error. Please try again later.';
+    } else if (errorMsg.includes('encryption') || errorMsg.includes('key')) {
+      userMessage = 'Encryption error. Please contact support.';
+    }
+
     await ctx.answerCallbackQuery({
-      text: 'Error creating wallet. Please try again.',
+      text: userMessage,
       show_alert: true,
     });
   }
@@ -463,13 +477,11 @@ export async function showChainWallets(ctx: MyContext, chain: Chain) {
   try {
     const wallets = await getUserWalletsForChain(user.id, chain);
 
-    const message = `${LINE}
-${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]} Wallets*
+    // v3.4.1: Fix line formatting - lines only below headings
+    const message = `${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]} Wallets*
 ${LINE}
 
-${wallets.length === 0 ? 'No wallets yet. Create one below.' : `You have ${wallets.length}/5 wallets.`}
-
-${LINE}`;
+${wallets.length === 0 ? 'No wallets yet. Create one below.' : `You have ${wallets.length}/5 wallets.`}`;
 
     // v3.4 (F1): Use cleaner wallet naming
     const walletList = wallets.map((w) => ({
@@ -529,17 +541,15 @@ export async function showWalletDetails(
       console.error('[Wallet] Error fetching balance for details:', error);
     }
 
-    const message = `${LINE}
-${CHAIN_EMOJI[chain]} *${wallet.wallet_label || `Wallet #${walletIndex}`}* ${activeStatus}
+    // v3.4.1: Fix line formatting - lines only below headings, use formatWalletName()
+    const message = `${CHAIN_EMOJI[chain]} *${formatWalletName(walletIndex, wallet.wallet_label, chain)}* ${activeStatus}
 ${LINE}
 
 *Chain:* ${CHAIN_NAME[chain]}
 *Address:*
 \`${address}\`
 
-*Balance:* ${balance.toFixed(4)} ${symbol}
-
-${LINE}`;
+*Balance:* ${balance.toFixed(4)} ${symbol}`;
 
     await ctx.editMessageText(message, {
       parse_mode: 'Markdown',
@@ -674,10 +684,11 @@ export async function startDeleteWallet(
     // Set session step
     ctx.session.step = 'awaiting_delete_confirmation';
 
+    // v3.4.1: Use formatWalletName() for consistent naming
     const message = formatDeleteWalletWarning(
       chain,
       walletIndex,
-      wallet.wallet_label || `Wallet #${walletIndex}`
+      formatWalletName(walletIndex, wallet.wallet_label, chain)
     );
 
     await ctx.editMessageText(message, {
@@ -760,11 +771,11 @@ export async function showWalletDeposit(
           ? '0.01 BNB'
           : '0.01 ETH';
 
-    const message = `${LINE}
-📥 *DEPOSIT*
+    // v3.4.1: Fix line formatting - lines only below headings
+    const message = `📥 *DEPOSIT*
 ${LINE}
 
-${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - ${wallet.wallet_label || `Wallet #${walletIndex}`}
+${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - ${formatWalletName(walletIndex, wallet.wallet_label, chain)}
 
 Send *${symbol}* to this address:
 
@@ -773,9 +784,7 @@ Send *${symbol}* to this address:
 *Minimum:* ${minDeposit}
 
 ⚠️ Only send ${symbol} on ${CHAIN_NAME[chain]} network.
-Sending other tokens may result in loss.
-
-${LINE}`;
+Sending other tokens may result in loss.`;
 
     await ctx.editMessageText(message, {
       parse_mode: 'Markdown',
@@ -833,17 +842,15 @@ export async function startWithdrawal(
 
     const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
 
-    const message = `${LINE}
-📤 *WITHDRAW*
+    // v3.4.1: Fix line formatting - lines only below headings
+    const message = `📤 *WITHDRAW*
 ${LINE}
 
-${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - ${wallet.wallet_label || `Wallet #${walletIndex}`}
+${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - ${formatWalletName(walletIndex, wallet.wallet_label, chain)}
 
 *Current Balance:* ${balance.toFixed(4)} ${symbol}
 
-Select amount to withdraw:
-
-${LINE}`;
+Select amount to withdraw:`;
 
     // Store withdrawal context in session
     if (!ctx.session) {
@@ -935,15 +942,13 @@ export async function selectWithdrawalPercentage(
     ctx.session.step = 'awaiting_withdrawal_address';
 
     const amountText = `${withdrawAmount.toFixed(6)} ${symbol}`;
-    const message = `${LINE}
-📤 *WITHDRAW ${percentage}%*
+    // v3.4.1: Fix line formatting - lines only below headings
+    const message = `📤 *WITHDRAW ${percentage}%*
 ${LINE}
 
 *Amount:* ${escapeMarkdownV2(amountText)}
 
-Please enter the destination address:
-
-${LINE}`;
+Please enter the destination address:`;
 
     await ctx.editMessageText(message, {
       parse_mode: 'MarkdownV2',

@@ -252,7 +252,8 @@ export function walletListKeyboard(
 
   for (const wallet of wallets) {
     const marker = wallet.isActive ? ' ✓' : '';
-    kb.text(`#${wallet.index} ${wallet.label}${marker}`, `wallet_select_${chain}_${wallet.index}`);
+    // v3.4.1: Remove redundant #index prefix - label already contains wallet name
+    kb.text(`${wallet.label}${marker}`, `wallet_select_${chain}_${wallet.index}`);
     kb.row();
   }
 

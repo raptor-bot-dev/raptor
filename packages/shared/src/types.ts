@@ -351,6 +351,7 @@ export interface TradeMonitor {
   entry_amount_sol: number | null;
   entry_tokens: number | null;
   route_label: string | null;
+  entry_market_cap_usd: number | null;  // v3.4.1: Entry market cap for PnL calculation
 
   // Current data
   current_price_sol: number | null;
@@ -391,6 +392,7 @@ export interface TradeMonitorInput {
   entry_tokens?: number;
   route_label?: string;
   ttl_hours?: number;
+  entry_market_cap_usd?: number;  // v3.4.1: Entry market cap for PnL calculation
 }
 
 /** Data for updating monitor with fresh prices */

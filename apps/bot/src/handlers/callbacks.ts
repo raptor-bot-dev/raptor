@@ -2330,19 +2330,36 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
 
       // Create Trade Monitor for this position
       try {
+        // v3.4.1: Fetch token metadata from DexScreener
+        let tokenSymbol: string | undefined;
+        let tokenName: string | undefined;
+        let entryMarketCapUsd: number | undefined;
+        try {
+          const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`);
+          const dexData = await dexRes.json() as { pairs?: Array<{ baseToken?: { symbol?: string; name?: string }; fdv?: number }> };
+          if (dexData.pairs?.[0]) {
+            tokenSymbol = dexData.pairs[0].baseToken?.symbol;
+            tokenName = dexData.pairs[0].baseToken?.name;
+            entryMarketCapUsd = dexData.pairs[0].fdv; // Market cap at entry
+          }
+        } catch {
+          // Fallback to undefined - monitor will show "Unknown"
+        }
+
         await createTradeMonitor(
           ctx.api,
           user.id,
           ctx.chat!.id,
           'sol',
           tokenAddress,
-          undefined, // tokenSymbol - will be fetched
-          undefined, // tokenName - will be fetched
+          tokenSymbol,
+          tokenName,
           result.netAmount || solAmount,
           tokensReceived,
           pricePerToken,
           result.route || 'Unknown',
-          positionId // Link monitor to position
+          positionId,
+          entryMarketCapUsd  // v3.4.1: Pass entry market cap
         );
       } catch (monitorError) {
         console.error('[Callbacks] Failed to create trade monitor:', monitorError);
