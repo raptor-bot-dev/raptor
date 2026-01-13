@@ -9,6 +9,9 @@ import { fetchWithRetry } from '../../utils/fetchWithTimeout.js';
 const JUPITER_SWAP_API = 'https://api.jup.ag/swap/v1';
 const JUPITER_PRICE_API = 'https://api.jup.ag/price/v2';
 
+// v3.3.2: Jupiter API key for authenticated requests (fixes 401 errors)
+const JUPITER_API_KEY = process.env.JUPITER_API_KEY;
+
 // M-4: Circuit breaker configuration
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Failures before opening circuit
 const CIRCUIT_BREAKER_RESET_MS = 60_000; // 1 minute reset time
@@ -170,7 +173,12 @@ export class JupiterClient {
     });
 
     try {
-      const response = await fetchWithRetry(`${this.swapApiBase}/quote?${params}`, {}, 5000, 3);
+      // v3.3.2: Add API key header if available
+      const headers: Record<string, string> = {};
+      if (JUPITER_API_KEY) {
+        headers['x-api-key'] = JUPITER_API_KEY;
+      }
+      const response = await fetchWithRetry(`${this.swapApiBase}/quote?${params}`, { headers }, 5000, 3);
 
       if (!response.ok) {
         const error = await response.text();
@@ -202,11 +210,14 @@ export class JupiterClient {
     this.checkCircuitBreaker();
 
     try {
+      // v3.3.2: Add API key header if available
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (JUPITER_API_KEY) {
+        headers['x-api-key'] = JUPITER_API_KEY;
+      }
       const response = await fetchWithRetry(`${this.swapApiBase}/swap`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           quoteResponse: quote,
           userPublicKey,
@@ -245,7 +256,12 @@ export class JupiterClient {
     });
 
     try {
-      const response = await fetchWithRetry(`${this.priceApiBase}?${params}`, {}, 3000, 3);
+      // v3.3.2: Add API key header if available
+      const headers: Record<string, string> = {};
+      if (JUPITER_API_KEY) {
+        headers['x-api-key'] = JUPITER_API_KEY;
+      }
+      const response = await fetchWithRetry(`${this.priceApiBase}?${params}`, { headers }, 3000, 3);
 
       if (!response.ok) {
         throw new Error('Failed to get token price');

@@ -18,6 +18,9 @@ import { runFullAnalysis } from '../analysis/fullAnalysis.js';
 
 const DEFAULT_VERIFICATION_SLIPPAGE_BPS = 500; // 5%
 
+// v3.3.2: Jupiter API key for authenticated requests
+const JUPITER_API_KEY = process.env.JUPITER_API_KEY;
+
 function getVerificationSlippageBps(): number {
   return parseInt(process.env.VERIFICATION_SLIPPAGE_BPS || String(DEFAULT_VERIFICATION_SLIPPAGE_BPS), 10);
 }
@@ -310,9 +313,14 @@ async function simulateSolanaSell(tokenAddress: string): Promise<SellSimulationR
     const verificationSlippageBps = getVerificationSlippageBps();
     quoteUrl.searchParams.set('slippageBps', verificationSlippageBps.toString());
 
+    // v3.3.2: Add API key header if available
+    const headers: Record<string, string> = { 'Accept': 'application/json' };
+    if (JUPITER_API_KEY) {
+      headers['x-api-key'] = JUPITER_API_KEY;
+    }
     const response = await fetch(quoteUrl.toString(), {
       method: 'GET',
-      headers: { 'Accept': 'application/json' },
+      headers,
     });
 
     if (!response.ok) {

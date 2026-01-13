@@ -308,10 +308,11 @@ export async function executeManualBuy(params: {
   // Step 6: Calculate fee breakdown
   const { netAmount, fee } = applyBuyFeeDecimal(amountSol);
 
-  // Step 7: Load keypair
+  // Step 7: Load keypair (v3.3.2: with integrity check)
   const keypair = loadSolanaKeypair(
     activeWallet.solana_private_key_encrypted as EncryptedData,
-    userId
+    userId,
+    walletAddress  // v3.3.2: validate derived pubkey matches stored address
   );
 
   // Step 8: Mark execution as SUBMITTED

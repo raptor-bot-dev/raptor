@@ -95,12 +95,20 @@ export function generateUserWallets(tgId?: number): UserWalletKeys {
  * SECURITY: C-1 fix - Ensures private key is cleared from memory before
  * any error is thrown to prevent key leakage in stack traces/logs.
  *
+ * v3.3.2: Added optional expectedPubkey parameter for wallet integrity validation.
+ * This catches encryption key mismatches early with a clear error message.
+ *
  * @param encrypted - The encrypted private key data
  * @param tgId - Telegram user ID for v2 decryption (optional for legacy v1 data)
+ * @param expectedPubkey - Optional expected public key to validate against
  * @returns Solana Keypair ready for signing
  * @throws Error if decryption or key parsing fails (sanitized, no key in message)
  */
-export function loadSolanaKeypair(encrypted: EncryptedData, tgId?: number): Keypair {
+export function loadSolanaKeypair(
+  encrypted: EncryptedData,
+  tgId?: number,
+  expectedPubkey?: string
+): Keypair {
   let privateKeyBase58: string | null = null;
   let secretKey: Uint8Array | null = null;
 
@@ -111,8 +119,23 @@ export function loadSolanaKeypair(encrypted: EncryptedData, tgId?: number): Keyp
     // Decode from base58 to Uint8Array
     secretKey = bs58.decode(privateKeyBase58);
 
+    // v3.3.2: Validate secret key length (must be 64 bytes for ED25519)
+    if (secretKey.length !== 64) {
+      console.error(`[Keypair] Invalid secret key length: ${secretKey.length}, expected 64`);
+      throw new Error('Invalid wallet secret key length');
+    }
+
     // Create keypair from secret key
     const keypair = Keypair.fromSecretKey(secretKey);
+
+    // v3.3.2: Validate derived pubkey matches expected (catches encryption key mismatch)
+    if (expectedPubkey) {
+      const derivedPubkey = keypair.publicKey.toBase58();
+      if (derivedPubkey !== expectedPubkey) {
+        console.error(`[Keypair] WALLET MISMATCH - tgId: ${tgId}, expected: ${expectedPubkey}, derived: ${derivedPubkey}`);
+        throw new Error(`Wallet keypair mismatch. Expected ${expectedPubkey.slice(0, 8)}... but derived ${derivedPubkey.slice(0, 8)}...`);
+      }
+    }
 
     return keypair;
   } catch (error) {

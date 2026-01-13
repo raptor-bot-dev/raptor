@@ -306,10 +306,12 @@ export async function executeManualSell(params: {
     };
   }
 
-  // Step 4: Load keypair
+  // Step 4: Load keypair (v3.3.2: with integrity check)
+  const walletAddress = activeWallet.public_key || activeWallet.solana_address;
   const keypair = loadSolanaKeypair(
     activeWallet.solana_private_key_encrypted as EncryptedData,
-    userId
+    userId,
+    walletAddress  // v3.3.2: validate derived pubkey matches stored address
   );
 
   // Step 5: Mark execution as SUBMITTED

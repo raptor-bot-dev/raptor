@@ -217,8 +217,13 @@ async function processSolanaWithdrawal(
   const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
   const { loadSolanaKeypair } = await import('@raptor/shared');
 
-  // Load user's keypair with tgId for v2 decryption
-  const keypair = loadSolanaKeypair(wallet.solana_private_key_encrypted as EncryptedData, wallet.tg_id);
+  // Load user's keypair with tgId for v2 decryption (v3.3.2: with integrity check)
+  const walletAddress = wallet.public_key || wallet.solana_address;
+  const keypair = loadSolanaKeypair(
+    wallet.solana_private_key_encrypted as EncryptedData,
+    wallet.tg_id,
+    walletAddress  // v3.3.2: validate derived pubkey matches stored address
+  );
 
   // Connect to Solana
   const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';

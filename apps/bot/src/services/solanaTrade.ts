@@ -89,10 +89,12 @@ export async function executeSolanaBuy(
     // 3. Calculate fee breakdown
     const { netAmount, fee } = applyBuyFeeDecimal(solAmount);
 
-    // 4. Load user's keypair
+    // 4. Load user's keypair (v3.3.2: with integrity check)
+    const walletAddress = solanaWallet.public_key || solanaWallet.solana_address;
     const keypair = loadSolanaKeypair(
       solanaWallet.solana_private_key_encrypted as EncryptedData,
-      tgId
+      tgId,
+      walletAddress  // v3.3.2: validate derived pubkey matches stored address
     );
 
     // L-2 FIX: Fetch user's manual settings for slippage
@@ -281,10 +283,12 @@ export async function executeSolanaSell(
       };
     }
 
-    // 2. Load user's keypair
+    // 2. Load user's keypair (v3.3.2: with integrity check)
+    const walletAddress = solanaWallet.public_key || solanaWallet.solana_address;
     const keypair = loadSolanaKeypair(
       solanaWallet.solana_private_key_encrypted as EncryptedData,
-      tgId
+      tgId,
+      walletAddress  // v3.3.2: validate derived pubkey matches stored address
     );
 
     // L-2 FIX: Fetch user's manual settings for slippage
