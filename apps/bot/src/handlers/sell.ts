@@ -124,12 +124,12 @@ export async function handleManualSell(
       slippageBps,
     });
 
-    // Display result
+    // v3.4 FIX (E4): Send result as new message to preserve sell panel
     if (result.success && result.txHash) {
       const explorerUrl = `https://solscan.io/tx/${result.txHash}`;
       const pnlEmoji = (result.pnlSol || 0) >= 0 ? '📈' : '📉';
 
-      await ctx.editMessageText(
+      await ctx.reply(
         `✅ *SELL SUCCESSFUL*\n\n` +
           `*Token:* ${position.token_symbol || 'Unknown'}\n` +
           `*Route:* ${result.route || 'Unknown'}\n` +
@@ -146,13 +146,13 @@ export async function handleManualSell(
         }
       );
     } else if (result.alreadyExecuted) {
-      await ctx.editMessageText(
+      await ctx.reply(
         `This sell has already been processed.\n\n` +
           `Execution ID: \`${result.executionId}\``,
         { parse_mode: 'Markdown' }
       );
     } else {
-      await ctx.editMessageText(
+      await ctx.reply(
         `❌ *SELL FAILED*\n\n` +
           `${escapeMarkdown(result.error || 'Unknown error')}\n\n` +
           `Please try again.`,
@@ -162,7 +162,7 @@ export async function handleManualSell(
   } catch (error) {
     logger.error('Manual sell handler error', error);
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    await ctx.editMessageText(
+    await ctx.reply(
       `❌ *SELL FAILED*\n\n` +
         `An unexpected error occurred: ${escapeMarkdown(errorMsg)}\n\n` +
         `Please try again or contact support.`,

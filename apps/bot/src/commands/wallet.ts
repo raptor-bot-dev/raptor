@@ -47,6 +47,7 @@ import {
   formatDeleteWalletWarning,
   escapeMarkdownV2,
   LINE,
+  formatWalletName,
 } from '../utils/formatters.js';
 
 // Store pending wallet deletions for confirmation
@@ -179,10 +180,11 @@ export async function showPortfolio(ctx: MyContext) {
     }
 
     // Format wallet data for keyboard
+    // v3.4 (F1): Use cleaner wallet naming
     const walletData = wallets.map((w) => ({
       chain: w.chain,
       index: w.wallet_index,
-      label: w.wallet_label || `Wallet #${w.wallet_index}`,
+      label: formatWalletName(w.wallet_index, w.wallet_label),
       isActive: w.is_active,
     }));
 
@@ -290,11 +292,13 @@ export async function createNewWallet(ctx: MyContext, chain: Chain) {
     autoDeleteTimeouts.set(timeoutKey, timeout);
 
     // Update original message
+    // v3.4 (F1): Use cleaner wallet naming with chain icon
+    const walletDisplayName = formatWalletName(wallet.wallet_index, null, chain, true);
     await ctx.editMessageText(
       `✅ *WALLET CREATED*
 ${LINE}
 
-${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - Wallet #${wallet.wallet_index}
+${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - ${walletDisplayName}
 
 Your new wallet has been created.
 Credentials shown in the message above.
@@ -467,9 +471,10 @@ ${wallets.length === 0 ? 'No wallets yet. Create one below.' : `You have ${walle
 
 ${LINE}`;
 
+    // v3.4 (F1): Use cleaner wallet naming
     const walletList = wallets.map((w) => ({
       index: w.wallet_index,
-      label: w.wallet_label || `Wallet #${w.wallet_index}`,
+      label: formatWalletName(w.wallet_index, w.wallet_label),
       isActive: w.is_active,
     }));
 

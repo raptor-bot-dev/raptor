@@ -92,6 +92,7 @@ function getCachedPrice(mint: string): number | null {
 /**
  * Format the Trade Monitor message
  * v3.2: Added USD pricing throughout
+ * v3.4: Added embedded chart links (E5)
  */
 export function formatTradeMonitorMessage(
   monitor: TradeMonitor,
@@ -120,11 +121,13 @@ export function formatTradeMonitorMessage(
 
   // Format numbers
   const formatSol = (n: number | null) => (n !== null ? n.toFixed(4) : '—');
+  // v3.4 FIX: Handle small token values properly (avoid showing 0.00 for small amounts)
   const formatTokens = (n: number | null) => {
     if (n === null) return '—';
     if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(2) + 'B';
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
     if (n >= 1_000) return (n / 1_000).toFixed(2) + 'K';
+    if (n < 0.01 && n > 0) return n.toFixed(6);
     return n.toFixed(2);
   };
   const formatUsd = (n: number | null) => {
@@ -133,10 +136,14 @@ export function formatTradeMonitorMessage(
     if (n >= 1_000) return '$' + (n / 1_000).toFixed(2) + 'K';
     return '$' + n.toFixed(2);
   };
+  // v3.4 FIX: Avoid scientific notation for very small prices
   const formatPrice = (n: number | null) => {
     if (n === null) return '—';
-    if (n < 0.000001) return n.toExponential(4);
-    return n.toFixed(9);
+    if (n === 0) return '0';
+    if (n < 0.000000001) return '<0.000000001';
+    if (n < 0.000001) return n.toFixed(12);
+    if (n < 0.001) return n.toFixed(9);
+    return n.toFixed(6);
   };
   const solToUsd = (sol: number | null) => {
     if (sol === null) return '—';
@@ -185,6 +192,18 @@ export function formatTradeMonitorMessage(
     message += '\n';
   }
 
+  // v3.4: Add embedded chart links (E5)
+  const chain = monitor.chain || 'sol';
+  const chainPath = chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bsc' : chain === 'base' ? 'base' : 'ethereum';
+  const dexUrl = `https://dexscreener.com/${chainPath}/${mint}`;
+  const birdeyeUrl = chain === 'sol' ? `https://birdeye.so/token/${mint}` : null;
+  const solscanUrl = chain === 'sol' ? `https://solscan.io/token/${mint}` : null;
+
+  let links = `🔗 [DexScreener](${dexUrl})`;
+  if (birdeyeUrl) links += ` • [Birdeye](${birdeyeUrl})`;
+  if (solscanUrl) links += ` • [Solscan](${solscanUrl})`;
+  message += links + `\n\n`;
+
   // Last updated timestamp
   const lastRefresh = new Date(monitor.last_refreshed_at);
   const now = new Date();
@@ -197,14 +216,16 @@ export function formatTradeMonitorMessage(
 /**
  * Build Trade Monitor keyboard
  * v3.2: Removed Copy CA button (use tap-to-copy on CA in message)
+ * v3.4: Added chain parameter for correct DexScreener URL and token return
  */
-export function buildTradeMonitorKeyboard(mint: string, monitorId: number): InlineKeyboard {
+export function buildTradeMonitorKeyboard(mint: string, monitorId: number, chain: Chain = 'sol'): InlineKeyboard {
   const keyboard = new InlineKeyboard()
     .text('💰 → Sell', `open_sell:${mint}`)
     .text('🔄 Refresh', `refresh_monitor:${monitorId}`)
     .row()
-    .text('📊 Chart', `chart:${mint}`)
-    .text('« Back to Token', `token:${mint}`);
+    // v3.4 FIX: Include chain for correct DexScreener URL
+    .text('📊 Chart', `chart:${chain}_${mint}`)
+    .text('« Back to Token', `token:${chain}_${mint}`);
 
   return keyboard;
 }
@@ -212,10 +233,12 @@ export function buildTradeMonitorKeyboard(mint: string, monitorId: number): Inli
 /**
  * Build Sell Panel keyboard
  * v3.2: Added 10% option and improved layout
+ * v3.4: Added refresh button and chain support for correct navigation
  */
 export function buildSellPanelKeyboard(
   mint: string,
-  hasBalance: boolean = true
+  hasBalance: boolean = true,
+  chain: Chain = 'sol'
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
 
@@ -236,9 +259,12 @@ export function buildSellPanelKeyboard(
   keyboard
     .text('⚙️ Slippage', `sell_slippage:${mint}`)
     .text('⚡ Priority', `sell_priority:${mint}`)
+    // v3.4: Added refresh button
+    .text('🔄 Refresh', `refresh_sell:${mint}`)
     .row()
     .text('« Back to Monitor', `view_monitor:${mint}`)
-    .text('« Back to Token', `token:${mint}`);
+    // v3.4: Include chain for correct token panel navigation
+    .text('« Back to Token', `token:${chain}_${mint}`);
 
   return keyboard;
 }
@@ -267,7 +293,7 @@ export async function resetToMonitorView(
 
     // Render monitor view
     const message = formatTradeMonitorMessage(monitor);
-    const keyboard = buildTradeMonitorKeyboard(mint, monitor.id);
+    const keyboard = buildTradeMonitorKeyboard(mint, monitor.id, monitor.chain);
 
     await api.editMessageText(chatId, messageId, message, {
       parse_mode: 'Markdown',
@@ -282,8 +308,20 @@ export async function resetToMonitorView(
 }
 
 /**
+ * Token info for sell panel display
+ * v3.4: Added to show market data like buy panel
+ */
+export interface SellPanelTokenInfo {
+  name?: string | null;
+  marketCapUsd?: number | null;
+  liquidityUsd?: number | null;
+  priceChangePercent?: number | null;
+}
+
+/**
  * Format the Sell Panel message
  * v3.2: Added USD pricing
+ * v3.4: Added token info (name, mcap, liquidity, links) like buy panel
  */
 export function formatSellPanelMessage(
   tokenSymbol: string,
@@ -293,32 +331,59 @@ export function formatSellPanelMessage(
   currentPriceSol: number | null,
   slippageBps: number = 500,
   priorityFee: number = 100000,
-  solPriceUsd: number = 180 // Default SOL price, should be fetched
+  solPriceUsd: number = 180,
+  chain: Chain = 'sol',
+  tokenInfo?: SellPanelTokenInfo
 ): string {
-  const shortMint = `${mint.slice(0, 6)}...${mint.slice(-4)}`;
-
+  // v3.4 FIX: Handle small token values properly
   const formatTokens = (n: number | null) => {
     if (n === null || n === 0) return 'No Balance';
     if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(2) + 'B';
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
     if (n >= 1_000) return (n / 1_000).toFixed(2) + 'K';
+    if (n < 0.01) return n.toFixed(6);
     return n.toFixed(4);
   };
 
-  const formatUsd = (sol: number | null) => {
-    if (sol === null) return '—';
-    const usd = sol * solPriceUsd;
-    if (usd >= 1000) return '$' + (usd / 1000).toFixed(2) + 'K';
-    return '$' + usd.toFixed(2);
+  const formatUsd = (n: number | null) => {
+    if (n === null) return '—';
+    if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(2) + 'M';
+    if (n >= 1_000) return '$' + (n / 1_000).toFixed(2) + 'K';
+    return '$' + n.toFixed(2);
   };
 
-  // v3.3.1 FIX: Full-width separators below headings
+  const formatSolToUsd = (sol: number | null) => {
+    if (sol === null) return '—';
+    return formatUsd(sol * solPriceUsd);
+  };
+
+  // v3.4 FIX: Standard 35-char line width below headings only
   let message = `💰 *SELL ${tokenSymbol}*\n`;
-  message += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-  message += `\`${shortMint}\`\n\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  // v3.4: Show token name if available
+  if (tokenInfo?.name) {
+    message += `*${tokenInfo.name}*\n\n`;
+  }
+
+  // v3.4: Show market data if available
+  if (tokenInfo?.marketCapUsd || tokenInfo?.liquidityUsd) {
+    if (tokenInfo.marketCapUsd) {
+      message += `📊 *MCap:* ${formatUsd(tokenInfo.marketCapUsd)}\n`;
+    }
+    if (tokenInfo.liquidityUsd) {
+      message += `💧 *Liq:* ${formatUsd(tokenInfo.liquidityUsd)}\n`;
+    }
+    if (tokenInfo.priceChangePercent !== undefined && tokenInfo.priceChangePercent !== null) {
+      const changeEmoji = tokenInfo.priceChangePercent >= 0 ? '🟢' : '🔴';
+      const changeSign = tokenInfo.priceChangePercent >= 0 ? '+' : '';
+      message += `${changeEmoji} *24h:* ${changeSign}${tokenInfo.priceChangePercent.toFixed(2)}%\n`;
+    }
+    message += `\n`;
+  }
 
   message += `*Holdings*\n`;
-  message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   if (tokensHeld === null || tokensHeld === 0) {
     message += `⚠️ *No Balance Detected*\n`;
     message += `_Wallet has no tokens for this mint_\n\n`;
@@ -326,7 +391,7 @@ export function formatSellPanelMessage(
     message += `Tokens: ${formatTokens(tokensHeld)}\n`;
     message += `Est. Value: ${estimatedValueSol !== null ? estimatedValueSol.toFixed(4) : '—'} SOL`;
     if (estimatedValueSol !== null) {
-      message += ` (${formatUsd(estimatedValueSol)})`;
+      message += ` (${formatSolToUsd(estimatedValueSol)})`;
     }
     message += `\n`;
     if (currentPriceSol !== null) {
@@ -337,9 +402,21 @@ export function formatSellPanelMessage(
   }
 
   message += `*Settings*\n`;
-  message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   message += `Slippage: ${(slippageBps / 100).toFixed(1)}%\n`;
   message += `Priority: ${(priorityFee / 1_000_000).toFixed(4)} SOL\n\n`;
+
+  // v3.4: Add links like buy panel
+  const chainPath = chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bsc' : chain === 'base' ? 'base' : 'ethereum';
+  const dexUrl = `https://dexscreener.com/${chainPath}/${mint}`;
+  const birdeyeUrl = chain === 'sol' ? `https://birdeye.so/token/${mint}` : null;
+  const solscanUrl = chain === 'sol' ? `https://solscan.io/token/${mint}` : null;
+
+  let links = `🔗 [DexScreener](${dexUrl})`;
+  if (birdeyeUrl) links += ` • [Birdeye](${birdeyeUrl})`;
+  if (solscanUrl) links += ` • [Solscan](${solscanUrl})`;
+  message += links + `\n`;
+  message += `\`${mint}\`\n\n`;
 
   if (tokensHeld && tokensHeld > 0) {
     message += `_Select amount to sell:_`;
@@ -386,7 +463,7 @@ export async function createTradeMonitor(
     };
 
     const message = formatTradeMonitorMessage(tempMonitor as TradeMonitor);
-    const keyboard = buildTradeMonitorKeyboard(mint, 0); // Will update with real ID
+    const keyboard = buildTradeMonitorKeyboard(mint, 0, chain); // Will update with real ID
 
     const sentMessage = await api.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
@@ -411,7 +488,7 @@ export async function createTradeMonitor(
     });
 
     // Update message with real monitor ID in keyboard
-    const updatedKeyboard = buildTradeMonitorKeyboard(mint, monitor.id);
+    const updatedKeyboard = buildTradeMonitorKeyboard(mint, monitor.id, chain);
     await api.editMessageReplyMarkup(chatId, sentMessage.message_id, {
       reply_markup: updatedKeyboard,
     });
@@ -449,8 +526,8 @@ export async function refreshMonitor(
           100
         );
         if (quote) {
-          // Price per token in SOL
-          currentPrice = parseInt(quote.outAmount) / 1_000_000_000;
+          // v3.4 FIX: Use Number() instead of parseInt() for precision
+          currentPrice = Number(quote.outAmount) / 1_000_000_000;
           setCachedPrice(mint, currentPrice); // P0-4 FIX: use helper
         }
       } catch (priceError) {
@@ -496,7 +573,7 @@ export async function refreshMonitor(
 
     // Update Telegram message
     const message = formatTradeMonitorMessage(updatedMonitor);
-    const keyboard = buildTradeMonitorKeyboard(mint, monitor.id);
+    const keyboard = buildTradeMonitorKeyboard(mint, monitor.id, monitor.chain);
 
     try {
       await api.editMessageText(chat_id, message_id, message, {
@@ -634,6 +711,7 @@ export async function handleManualRefresh(
 /**
  * Handle opening sell panel
  * v3.2 FIX: Sets current_view to 'SELL' to prevent refresh loop overwrites
+ * v3.4: Added token info fetching (name, mcap, liquidity, links)
  */
 export async function openSellPanel(
   api: Api<RawApi>,
@@ -652,6 +730,7 @@ export async function openSellPanel(
 
     // Get monitor for token info
     const monitor = await getUserMonitor(userId, mint);
+    const chain = monitor?.chain || 'sol';
 
     // Get user's manual settings for slippage/priority
     // v3.3.1 FIX: Use ?? instead of || to properly use user settings
@@ -663,20 +742,56 @@ export async function openSellPanel(
     let tokensHeld: number | null = null;
     let estimatedValueSol: number | null = null;
     let currentPriceSol: number | null = null;
+    // v3.4: Token info for enhanced sell panel
+    let tokenInfo: SellPanelTokenInfo = {};
 
     try {
       // Get user's active wallet
-      const userWallet = await getActiveWallet(userId, 'sol');
+      const userWallet = await getActiveWallet(userId, chain);
       if (userWallet) {
-        tokensHeld = await executor.getTokenBalance(mint, userWallet.public_key);
+        const walletAddress = userWallet.public_key || userWallet.solana_address;
+        tokensHeld = await executor.getTokenBalance(mint, walletAddress);
       } else {
         console.warn(`[TradeMonitor] No active wallet for user ${userId} in sell panel`);
       }
 
       // Get price (P0-4 FIX: use cache helper)
       currentPriceSol = getCachedPrice(mint);
+
+      // v3.4: Always try DexScreener first to get full token info
+      try {
+        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+        const dexData = await dexRes.json() as {
+          pairs?: {
+            priceNative?: string;
+            baseToken?: { name?: string; symbol?: string };
+            fdv?: number;
+            liquidity?: { usd?: number };
+            priceChange?: { h24?: number };
+          }[]
+        };
+
+        if (dexData.pairs?.[0]) {
+          const pair = dexData.pairs[0];
+          // v3.4: Extract token info for enhanced display
+          tokenInfo = {
+            name: pair.baseToken?.name || monitor?.token_name || null,
+            marketCapUsd: pair.fdv || null,
+            liquidityUsd: pair.liquidity?.usd || null,
+            priceChangePercent: pair.priceChange?.h24 || null,
+          };
+
+          if (pair.priceNative && currentPriceSol === null) {
+            currentPriceSol = parseFloat(pair.priceNative);
+            setCachedPrice(mint, currentPriceSol);
+          }
+        }
+      } catch (dexErr) {
+        console.warn('[TradeMonitor] DexScreener fetch failed:', dexErr);
+      }
+
+      // Fallback to Jupiter for price if DexScreener didn't have it
       if (currentPriceSol === null) {
-        // Try Jupiter quote first
         try {
           const quote = await executor.jupiter.getQuote(
             mint,
@@ -685,25 +800,12 @@ export async function openSellPanel(
             100
           );
           if (quote) {
-            currentPriceSol = parseInt(quote.outAmount) / 1_000_000_000;
+            // v3.4 FIX: Use Number() instead of parseInt() for precision
+            currentPriceSol = Number(quote.outAmount) / 1_000_000_000;
             setCachedPrice(mint, currentPriceSol);
           }
         } catch (jupiterErr) {
-          console.warn('[TradeMonitor] Jupiter quote failed, trying DexScreener');
-        }
-
-        // v3.3.1 FIX: DexScreener fallback if Jupiter fails
-        if (currentPriceSol === null) {
-          try {
-            const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
-            const dexData = await dexRes.json() as { pairs?: { priceNative?: string }[] };
-            if (dexData.pairs?.[0]?.priceNative) {
-              currentPriceSol = parseFloat(dexData.pairs[0].priceNative);
-              setCachedPrice(mint, currentPriceSol);
-            }
-          } catch {
-            console.warn('[TradeMonitor] DexScreener fallback also failed');
-          }
+          console.warn('[TradeMonitor] Jupiter quote failed');
         }
       }
 
@@ -717,6 +819,7 @@ export async function openSellPanel(
     const tokenSymbol = monitor?.token_symbol || 'TOKEN';
     const hasBalance = tokensHeld !== null && tokensHeld > 0;
 
+    // v3.4: Pass chain and tokenInfo for enhanced display
     const message = formatSellPanelMessage(
       tokenSymbol,
       mint,
@@ -724,13 +827,17 @@ export async function openSellPanel(
       estimatedValueSol,
       currentPriceSol,
       effectiveSlippage,
-      effectivePriority
+      effectivePriority,
+      180, // SOL price USD (TODO: fetch dynamically)
+      chain,
+      tokenInfo
     );
-    const keyboard = buildSellPanelKeyboard(mint, hasBalance);
+    const keyboard = buildSellPanelKeyboard(mint, hasBalance, chain);
 
     await api.editMessageText(chatId, messageId, message, {
       parse_mode: 'Markdown',
       reply_markup: keyboard,
+      link_preview_options: { is_disabled: true },
     });
   } catch (error) {
     console.error('[TradeMonitor] Error opening sell panel:', error);
@@ -780,6 +887,7 @@ export async function closeMonitorAfterSell(
 /**
  * Open sell panel as a NEW message (not editing existing)
  * v3.2: Used when opening sell directly from token card
+ * v3.4: Added token info, refresh button, chain support
  */
 export async function openSellPanelNew(
   api: Api<RawApi>,
@@ -788,7 +896,8 @@ export async function openSellPanelNew(
   mint: string,
   executor: SolanaExecutor,
   slippageBps?: number,
-  priorityFee?: number
+  priorityFee?: number,
+  chain: Chain = 'sol'
 ): Promise<void> {
   try {
     // Get user's manual settings for slippage/priority
@@ -802,6 +911,8 @@ export async function openSellPanelNew(
     let estimatedValueSol: number | null = null;
     let currentPriceSol: number | null = null;
     let tokenSymbol = 'TOKEN';
+    // v3.4: Token info for enhanced sell panel
+    let tokenInfo: SellPanelTokenInfo = {};
 
     try {
       // Try to get token symbol from cache/API
@@ -813,17 +924,53 @@ export async function openSellPanelNew(
       // Get balance from user's wallet
       const { getUserWallets } = await import('@raptor/shared');
       const wallets = await getUserWallets(userId);
-      const activeWallet = wallets.find(w => w.chain === 'sol' && w.is_active);
-      
+      const activeWallet = wallets.find(w => w.chain === chain && w.is_active);
+
       if (activeWallet) {
         const walletAddress = activeWallet.public_key || activeWallet.solana_address;
         tokensHeld = await executor.getTokenBalance(mint, walletAddress);
       }
 
-      // Get price
+      // v3.4: Always try DexScreener first to get full token info
       currentPriceSol = getCachedPrice(mint);
+      try {
+        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+        const dexData = await dexRes.json() as {
+          pairs?: {
+            priceNative?: string;
+            baseToken?: { name?: string; symbol?: string };
+            fdv?: number;
+            liquidity?: { usd?: number };
+            priceChange?: { h24?: number };
+          }[]
+        };
+
+        if (dexData.pairs?.[0]) {
+          const pair = dexData.pairs[0];
+          // v3.4: Extract token info for enhanced display
+          tokenInfo = {
+            name: pair.baseToken?.name || null,
+            marketCapUsd: pair.fdv || null,
+            liquidityUsd: pair.liquidity?.usd || null,
+            priceChangePercent: pair.priceChange?.h24 || null,
+          };
+
+          // Update symbol if available
+          if (pair.baseToken?.symbol && tokenSymbol === 'TOKEN') {
+            tokenSymbol = pair.baseToken.symbol;
+          }
+
+          if (pair.priceNative && currentPriceSol === null) {
+            currentPriceSol = parseFloat(pair.priceNative);
+            setCachedPrice(mint, currentPriceSol);
+          }
+        }
+      } catch (dexErr) {
+        console.warn('[TradeMonitor] DexScreener fetch failed:', dexErr);
+      }
+
+      // Fallback to Jupiter for price if DexScreener didn't have it
       if (currentPriceSol === null) {
-        // Try Jupiter quote first
         try {
           const quote = await executor.jupiter.getQuote(
             mint,
@@ -832,25 +979,12 @@ export async function openSellPanelNew(
             100
           );
           if (quote) {
-            currentPriceSol = parseInt(quote.outAmount) / 1_000_000_000;
+            // v3.4 FIX: Use Number() instead of parseInt() for precision
+            currentPriceSol = Number(quote.outAmount) / 1_000_000_000;
             setCachedPrice(mint, currentPriceSol);
           }
         } catch (jupiterErr) {
-          console.warn('[TradeMonitor] Jupiter quote failed, trying DexScreener');
-        }
-
-        // v3.3.1 FIX: DexScreener fallback if Jupiter fails
-        if (currentPriceSol === null) {
-          try {
-            const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
-            const dexData = await dexRes.json() as { pairs?: { priceNative?: string }[] };
-            if (dexData.pairs?.[0]?.priceNative) {
-              currentPriceSol = parseFloat(dexData.pairs[0].priceNative);
-              setCachedPrice(mint, currentPriceSol);
-            }
-          } catch {
-            console.warn('[TradeMonitor] DexScreener fallback also failed');
-          }
+          console.warn('[TradeMonitor] Jupiter quote failed');
         }
       }
 
@@ -863,6 +997,7 @@ export async function openSellPanelNew(
 
     const hasBalance = tokensHeld !== null && tokensHeld > 0;
 
+    // v3.4: Pass chain and tokenInfo for enhanced display
     const message = formatSellPanelMessage(
       tokenSymbol,
       mint,
@@ -870,10 +1005,14 @@ export async function openSellPanelNew(
       estimatedValueSol,
       currentPriceSol,
       effectiveSlippage,
-      effectivePriority
+      effectivePriority,
+      180, // SOL price USD (TODO: fetch dynamically)
+      chain,
+      tokenInfo
     );
-    
+
     // Build keyboard without "Back to Monitor" since we came from token card
+    // v3.4: Added refresh button
     const keyboard = new InlineKeyboard();
 
     if (hasBalance) {
@@ -893,13 +1032,17 @@ export async function openSellPanelNew(
     keyboard
       .text('⚙️ Slippage', `sell_slippage:${mint}`)
       .text('⚡ Priority', `sell_priority:${mint}`)
+      // v3.4: Added refresh button
+      .text('🔄 Refresh', `refresh_sell:${mint}`)
       .row()
-      .text('« Back to Token', `token:${mint}`);
+      // v3.4: Include chain for correct token panel navigation
+      .text('« Back to Token', `token:${chain}_${mint}`);
 
     // Send as new message
     await api.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
       reply_markup: keyboard,
+      link_preview_options: { is_disabled: true },
     });
   } catch (error) {
     console.error('[TradeMonitor] Error opening sell panel new:', error);

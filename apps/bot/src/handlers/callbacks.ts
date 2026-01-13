@@ -616,14 +616,14 @@ Tap "Show Keys" to reveal your private keys.`;
     // ============================================
 
     if (data === 'settings_autohunt') {
+      // v3.4 FIX: Standard line format (35 chars, below heading only)
       const message =
-        `*AUTOHUNT SETTINGS*\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `⚙️ *AUTOHUNT SETTINGS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
         `Configure your automated sniping strategies.\n\n` +
-        `Create/edit strategies\n` +
-        `Set filters and limits\n` +
-        `Enable/disable auto-execute\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━`;
+        `• Create/edit strategies\n` +
+        `• Set filters and limits\n` +
+        `• Enable/disable auto-execute`;
 
       const keyboard = new InlineKeyboard()
         .text('View Strategies', 'settings_strategy')
@@ -653,13 +653,13 @@ Tap "Show Keys" to reveal your private keys.`;
       const prioritySol = settings.default_priority_sol;
       const buyAmounts = settings.quick_buy_amounts as number[];
 
+      // v3.4 FIX: Standard line format (35 chars, below heading only)
       const message =
-        `*MANUAL SETTINGS*\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `⚙️ *MANUAL SETTINGS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
         `*Default Slippage:* ${slippagePercent}%\n` +
         `*Default Priority:* ${prioritySol} SOL\n` +
-        `*Quick Buy Amounts:* ${buyAmounts.join(', ')} SOL\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Quick Buy Amounts:* ${buyAmounts.join(', ')} SOL\n\n` +
         `_These settings apply to manual buy/sell trades._`;
 
       const keyboard = new InlineKeyboard()
@@ -1727,6 +1727,22 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
+    // v3.4: Refresh sell panel
+    if (data.startsWith('refresh_sell:')) {
+      const mint = data.replace('refresh_sell:', '');
+      await ctx.answerCallbackQuery({ text: '🔄 Refreshing...' });
+
+      await openSellPanel(
+        ctx.api,
+        user.id,
+        ctx.chat!.id,
+        ctx.callbackQuery?.message?.message_id || 0,
+        mint,
+        solanaExecutor
+      );
+      return;
+    }
+
     // ============================================
     // v3.3 FIX (Issue 4): BUY PANEL SLIPPAGE/PRIORITY
     // ============================================
@@ -1806,7 +1822,8 @@ Tap "Show Keys" to reveal your private keys.`;
         .text(current === 0.005 ? '> 0.005' : '0.005', `set_buy_prio:${chain}_${mint}_0.005`)
         .text(current === 0.01 ? '> 0.01' : '0.01', `set_buy_prio:${chain}_${mint}_0.01`)
         .row()
-        .text('Back to Token', `token:${mint}`);
+        // v3.4 FIX: Include chain in back button to return to correct chain's token panel
+        .text('Back to Token', `token:${chain}_${mint}`);
 
       await ctx.editMessageText(message, {
         parse_mode: 'Markdown',
@@ -1832,17 +1849,39 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Token details (token:<mint>) - back to token card
+    /// v3.4 FIX: Token details (token:<chain>_<mint> or token:<mint>) - back to token card
     if (data.startsWith('token:')) {
-      const mint = data.replace('token:', '');
-      await handleTradeChainSelected(ctx, 'sol', mint);
+      const payload = data.replace('token:', '');
+      // Support both formats: token:chain_mint and token:mint (legacy)
+      let chain: Chain = 'sol';
+      let mint: string;
+      if (payload.includes('_')) {
+        const parts = payload.split('_');
+        chain = parts[0] as Chain;
+        mint = parts.slice(1).join('_'); // Handle mints that might contain underscores
+      } else {
+        mint = payload;
+      }
+      await handleTradeChainSelected(ctx, chain, mint);
       return;
     }
 
-    // Chart link (chart:<mint>)
+    // v3.4 FIX: Chart link (chart:<chain>_<mint> or chart:<mint>)
     if (data.startsWith('chart:')) {
-      const mint = data.replace('chart:', '');
-      const chartUrl = `https://dexscreener.com/solana/${mint}`;
+      const payload = data.replace('chart:', '');
+      // Support both formats: chart:chain_mint and chart:mint (legacy, defaults to Solana)
+      let chain: Chain = 'sol';
+      let mint: string;
+      if (payload.includes('_')) {
+        const parts = payload.split('_');
+        chain = parts[0] as Chain;
+        mint = parts.slice(1).join('_');
+      } else {
+        mint = payload;
+      }
+      // Map chain to DexScreener path
+      const chainPath = chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bsc' : chain === 'base' ? 'base' : 'ethereum';
+      const chartUrl = `https://dexscreener.com/${chainPath}/${mint}`;
       await ctx.answerCallbackQuery({ text: '📊 Opening chart...', url: chartUrl });
       return;
     }
@@ -1902,15 +1941,13 @@ async function handleAddressChainSelected(ctx: MyContext, chain: Chain, address:
 
   const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
 
-  const message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📤 *SEND ${symbol}*
+  // v3.4 FIX: Standard line format (below heading only)
+  const message = `📤 *SEND ${symbol}*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 *To:* \`${address.slice(0, 10)}...${address.slice(-8)}\`
 
-Select amount to send:
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+Select amount to send:`;
 
   const keyboard = new InlineKeyboard()
     .text(`0.01 ${symbol}`, `send_${chain}_0.01`)
@@ -1940,6 +1977,14 @@ async function handleTradeChainSelected(ctx: MyContext, chain: Chain, address: s
 
   await ctx.answerCallbackQuery({ text: 'Loading...' });
 
+  // v3.4 FIX (E2): Set monitor view to TOKEN to prevent refresh loop overwrites
+  // This ensures the monitor message isn't updated while showing the token panel
+  try {
+    await setMonitorView(user.id, address, 'TOKEN');
+  } catch {
+    // Ignore if no monitor exists for this token
+  }
+
   const chainName = chain === 'sol' ? 'Solana' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'Base' : 'Ethereum';
   const chainEmoji = chain === 'sol' ? '🟢' : chain === 'bsc' ? '🟡' : chain === 'base' ? '🔵' : '🟣';
   const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
@@ -1963,8 +2008,8 @@ async function handleTradeChainSelected(ctx: MyContext, chain: Chain, address: s
       const progressBar = pumpfun.formatBondingCurveBar(pumpInfo.bondingCurveProgress);
       const links = pumpfun.getPumpFunLinks(address);
 
-      message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎰 *${pumpInfo.symbol}* — Pump.fun
+      // v3.4 FIX: Standard line format (below heading only)
+      message = `🎰 *${pumpInfo.symbol}* — Pump.fun
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 *${pumpInfo.name}*
@@ -1977,7 +2022,6 @@ ${curveStatus.emoji} ${curveStatus.label}
 ${progressBar} ${pumpInfo.bondingCurveProgress.toFixed(1)}%
 💎 ${pumpInfo.realSolReserves.toFixed(2)} / ~85 SOL
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔗 [Pump.fun](${links.pumpfun}) • [DexScreener](${links.dexscreener})
 \`${address}\``;
     } else if (tokenInfo) {
@@ -2004,8 +2048,8 @@ ${progressBar} ${pumpInfo.bondingCurveProgress.toFixed(1)}%
 
       const dexLink = `https://dexscreener.com/${chain === 'sol' ? 'solana' : chain}/${address}`;
 
-      message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${chainEmoji} *${tokenInfo.symbol}* — ${chainName}
+      // v3.4 FIX: Standard line format (below heading only)
+      message = `${chainEmoji} *${tokenInfo.symbol}* — ${chainName}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 *${tokenInfo.name}*
@@ -2019,12 +2063,11 @@ ${changeEmoji} *24h:* ${changeStr}
 ${tokenInfo.holders ? `👥 *Holders:* ${tokenInfo.holders.toLocaleString()}` : ''}
 ${securitySection}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔗 [DexScreener](${dexLink})
 \`${address}\``;
     } else {
-      message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${chainEmoji} *TOKEN* — ${chainName}
+      // v3.4 FIX: Standard line format (below heading only)
+      message = `${chainEmoji} *TOKEN* — ${chainName}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ⚠️ *New/Unlisted Token*
@@ -2182,8 +2225,23 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
   if (!user) return;
 
   if (amount === 'custom') {
-    // TODO: Prompt for custom amount
-    await ctx.answerCallbackQuery({ text: 'Custom amount not yet implemented. Use preset amounts.' });
+    // v3.4: Implement custom buy amount flow
+    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+    ctx.session.step = 'awaiting_custom_buy_amount';
+    ctx.session.pendingBuy = { chain, mint: tokenAddress };
+
+    await ctx.editMessageText(
+      `✏️ *CUSTOM BUY AMOUNT*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `Enter the amount of ${symbol} you want to spend:\n\n` +
+      `_Example: 0.5 or 1.25_\n\n` +
+      `Token: \`${tokenAddress.slice(0, 8)}...${tokenAddress.slice(-6)}\``,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: new InlineKeyboard().text('« Cancel', `token:${chain}_${tokenAddress}`)
+      }
+    );
+    await ctx.answerCallbackQuery();
     return;
   }
 
@@ -2358,10 +2416,10 @@ async function handleConfirmWithdrawal(ctx: MyContext) {
       ? `${config.explorerUrl}/tx/${tx.hash}`
       : `${config.explorerUrl}/tx/${tx.hash}`;
 
+    // v3.4 FIX: Standard line format (below heading only)
     const amountText = `${parseFloat(amount).toFixed(6)} ${symbol}`;
     await ctx.editMessageText(
-      `${LINE}
-✅ *WITHDRAWAL SUCCESSFUL*
+      `✅ *WITHDRAWAL SUCCESSFUL*
 ${LINE}
 
 *Amount:* ${escapeMarkdownV2(amountText)}
@@ -2370,9 +2428,7 @@ ${LINE}
 *Transaction:*
 [View on Explorer](${explorerUrl})
 
-_Funds should arrive within a few minutes\\._
-
-${LINE}`,
+_Funds should arrive within a few minutes\\._`,
       {
         parse_mode: 'MarkdownV2',
         reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),
@@ -2382,19 +2438,17 @@ ${LINE}`,
     console.error('[Callbacks] Withdrawal error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
+    // v3.4 FIX: Standard line format (below heading only)
     await ctx.editMessageText(
-      `${LINE}
-❌ *WITHDRAWAL FAILED*
+      `❌ *WITHDRAWAL FAILED*
 ${LINE}
 
 *Error:* ${escapeMarkdown(errorMessage)}
 
 Please check:
-• Sufficient balance for amount + gas fees
+• Sufficient balance for amount \\+ gas fees
 • Valid destination address
-• Network congestion
-
-${LINE}`,
+• Network congestion`,
       {
         parse_mode: 'Markdown',
         reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),

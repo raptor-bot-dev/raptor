@@ -14,7 +14,7 @@ import type { MyContext } from '../types.js';
 import type { Chain } from '@raptor/shared';
 import { getUserBalances, userHasWallet } from '@raptor/shared';
 import { sendOptionsKeyboard, CHAIN_EMOJI, CHAIN_NAME } from '../utils/keyboards.js';
-import { formatSendToAddress, escapeMarkdownV2, LINE } from '../utils/formatters.js';
+import { formatSendToAddress, escapeMarkdownV2, LINE, formatWalletName } from '../utils/formatters.js';
 import { confirmDeleteWallet, cancelDeleteWallet } from '../commands/wallet.js';
 
 // Regex patterns for address detection
@@ -147,6 +147,77 @@ async function handleSessionFlow(ctx: MyContext, text: string): Promise<boolean>
 
       ctx.session.step = null;
       await ctx.reply(`Quick buy amounts set to: ${parts.join(', ')} SOL\n\nUse /menu to continue.`);
+      return true;
+    }
+
+    // v3.4: Handle custom buy amount input
+    case 'awaiting_custom_buy_amount': {
+      const pendingBuy = ctx.session.pendingBuy;
+      if (!pendingBuy) {
+        ctx.session.step = null;
+        await ctx.reply('Session expired. Please try again from the token menu.');
+        return true;
+      }
+
+      const amount = parseFloat(text);
+      const { chain, mint } = pendingBuy;
+      const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+      const minAmount = chain === 'sol' ? 0.01 : 0.001;
+      const maxAmount = chain === 'sol' ? 100 : 10;
+
+      if (isNaN(amount) || amount < minAmount || amount > maxAmount) {
+        await ctx.reply(`Invalid amount. Enter a number between ${minAmount} and ${maxAmount} ${symbol}:`);
+        return true;
+      }
+
+      // Clear session state
+      ctx.session.step = null;
+      ctx.session.pendingBuy = undefined;
+
+      // Only Solana supported currently
+      if (chain !== 'sol') {
+        await ctx.reply('Only Solana is supported currently. Please use /menu to continue.');
+        return true;
+      }
+
+      // Execute the buy
+      await ctx.reply(`Processing buy of ${amount} ${symbol}...`);
+
+      try {
+        const { executeManualBuy } = await import('./buy.js');
+        const { getOrCreateManualSettings } = await import('@raptor/shared');
+
+        const settings = await getOrCreateManualSettings(ctx.from!.id);
+        const slippageBps = settings.default_slippage_bps || 50;
+
+        const result = await executeManualBuy({
+          userId: ctx.from!.id,
+          chain,
+          tokenMint: mint,
+          amountSol: amount,
+          tgEventId: `custom_${Date.now()}`,
+          slippageBps,
+        });
+
+        if (result.success && result.txHash) {
+          const explorerUrl = `https://solscan.io/tx/${result.txHash}`;
+          await ctx.reply(
+            `✅ *BUY SUCCESSFUL*\n\n` +
+            `*Route:* ${result.route || 'Unknown'}\n` +
+            `*Amount:* ${result.amountIn} ${symbol}\n` +
+            `*Tokens Received:* ${result.tokensReceived?.toLocaleString() || '0'}\n` +
+            `*Price:* ${result.pricePerToken?.toFixed(9) || '0'} ${symbol}/token\n\n` +
+            `[View Transaction](${explorerUrl})`,
+            { parse_mode: 'Markdown', link_preview_options: { is_disabled: true } }
+          );
+        } else {
+          await ctx.reply(`❌ Buy failed: ${result.error || 'Unknown error'}`);
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        await ctx.reply(`❌ Buy failed: ${errorMsg}`);
+      }
+
       return true;
     }
 
@@ -971,12 +1042,14 @@ async function handleWalletImport(ctx: MyContext, privateKey: string) {
     delete ctx.session.awaitingImport;
 
     // Show success message
+    // v3.4 (F1): Use cleaner wallet naming with chain icon
+    const walletDisplayName = formatWalletName(wallet.wallet_index, null, chain, true);
     await ctx.reply(
       `${LINE}
 ✅ *WALLET IMPORTED SUCCESSFULLY*
 ${LINE}
 
-${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - Wallet #${wallet.wallet_index}
+${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - ${walletDisplayName}
 
 *Address:*
 \`${keypair.publicKey}\`

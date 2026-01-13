@@ -22,6 +22,7 @@ export interface SessionData {
     | 'awaiting_manual_slippage'   // v3.3: Manual settings custom slippage
     | 'awaiting_manual_priority'   // v3.3: Manual settings custom priority
     | 'awaiting_manual_buyamts'    // v3.3: Manual settings custom buy amounts
+    | 'awaiting_custom_buy_amount' // v3.4: Custom buy amount input
     | CustomStrategyStep
     | null;
   pendingWithdrawal: {
@@ -42,6 +43,11 @@ export interface SessionData {
   };
   awaitingImport?: Chain;
   pendingSellMint?: string;
+  // v3.4: Custom buy amount pending data
+  pendingBuy?: {
+    chain: Chain;
+    mint: string;
+  };
 }
 
 export type MyContext = Context & SessionFlavor<SessionData>;

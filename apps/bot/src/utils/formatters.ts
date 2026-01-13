@@ -45,6 +45,51 @@ export const CHAIN_STATUS: Record<Chain, string> = {
 };
 
 /**
+ * v3.4 (F1): Chain icons for wallet display
+ * Using distinct symbols for each chain
+ */
+export const CHAIN_WALLET_ICON: Record<Chain, string> = {
+  sol: '◎',  // Solana symbol
+  bsc: '⬡',  // Hexagon for BNB
+  base: '🔷', // Blue diamond for Base
+  eth: '⟠',  // Ethereum symbol
+};
+
+/**
+ * v3.4 (F1): Format wallet name consistently
+ * - First wallet with no label: "Main Wallet"
+ * - Custom label: use as-is
+ * - Otherwise: "Wallet N" (no # symbol)
+ *
+ * @param walletIndex - The wallet index (1-based)
+ * @param customLabel - Optional custom label from user
+ * @param chain - Optional chain for icon prefix
+ * @param includeIcon - Whether to include chain icon (default: false)
+ */
+export function formatWalletName(
+  walletIndex: number,
+  customLabel?: string | null,
+  chain?: Chain,
+  includeIcon: boolean = false
+): string {
+  let name: string;
+
+  if (customLabel) {
+    name = customLabel;
+  } else if (walletIndex === 1) {
+    name = 'Main Wallet';
+  } else {
+    name = `Wallet ${walletIndex}`;
+  }
+
+  if (includeIcon && chain) {
+    return `${CHAIN_WALLET_ICON[chain]} ${name}`;
+  }
+
+  return name;
+}
+
+/**
  * Escape special characters for Telegram MarkdownV2
  * Characters that must be escaped: _ * [ ] ( ) ~ ` > # + - = | { } . !
  *
@@ -249,11 +294,10 @@ export function formatWalletsOverview(
       const balanceInfo = balances.get(key) || { balance: 0, usdValue: 0 };
       const activeMarker = wallet.is_active ? ' ✓' : '';
 
-      // Wallet entry - full address in monospace
-      // Escape # for MarkdownV2 (both in index AND in label)
-      const label = wallet.wallet_label || `Wallet \\#${wallet.wallet_index}`;
-      const escapedLabel = label.replace(/#/g, '\\#');
-      message += `\\#${wallet.wallet_index} ${escapedLabel}${activeMarker}\n`;
+      // v3.4 (F1): Use cleaner wallet naming with chain icon
+      const walletName = formatWalletName(wallet.wallet_index, wallet.wallet_label, chain, true);
+      const escapedName = escapeMarkdownV2(walletName);
+      message += `${escapedName}${activeMarker}\n`;
       message += `\`${address}\`\n`;
 
       // CRITICAL FIX: Escape decimal points in balance
