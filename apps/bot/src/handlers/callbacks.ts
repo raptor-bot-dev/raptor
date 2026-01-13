@@ -1655,35 +1655,20 @@ Tap "Show Keys" to reveal your private keys.`;
       const bps = parseInt(parts[parts.length - 1]);
       const mint = parts.slice(0, -1).join('_');
 
-      const { updateManualSettings, getOrCreateManualSettings } = await import('@raptor/shared');
+      const { updateManualSettings } = await import('@raptor/shared');
       await updateManualSettings({ userId: user.id, slippageBps: bps });
 
-      await ctx.answerCallbackQuery({ text: `Slippage set to ${(bps / 100).toFixed(1)}%` });
+      await ctx.answerCallbackQuery({ text: `✓ Slippage set to ${(bps / 100).toFixed(1)}%` });
 
-      // Show updated slippage menu
-      const settings = await getOrCreateManualSettings(user.id);
-      const currentBps = settings.default_slippage_bps;
-
-      const message =
-        `*SELL SLIPPAGE*\n\n` +
-        `Current: ${(currentBps / 100).toFixed(1)}%\n\n` +
-        `Select slippage for sells:`;
-
-      const keyboard = new InlineKeyboard()
-        .text(currentBps === 100 ? '> 1%' : '1%', `set_sell_slip:${mint}_100`)
-        .text(currentBps === 300 ? '> 3%' : '3%', `set_sell_slip:${mint}_300`)
-        .text(currentBps === 500 ? '> 5%' : '5%', `set_sell_slip:${mint}_500`)
-        .row()
-        .text(currentBps === 1000 ? '> 10%' : '10%', `set_sell_slip:${mint}_1000`)
-        .text(currentBps === 1500 ? '> 15%' : '15%', `set_sell_slip:${mint}_1500`)
-        .text(currentBps === 2000 ? '> 20%' : '20%', `set_sell_slip:${mint}_2000`)
-        .row()
-        .text('Back', `open_sell:${mint}`);
-
-      await ctx.editMessageText(message, {
-        parse_mode: 'Markdown',
-        reply_markup: keyboard,
-      });
+      // v3.3.1 FIX: Return to sell panel after setting slippage
+      await openSellPanel(
+        ctx.api,
+        user.id,
+        ctx.chat!.id,
+        ctx.callbackQuery?.message?.message_id || 0,
+        mint,
+        solanaExecutor
+      );
       return;
     }
 
@@ -1725,36 +1710,20 @@ Tap "Show Keys" to reveal your private keys.`;
       const priority = parseFloat(parts[parts.length - 1]);
       const mint = parts.slice(0, -1).join('_');
 
-      const { updateManualSettings, getOrCreateManualSettings } = await import('@raptor/shared');
+      const { updateManualSettings } = await import('@raptor/shared');
       await updateManualSettings({ userId: user.id, prioritySol: priority });
 
-      await ctx.answerCallbackQuery({ text: `Priority set to ${priority} SOL` });
+      await ctx.answerCallbackQuery({ text: `✓ Priority set to ${priority} SOL` });
 
-      // Show updated priority menu
-      const settings = await getOrCreateManualSettings(user.id);
-      const current = settings.default_priority_sol;
-
-      const message =
-        `*SELL PRIORITY*\n\n` +
-        `Current: ${current} SOL\n\n` +
-        `Select priority fee for sells:`;
-
-      const keyboard = new InlineKeyboard()
-        .text(current === 0.00005 ? '> 0.00005' : '0.00005', `set_sell_prio:${mint}_0.00005`)
-        .text(current === 0.0001 ? '> 0.0001' : '0.0001', `set_sell_prio:${mint}_0.0001`)
-        .row()
-        .text(current === 0.0005 ? '> 0.0005' : '0.0005', `set_sell_prio:${mint}_0.0005`)
-        .text(current === 0.001 ? '> 0.001' : '0.001', `set_sell_prio:${mint}_0.001`)
-        .row()
-        .text(current === 0.005 ? '> 0.005' : '0.005', `set_sell_prio:${mint}_0.005`)
-        .text(current === 0.01 ? '> 0.01' : '0.01', `set_sell_prio:${mint}_0.01`)
-        .row()
-        .text('Back', `open_sell:${mint}`);
-
-      await ctx.editMessageText(message, {
-        parse_mode: 'Markdown',
-        reply_markup: keyboard,
-      });
+      // v3.3.1 FIX: Return to sell panel after setting priority
+      await openSellPanel(
+        ctx.api,
+        user.id,
+        ctx.chat!.id,
+        ctx.callbackQuery?.message?.message_id || 0,
+        mint,
+        solanaExecutor
+      );
       return;
     }
 

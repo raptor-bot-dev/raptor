@@ -457,8 +457,8 @@ async function showTokenCard(ctx: MyContext, tokenAddress: string, chain: Chain)
         }
       }
 
-      message = `${LINE}
-☀️ *${dex.symbol}* — Solana
+      // v3.3.1 FIX: Line below heading, not surrounding
+      message = `☀️ *${dex.symbol}* — Solana
 ${LINE}
 
 *${dex.name}*
@@ -471,7 +471,7 @@ ${securitySection}
 
 ${LINE}
 🔗 [DexScreener](https://dexscreener.com/solana/${tokenAddress}) • [Birdeye](https://birdeye.so/token/${tokenAddress}) • [Solscan](https://solscan.io/token/${tokenAddress})
-${LINE}
+
 \`${tokenAddress}\``;
     } else {
       // Not on DexScreener - try launchpad detector (may be bonding curve token)
@@ -507,8 +507,8 @@ ${LINE}
           if (tokenInfo.security.isFreezable) securitySection += '\n⚠️ Freezable';
         }
 
-        message = `${LINE}
-${lpEmoji} *${tokenInfo.symbol}* — ${lpName}
+        // v3.3.1 FIX: Line below heading, not surrounding
+        message = `${lpEmoji} *${tokenInfo.symbol}* — ${lpName}
 ${LINE}
 
 *${tokenInfo.name}*
@@ -525,7 +525,7 @@ ${securitySection}
 
 ${LINE}
 🔗 [${lpName}](${tokenInfo.links.launchpad}) • [DexScreener](${tokenInfo.links.dexscreener}) • [Solscan](${tokenInfo.links.solscan})
-${LINE}
+
 \`${tokenAddress}\``;
       } else {
         // Graduated/trading token
@@ -556,8 +556,8 @@ ${LINE}
           ? `\n🎓 Graduated from ${lpName}`
           : '';
 
-        message = `${LINE}
-☀️ *${tokenInfo.symbol}* — Solana
+        // v3.3.1 FIX: Line below heading, not surrounding
+        message = `☀️ *${tokenInfo.symbol}* — Solana
 ${LINE}
 
 *${tokenInfo.name}*${graduatedFrom}
@@ -571,13 +571,13 @@ ${securitySection}
 
 ${LINE}
 🔗 [DexScreener](${tokenInfo.links.dexscreener}) • [Birdeye](${tokenInfo.links.birdeye}) • [Solscan](${tokenInfo.links.solscan})
-${LINE}
+
 \`${tokenAddress}\``;
       }
     } else {
       // Token not found on any launchpad
-      message = `${LINE}
-☀️ *TOKEN* — Solana
+      // v3.3.1 FIX: Line below heading, not surrounding
+      message = `☀️ *TOKEN* — Solana
 ${LINE}
 
 ⚠️ *New/Unlisted Token*
@@ -585,7 +585,6 @@ ${LINE}
 Not found on any known launchpad.
 Proceed with extreme caution.
 
-${LINE}
 \`${tokenAddress}\``;
     }
   }

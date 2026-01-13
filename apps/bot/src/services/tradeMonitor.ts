@@ -312,10 +312,13 @@ export function formatSellPanelMessage(
     return '$' + usd.toFixed(2);
   };
 
-  let message = `💰 *SELL ${tokenSymbol}*\n\n`;
+  // v3.3.1 FIX: Full-width separators below headings
+  let message = `💰 *SELL ${tokenSymbol}*\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
   message += `\`${shortMint}\`\n\n`;
 
-  message += `━━━━ *Holdings* ━━━━\n`;
+  message += `*Holdings*\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
   if (tokensHeld === null || tokensHeld === 0) {
     message += `⚠️ *No Balance Detected*\n`;
     message += `_Wallet has no tokens for this mint_\n\n`;
@@ -328,12 +331,13 @@ export function formatSellPanelMessage(
     message += `\n`;
     if (currentPriceSol !== null) {
       const priceUsd = currentPriceSol * solPriceUsd;
-      message += `Current Price: ${currentPriceSol.toFixed(9)} SOL ($${priceUsd.toFixed(6)})\n`;
+      message += `Price: ${currentPriceSol.toFixed(9)} SOL ($${priceUsd.toFixed(6)})\n`;
     }
     message += `\n`;
   }
 
-  message += `━━━━ *Settings* ━━━━\n`;
+  message += `*Settings*\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
   message += `Slippage: ${(slippageBps / 100).toFixed(1)}%\n`;
   message += `Priority: ${(priorityFee / 1_000_000).toFixed(4)} SOL\n\n`;
 
@@ -638,8 +642,8 @@ export async function openSellPanel(
   messageId: number,
   mint: string,
   executor: SolanaExecutor,
-  slippageBps: number = 500,
-  priorityFee: number = 100000
+  slippageBps?: number,
+  priorityFee?: number
 ): Promise<void> {
   try {
     // v3.2 FIX: Set view state to SELL FIRST
@@ -650,9 +654,10 @@ export async function openSellPanel(
     const monitor = await getUserMonitor(userId, mint);
 
     // Get user's manual settings for slippage/priority
+    // v3.3.1 FIX: Use ?? instead of || to properly use user settings
     const settings = await getOrCreateManualSettings(userId);
-    const effectiveSlippage = slippageBps || settings.default_slippage_bps || 500;
-    const effectivePriority = priorityFee || Math.round(settings.default_priority_sol * 1_000_000) || 100000;
+    const effectiveSlippage = slippageBps ?? settings.default_slippage_bps ?? 500;
+    const effectivePriority = priorityFee ?? Math.round(settings.default_priority_sol * 1_000_000) ?? 100000;
 
     // Fetch current balance - MUST use user's wallet
     let tokensHeld: number | null = null;
@@ -671,15 +676,34 @@ export async function openSellPanel(
       // Get price (P0-4 FIX: use cache helper)
       currentPriceSol = getCachedPrice(mint);
       if (currentPriceSol === null) {
-        const quote = await executor.jupiter.getQuote(
-          mint,
-          'So11111111111111111111111111111111111111112',
-          BigInt(1_000_000_000),
-          100
-        );
-        if (quote) {
-          currentPriceSol = parseInt(quote.outAmount) / 1_000_000_000;
-          setCachedPrice(mint, currentPriceSol); // P0-4 FIX: use helper
+        // Try Jupiter quote first
+        try {
+          const quote = await executor.jupiter.getQuote(
+            mint,
+            'So11111111111111111111111111111111111111112',
+            BigInt(1_000_000_000),
+            100
+          );
+          if (quote) {
+            currentPriceSol = parseInt(quote.outAmount) / 1_000_000_000;
+            setCachedPrice(mint, currentPriceSol);
+          }
+        } catch (jupiterErr) {
+          console.warn('[TradeMonitor] Jupiter quote failed, trying DexScreener');
+        }
+
+        // v3.3.1 FIX: DexScreener fallback if Jupiter fails
+        if (currentPriceSol === null) {
+          try {
+            const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+            const dexData = await dexRes.json() as { pairs?: { priceNative?: string }[] };
+            if (dexData.pairs?.[0]?.priceNative) {
+              currentPriceSol = parseFloat(dexData.pairs[0].priceNative);
+              setCachedPrice(mint, currentPriceSol);
+            }
+          } catch {
+            console.warn('[TradeMonitor] DexScreener fallback also failed');
+          }
         }
       }
 
@@ -768,9 +792,10 @@ export async function openSellPanelNew(
 ): Promise<void> {
   try {
     // Get user's manual settings for slippage/priority
+    // v3.3.1 FIX: Use ?? instead of || to properly use user settings
     const settings = await getOrCreateManualSettings(userId);
-    const effectiveSlippage = slippageBps || settings.default_slippage_bps || 500;
-    const effectivePriority = priorityFee || Math.round(settings.default_priority_sol * 1_000_000) || 100000;
+    const effectiveSlippage = slippageBps ?? settings.default_slippage_bps ?? 500;
+    const effectivePriority = priorityFee ?? Math.round(settings.default_priority_sol * 1_000_000) ?? 100000;
 
     // Fetch current balance from user's wallet
     let tokensHeld: number | null = null;
@@ -798,15 +823,34 @@ export async function openSellPanelNew(
       // Get price
       currentPriceSol = getCachedPrice(mint);
       if (currentPriceSol === null) {
-        const quote = await executor.jupiter.getQuote(
-          mint,
-          'So11111111111111111111111111111111111111112',
-          BigInt(1_000_000_000),
-          100
-        );
-        if (quote) {
-          currentPriceSol = parseInt(quote.outAmount) / 1_000_000_000;
-          setCachedPrice(mint, currentPriceSol);
+        // Try Jupiter quote first
+        try {
+          const quote = await executor.jupiter.getQuote(
+            mint,
+            'So11111111111111111111111111111111111111112',
+            BigInt(1_000_000_000),
+            100
+          );
+          if (quote) {
+            currentPriceSol = parseInt(quote.outAmount) / 1_000_000_000;
+            setCachedPrice(mint, currentPriceSol);
+          }
+        } catch (jupiterErr) {
+          console.warn('[TradeMonitor] Jupiter quote failed, trying DexScreener');
+        }
+
+        // v3.3.1 FIX: DexScreener fallback if Jupiter fails
+        if (currentPriceSol === null) {
+          try {
+            const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+            const dexData = await dexRes.json() as { pairs?: { priceNative?: string }[] };
+            if (dexData.pairs?.[0]?.priceNative) {
+              currentPriceSol = parseFloat(dexData.pairs[0].priceNative);
+              setCachedPrice(mint, currentPriceSol);
+            }
+          } catch {
+            console.warn('[TradeMonitor] DexScreener fallback also failed');
+          }
         }
       }
 
