@@ -173,30 +173,36 @@ export function formatDuration(ms: number): string {
 }
 
 /**
- * Format main menu message (v2.3 wide layout)
+ * Format main menu message (v3.4.2 Command Center design - HTML)
  */
 export function formatMainMenu(
-  firstName: string,
-  totalBalance: number,
-  activePositions: number,
-  todayPnL: number,
-  activeOrders: number = 0
+  username: string | undefined,
+  _totalBalance: number,
+  _activePositions: number,
+  _todayPnL: number,
+  _activeOrders: number = 0
 ): string {
-  const pnlEmoji = todayPnL >= 0 ? '🟢' : '🔴';
-  const pnlSign = todayPnL >= 0 ? '+' : '';
+  const displayName = username ? `@${username}` : 'Trader';
 
-  return `🦖 *RAPTOR*
-${LINE}
+  return `🦅 RAPTOR — Command Center
+━━━━━━━━━━━━━━━━━━━━━━
 
-Welcome back, *${firstName}*!
+Welcome, <b>${displayName}</b>.
 
-💰 *Total:* ${formatUSD(totalBalance)}
-📈 *Today:* ${pnlSign}${formatUSD(Math.abs(todayPnL))} (${pnlSign}${todayPnL.toFixed(1)}%)
+RAPTOR is a high-speed multi-chain trading and launch monitoring bot built for precision execution, fast routing, and disciplined risk controls.
 
-${SECTION} Active ${SECTION}
-${STATUS.ON} ${activePositions} positions | 📋 ${activeOrders} orders
+You can use RAPTOR in two modes:
+<b>• Manual Buyer</b> — instant buys/sells with configurable slippage and priority.
+<b>• Auto Hunt</b> — automated launchpad hunting that detects new listings, scores opportunities, and executes trades based on your strategy.
 
-⚡ Paste a CA to trade instantly!`;
+Use the menu below to trade manually, manage your wallet, and configure Manual vs Auto Hunt settings separately.
+
+━━━━━━━━━━━━━━━━━━━━━━
+<b>Links</b>
+• <a href="https://raptorbot.com">Website</a>
+• <a href="https://x.com/raptortradebot">X / Twitter</a>
+• <a href="https://t.me/raptortradebot">Telegram Portal</a>
+• <a href="https://docs.raptorbot.com">Docs</a>`;
 }
 
 /**

@@ -129,6 +129,26 @@ export async function handleManualSell(
       const explorerUrl = `https://solscan.io/tx/${result.txHash}`;
       const pnlEmoji = (result.pnlSol || 0) >= 0 ? '📈' : '📉';
 
+      // v3.4.2: Fetch exit market cap from DexScreener
+      let exitMarketCapUsd: number | undefined;
+      try {
+        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${position.token_mint}`);
+        const dexData = await dexRes.json() as { pairs?: Array<{ fdv?: number }> };
+        if (dexData.pairs?.[0]?.fdv) {
+          exitMarketCapUsd = dexData.pairs[0].fdv;
+        }
+      } catch {
+        // Ignore - will show "—" for exit MC
+      }
+
+      // Format market cap for display
+      const formatMc = (mc: number | undefined) => {
+        if (!mc) return '—';
+        if (mc >= 1_000_000) return `$${(mc / 1_000_000).toFixed(2)}M`;
+        if (mc >= 1_000) return `$${(mc / 1_000).toFixed(2)}K`;
+        return `$${mc.toFixed(0)}`;
+      };
+
       await ctx.reply(
         `✅ *SELL SUCCESSFUL*\n\n` +
           `*Token:* ${position.token_symbol || 'Unknown'}\n` +
@@ -137,7 +157,7 @@ export async function handleManualSell(
           `*Gross SOL:* ${result.grossSol?.toFixed(4) || '0'} SOL\n` +
           `*Platform Fee:* ${result.fee?.toFixed(4) || '0'} SOL (1%)\n` +
           `*Net SOL Received:* ${result.solReceived?.toFixed(4) || '0'} SOL\n` +
-          `*Price:* ${result.pricePerToken?.toFixed(9) || '0'} SOL per token\n\n` +
+          `*Exit MC:* ${formatMc(exitMarketCapUsd)}\n\n` +
           `${pnlEmoji} *P&L:* ${(result.pnlSol || 0) >= 0 ? '+' : ''}${result.pnlSol?.toFixed(4) || '0'} SOL (${(result.pnlPercent || 0) >= 0 ? '+' : ''}${result.pnlPercent?.toFixed(2) || '0'}%)\n\n` +
           `[View Transaction](${explorerUrl})`,
         {

@@ -508,7 +508,8 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    if (data === 'back_to_wallet' || data === 'menu_wallet' || data === 'wallets') {
+    // v3.4.2 FIX: Added back_to_wallets (was unhandled)
+    if (data === 'back_to_wallet' || data === 'back_to_wallets' || data === 'menu_wallet' || data === 'wallets') {
       await showWallets(ctx);
       return;
     }
@@ -1771,7 +1772,8 @@ Tap "Show Keys" to reveal your private keys.`;
         .text(currentBps === 1500 ? '> 15%' : '15%', `set_buy_slip:${chain}_${mint}_1500`)
         .text(currentBps === 2000 ? '> 20%' : '20%', `set_buy_slip:${chain}_${mint}_2000`)
         .row()
-        .text('Back to Token', `token:${mint}`);
+        // v3.4.2 FIX: Include chain in back button
+        .text('Back to Token', `token:${chain}_${mint}`);
 
       await ctx.editMessageText(message, {
         parse_mode: 'Markdown',
@@ -2109,7 +2111,11 @@ Data not available. Proceed with caution.
         .text('✏️ X', `buy_${chain}_${address}_custom`);
     }
 
+    // v3.4.2: Add Slippage and Priority buttons to buy panel
     keyboard
+      .row()
+      .text('⚙️ Slippage', `buy_slippage:${chain}_${address}`)
+      .text('⚡ Priority', `buy_priority:${chain}_${address}`)
       .row()
       .text('🔍 Scan', `analyze_${chain}_${address}`)
       .text('🔄 Refresh', `refresh_${chain}_${address}`)
@@ -2282,11 +2288,35 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
     const result = await executeSolanaBuy(user.id, tokenAddress, solAmount);
 
     if (result.success && result.txHash) {
-      // Success message
+      // v3.4.2: Fetch token metadata from DexScreener BEFORE success message (for MC display)
       const explorerUrl = `https://solscan.io/tx/${result.txHash}`;
       const tokensReceived = result.amountOut || 0;
       const pricePerToken = result.pricePerToken || 0;
 
+      let tokenSymbol: string | undefined;
+      let tokenName: string | undefined;
+      let entryMarketCapUsd: number | undefined;
+      try {
+        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`);
+        const dexData = await dexRes.json() as { pairs?: Array<{ baseToken?: { symbol?: string; name?: string }; fdv?: number }> };
+        if (dexData.pairs?.[0]) {
+          tokenSymbol = dexData.pairs[0].baseToken?.symbol;
+          tokenName = dexData.pairs[0].baseToken?.name;
+          entryMarketCapUsd = dexData.pairs[0].fdv; // Market cap at entry
+        }
+      } catch {
+        // Fallback to undefined
+      }
+
+      // v3.4.2: Format market cap for display
+      const formatMc = (mc: number | undefined) => {
+        if (!mc) return '—';
+        if (mc >= 1_000_000) return `$${(mc / 1_000_000).toFixed(2)}M`;
+        if (mc >= 1_000) return `$${(mc / 1_000).toFixed(2)}K`;
+        return `$${mc.toFixed(0)}`;
+      };
+
+      // Success message with Market Cap
       await ctx.reply(
         `✅ *BUY SUCCESSFUL*\n\n` +
         `*Route:* ${result.route || 'Unknown'}\n` +
@@ -2294,7 +2324,7 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
         `*Platform Fee:* ${result.fee?.toFixed(4)} SOL (1%)\n` +
         `*Net Amount:* ${result.netAmount?.toFixed(4)} SOL\n` +
         `*Tokens Received:* ${tokensReceived.toLocaleString()}\n` +
-        `*Price:* ${pricePerToken.toFixed(9)} SOL per token\n\n` +
+        `*Entry MC:* ${formatMc(entryMarketCapUsd)}\n\n` +
         `[View Transaction](${explorerUrl})`,
         {
           parse_mode: 'Markdown',
@@ -2313,7 +2343,7 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
           strategyId: strategy.id,
           chain: 'sol',
           tokenMint: tokenAddress,
-          tokenSymbol: 'UNKNOWN', // TODO: fetch metadata
+          tokenSymbol: tokenSymbol || 'UNKNOWN',
           entryExecutionId: undefined,
           entryTxSig: result.txHash!,
           entryCostSol: result.netAmount || solAmount,
@@ -2330,22 +2360,6 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
 
       // Create Trade Monitor for this position
       try {
-        // v3.4.1: Fetch token metadata from DexScreener
-        let tokenSymbol: string | undefined;
-        let tokenName: string | undefined;
-        let entryMarketCapUsd: number | undefined;
-        try {
-          const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`);
-          const dexData = await dexRes.json() as { pairs?: Array<{ baseToken?: { symbol?: string; name?: string }; fdv?: number }> };
-          if (dexData.pairs?.[0]) {
-            tokenSymbol = dexData.pairs[0].baseToken?.symbol;
-            tokenName = dexData.pairs[0].baseToken?.name;
-            entryMarketCapUsd = dexData.pairs[0].fdv; // Market cap at entry
-          }
-        } catch {
-          // Fallback to undefined - monitor will show "Unknown"
-        }
-
         await createTradeMonitor(
           ctx.api,
           user.id,
@@ -2582,9 +2596,8 @@ _(tap to copy)_
 }
 
 async function showHowItWorks(ctx: MyContext) {
-  const message = `📖 *How RAPTOR Works*
-
-━━━━━━━━━━━━━━━━━━━━━━
+  const message = `📖 *GETTING STARTED*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🔐 *1. Generate Wallet*
 Create a trading wallet for SOL, ETH, or BNB. Each chain has its own address.
@@ -2608,8 +2621,6 @@ Choose how to trade:
 
 💸 *6. Take Profits*
 Sell positions anytime from /positions. Auto-exits trigger at your TP/SL.
-
-━━━━━━━━━━━━━━━━━━━━━━
 
 *Fees:* 1% on profitable trades only`;
 
@@ -2833,9 +2844,9 @@ async function setPositionSl(ctx: MyContext, positionId: number, sl: number) {
 
 // === HELP UI HANDLERS ===
 
+// v3.4.2 FIX: Removed line above heading
 async function showHelpMenu(ctx: MyContext) {
-  const message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-❓ *HELP & GUIDES*
+  const message = `❓ *HELP & GUIDES*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Select a topic to learn more:
@@ -2853,9 +2864,7 @@ Automatic token sniping
 Trading strategy explanations
 
 💸 *Fees*
-How fees work
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+How fees work`;
 
   const keyboard = new InlineKeyboard()
     .text('📖 Getting Started', 'help_start')
@@ -2877,8 +2886,7 @@ How fees work
 }
 
 async function showHelpDeposits(ctx: MyContext) {
-  const message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💰 *DEPOSITS & WITHDRAWALS*
+  const message = `💰 *DEPOSITS & WITHDRAWALS*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 *How to Deposit:*
@@ -2902,9 +2910,7 @@ async function showHelpDeposits(ctx: MyContext) {
 
 *Important:*
 ⚠️ Only send the correct asset to each chain
-⚠️ Double-check addresses before sending
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+⚠️ Double-check addresses before sending`;
 
   const keyboard = new InlineKeyboard()
     .text('💳 Go to Wallets', 'wallets')
@@ -2920,8 +2926,7 @@ async function showHelpDeposits(ctx: MyContext) {
 }
 
 async function showHelpHunt(ctx: MyContext) {
-  const message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🦅 *AUTO-HUNT GUIDE*
+  const message = `🦅 *AUTO-HUNT GUIDE*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 *What is Auto-Hunt?*
@@ -2949,9 +2954,7 @@ our safety scoring system.
 *Supported Launchpads:*
 🟢 SOL: Pump.fun, PumpSwap, Moonshot
 🟡 BSC: Four.meme
-🔵 Base: Virtuals, WOW.xyz
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+🔵 Base: Virtuals, WOW.xyz`;
 
   const keyboard = new InlineKeyboard()
     .text('🦅 Configure Hunt', 'menu_hunt')
@@ -2967,8 +2970,7 @@ our safety scoring system.
 }
 
 async function showHelpStrategies(ctx: MyContext) {
-  const message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 *TRADING STRATEGIES*
+  const message = `📊 *TRADING STRATEGIES*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 *Available Strategies:*
@@ -3000,9 +3002,7 @@ Best for: Strong momentum plays
 
 *Custom Strategy:*
 Create your own with exact TP/SL,
-filters, and protection settings.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+filters, and protection settings.`;
 
   const keyboard = new InlineKeyboard()
     .text('📊 Configure Strategy', 'settings_strategy')
@@ -3018,8 +3018,7 @@ filters, and protection settings.
 }
 
 async function showHelpFees(ctx: MyContext) {
-  const message = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💸 *FEES EXPLAINED*
+  const message = `💸 *FEES EXPLAINED*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 *RAPTOR Fees:*
@@ -3048,9 +3047,7 @@ Configure in ⛽ Gas Settings.
 
 *Why Fee on Profit Only?*
 We only make money when you do.
-This aligns our incentives with yours.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+This aligns our incentives with yours.`;
 
   const keyboard = new InlineKeyboard()
     .text('⛽ Gas Settings', 'settings_gas')
@@ -3193,11 +3190,31 @@ async function handleSellPctFromMonitor(ctx: MyContext, mint: string, percent: n
 
       const explorerUrl = `https://solscan.io/tx/${result.txHash}`;
 
+      // v3.4.2: Fetch exit market cap from DexScreener
+      let exitMarketCapUsd: number | undefined;
+      try {
+        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+        const dexData = await dexRes.json() as { pairs?: Array<{ fdv?: number }> };
+        if (dexData.pairs?.[0]?.fdv) {
+          exitMarketCapUsd = dexData.pairs[0].fdv;
+        }
+      } catch {
+        // Ignore
+      }
+
+      const formatMc = (mc: number | undefined) => {
+        if (!mc) return '—';
+        if (mc >= 1_000_000) return `$${(mc / 1_000_000).toFixed(2)}M`;
+        if (mc >= 1_000) return `$${(mc / 1_000).toFixed(2)}K`;
+        return `$${mc.toFixed(0)}`;
+      };
+
       await ctx.reply(
         `✅ *SELL SUCCESSFUL*\n\n` +
           `*Tokens Sold:* ${sellAmount.toLocaleString()}\n` +
           `*SOL Received:* ${result.solReceived?.toFixed(4) || '—'} SOL\n` +
-          `*Route:* ${result.route || 'Unknown'}\n\n` +
+          `*Route:* ${result.route || 'Unknown'}\n` +
+          `*Exit MC:* ${formatMc(exitMarketCapUsd)}\n\n` +
           `[View Transaction](${explorerUrl})`,
         {
           parse_mode: 'Markdown',

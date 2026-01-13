@@ -1182,11 +1182,31 @@ async function handleCustomSellInput(ctx: MyContext, text: string): Promise<void
     if (result.success && result.txHash) {
       const explorerUrl = `https://solscan.io/tx/${result.txHash}`;
 
+      // v3.4.2: Fetch exit market cap from DexScreener
+      let exitMarketCapUsd: number | undefined;
+      try {
+        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+        const dexData = await dexRes.json() as { pairs?: Array<{ fdv?: number }> };
+        if (dexData.pairs?.[0]?.fdv) {
+          exitMarketCapUsd = dexData.pairs[0].fdv;
+        }
+      } catch {
+        // Ignore
+      }
+
+      const formatMc = (mc: number | undefined) => {
+        if (!mc) return '—';
+        if (mc >= 1_000_000) return `$${(mc / 1_000_000).toFixed(2)}M`;
+        if (mc >= 1_000) return `$${(mc / 1_000).toFixed(2)}K`;
+        return `$${mc.toFixed(0)}`;
+      };
+
       await ctx.reply(
         `✅ *SELL SUCCESSFUL*\n\n` +
           `*Tokens Sold:* ${sellAmount.toLocaleString()}\n` +
           `*SOL Received:* ${result.solReceived?.toFixed(4) || '—'} SOL\n` +
-          `*Route:* ${result.route || 'Unknown'}\n\n` +
+          `*Route:* ${result.route || 'Unknown'}\n` +
+          `*Exit MC:* ${formatMc(exitMarketCapUsd)}\n\n` +
           `[View Transaction](${explorerUrl})`,
         {
           parse_mode: 'Markdown',

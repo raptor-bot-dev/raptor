@@ -1,10 +1,9 @@
 /**
- * Menu Command - Main navigation hub for RAPTOR v2.2
+ * Menu Command - Main navigation hub for RAPTOR v3.4.2
  *
- * Shows dashboard with:
- * - Total balance across all chains
- * - Active position count
- * - Today's P&L
+ * Shows Command Center with:
+ * - Bot description and modes
+ * - External links
  * - Quick navigation buttons
  */
 
@@ -45,16 +44,18 @@ export async function menuCommand(ctx: MyContext) {
       todayPnL = todayPnL / positions.length; // Average P&L
     }
 
+    // v3.4.2: Use username for Command Center display
     const message = formatMainMenu(
-      user.first_name || 'Trader',
+      user.username,
       totalBalance,
       positions.length,
       todayPnL
     );
 
     await ctx.reply(message, {
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: mainMenuKeyboard(),
+      link_preview_options: { is_disabled: true },
     });
   } catch (error) {
     console.error('[Menu] Error:', error);
@@ -96,16 +97,18 @@ export async function showMenu(ctx: MyContext) {
       todayPnL = todayPnL / positions.length;
     }
 
+    // v3.4.2: Use username for Command Center display
     const message = formatMainMenu(
-      user.first_name || 'Trader',
+      user.username,
       totalBalance,
       positions.length,
       todayPnL
     );
 
     await ctx.editMessageText(message, {
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: mainMenuKeyboard(),
+      link_preview_options: { is_disabled: true },
     });
 
     await ctx.answerCallbackQuery();

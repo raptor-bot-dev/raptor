@@ -871,18 +871,25 @@ export async function createWallet(wallet: {
     throw new Error(`Maximum 5 wallets per chain reached for ${wallet.chain}`);
   }
 
-  // v3.4.1 FIX: Find the MAX wallet_index to handle gaps from deleted wallets
-  // Using count+1 fails if wallets were deleted (e.g., indexes 1,2,4 -> count=3, new=4 conflicts)
-  const { data: maxData } = await supabase
+  // v3.4.2 FIX: Find first available slot 1-5 instead of MAX+1
+  // This handles gaps from deleted wallets (e.g., indexes 2,3,4,5 -> new wallet gets index 1)
+  const { data: existingWallets } = await supabase
     .from('user_wallets')
     .select('wallet_index')
     .eq('tg_id', wallet.tg_id)
-    .eq('chain', wallet.chain)
-    .order('wallet_index', { ascending: false })
-    .limit(1)
-    .single();
+    .eq('chain', wallet.chain);
 
-  const walletIndex = (maxData?.wallet_index || 0) + 1;
+  const usedIndexes = new Set(existingWallets?.map(w => w.wallet_index) || []);
+
+  // Find first available index 1-5
+  let walletIndex = 1;
+  while (usedIndexes.has(walletIndex) && walletIndex <= 5) {
+    walletIndex++;
+  }
+
+  if (walletIndex > 5) {
+    throw new Error(`Maximum 5 wallets per chain reached for ${wallet.chain}`);
+  }
   const isFirstWallet = existingCount === 0;
   const isSolana = wallet.chain === 'sol';
 

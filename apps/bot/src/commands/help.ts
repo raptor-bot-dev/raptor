@@ -1,28 +1,43 @@
+import { InlineKeyboard } from 'grammy';
 import type { MyContext } from '../types.js';
 
+/**
+ * v3.4.2: /help now shows the same Help & Guides panel as the Help button
+ */
 export async function helpCommand(ctx: MyContext) {
-  await ctx.reply(
-    '🦅 *RAPTOR Help*\n\n' +
-      '*Commands:*\n' +
-      '/start — Welcome message\n' +
-      '/deposit — Get deposit address\n' +
-      '/status — Check balance & P&L\n' +
-      '/positions — View active positions\n' +
-      '/withdraw — Withdraw funds\n' +
-      '/settings — Configure alerts\n' +
-      '/help — This message\n\n' +
-      '*How it works:*\n' +
-      '1. Deposit BNB (BSC) or ETH (Base)\n' +
-      '2. RAPTOR automatically hunts MEV opportunities\n' +
-      '3. Profits accumulate in your balance\n' +
-      '4. Withdraw anytime to your wallet\n\n' +
-      '*Supported Chains:*\n' +
-      '🟡 BSC — BNB deposits, four.meme hunting\n' +
-      '🔵 Base — ETH deposits, pump.fun hunting\n\n' +
-      '*Risk Warning:*\n' +
-      'MEV hunting involves risk. Only deposit what you can afford to lose.\n\n' +
-      '*Support:*\n' +
-      'Join our community for help and updates.',
-    { parse_mode: 'Markdown' }
-  );
+  const message = `❓ *HELP & GUIDES*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Select a topic to learn more:
+
+📖 *Getting Started*
+How to set up and start trading
+
+💰 *Deposits & Withdrawals*
+Managing your funds
+
+🦅 *Auto-Hunt*
+Automatic token sniping
+
+📊 *Strategies*
+Trading strategy explanations
+
+💸 *Fees*
+How fees work`;
+
+  const keyboard = new InlineKeyboard()
+    .text('📖 Getting Started', 'help_start')
+    .row()
+    .text('💰 Deposits', 'help_deposits')
+    .text('🦅 Auto-Hunt', 'help_hunt')
+    .row()
+    .text('📊 Strategies', 'help_strategies')
+    .text('💸 Fees', 'help_fees')
+    .row()
+    .text('« Back', 'back_to_menu');
+
+  await ctx.reply(message, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
 }

@@ -130,19 +130,26 @@ bot.catch((err) => {
 // Start the bot
 console.log('🦅 RAPTOR Bot starting...');
 
-// Set bot commands for the menu
+// v3.4.2: Set bot commands for the menu (added missing commands)
 bot.api.setMyCommands([
   { command: 'menu', description: '🏠 Main menu' },
   { command: 'wallet', description: '💳 Wallet management' },
   { command: 'balance', description: '💰 Check balances' },
+  { command: 'sell', description: '💰 Sell tokens' },
+  { command: 'positions', description: '📊 View positions' },
+  { command: 'snipe', description: '🎯 Snipe a token' },
   { command: 'hunt', description: '🦅 Auto-hunt settings' },
   { command: 'score', description: '🔍 Analyze token' },
-  { command: 'snipe', description: '🎯 Snipe a token' },
-  { command: 'positions', description: '📊 View positions' },
+  { command: 'history', description: '📜 Trade history' },
+  { command: 'deposit', description: '📥 Deposit funds' },
+  { command: 'withdraw', description: '📤 Withdraw funds' },
   { command: 'strategy', description: '📈 Trading strategy' },
+  { command: 'settings', description: '⚙️ User settings' },
   { command: 'gas', description: '⛽ Gas settings' },
   { command: 'slippage', description: '📉 Slippage settings' },
+  { command: 'chains', description: '🔗 Chain selection' },
   { command: 'backup', description: '🔐 Export private keys' },
+  { command: 'status', description: '📡 Bot status' },
   { command: 'help', description: '❓ Help & guides' },
 ]).catch((err) => {
   console.error('Failed to set bot commands:', err);

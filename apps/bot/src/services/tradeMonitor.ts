@@ -166,13 +166,18 @@ export function formatTradeMonitorMessage(
 
   // v3.4.1: Show full CA for tap-to-copy
 
-  // v3.4.1: Calculate position age (timer)
-  const openedAt = new Date(monitor.created_at);
-  const now = new Date();
-  const ageMs = now.getTime() - openedAt.getTime();
-  const hours = Math.floor(ageMs / (1000 * 60 * 60));
-  const minutes = Math.floor((ageMs % (1000 * 60 * 60)) / (1000 * 60));
-  const timerStr = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  // v3.4.2 FIX: Calculate position age (timer) with null check for NaN bug
+  let timerStr = '—';
+  if (monitor.created_at) {
+    const openedAt = new Date(monitor.created_at);
+    if (!isNaN(openedAt.getTime())) {
+      const now = new Date();
+      const ageMs = now.getTime() - openedAt.getTime();
+      const hours = Math.floor(ageMs / (1000 * 60 * 60));
+      const minutes = Math.floor((ageMs % (1000 * 60 * 60)) / (1000 * 60));
+      timerStr = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+    }
+  }
 
   // v3.4.1: Add line under heading
   let message = `📊 *TRADE MONITOR*\n`;
@@ -186,15 +191,7 @@ export function formatTradeMonitorMessage(
   message += `Tokens: ${formatTokens(current_tokens ?? entry_tokens)}\n`;
   message += `Value: ${formatSol(current_value_sol)} SOL (${solToUsd(current_value_sol)})\n\n`;
 
-  message += `━━━━ *Price* ━━━━\n`;
-  const entryPriceUsd = entry_price_sol !== null ? entry_price_sol * solPriceUsd : null;
-  const currentPriceUsd = current_price_sol !== null ? current_price_sol * solPriceUsd : null;
-  message += `Entry: ${formatPrice(entry_price_sol)} SOL`;
-  if (entryPriceUsd !== null) message += ` ($${entryPriceUsd.toFixed(8)})`;
-  message += `\n`;
-  message += `Current: ${formatPrice(current_price_sol)} SOL`;
-  if (currentPriceUsd !== null) message += ` ($${currentPriceUsd.toFixed(8)})`;
-  message += `\n\n`;
+  // v3.4.2: Removed Price section - using Market Cap as primary indicator
 
   // v3.4.1: Show Market Cap section prominently with entry MCap
   if (entry_market_cap_usd || market_cap_usd) {
@@ -208,14 +205,10 @@ export function formatTradeMonitorMessage(
   }
 
   message += `━━━━ *P&L* ━━━━\n`;
-  // v3.4.1: Use MCap-based PnL when available
-  message += `${pnlEmoji} ${pnlSign}${displayPnlPercent.toFixed(2)}%`;
-  if (pnl_sol !== null) {
-    message += ` (${pnlSign}${formatSol(pnl_sol)} SOL)`;
-  }
-  message += `\n`;
+  // v3.4.2: Show only % and USD (removed SOL display)
+  message += `${pnlEmoji} ${pnlSign}${displayPnlPercent.toFixed(2)}%\n`;
   if (pnlUsd !== null) {
-    message += `   ${pnlSign}${formatUsd(Math.abs(pnlUsd))} USD\n`;
+    message += `${pnlSign}${formatUsd(Math.abs(pnlUsd))} USD\n`;
   }
   message += '\n';
 
