@@ -15,6 +15,7 @@ import {
   SOLANA_CONFIG,
   getUserWallets,
   loadSolanaKeypair,
+  getOrCreateManualSettings,
   type EncryptedData,
   createLogger,
   recordTrade,
@@ -94,14 +95,18 @@ export async function executeSolanaBuy(
       tgId
     );
 
-    logger.info('Executing buy via executor', { netAmount, fee });
+    // L-2 FIX: Fetch user's manual settings for slippage
+    const manualSettings = await getOrCreateManualSettings(tgId);
+    const slippageBps = manualSettings.default_slippage_bps || 50; // Fallback to 0.5%
+
+    logger.info('Executing buy via executor', { netAmount, fee, slippageBps });
 
     // 5. Execute via executor (handles routing automatically)
     const result = await solanaExecutor.executeBuyWithKeypair(
       tokenMint,
       solAmount,  // Pass GROSS amount (executor applies fee)
       keypair,
-      { slippageBps: 50 }  // 0.5% slippage
+      { slippageBps }  // L-2 FIX: Use user's slippage setting
     );
 
     if (!result.success) {
@@ -282,14 +287,18 @@ export async function executeSolanaSell(
       tgId
     );
 
-    logger.info('Executing sell via executor', { tokenAmount });
+    // L-2 FIX: Fetch user's manual settings for slippage
+    const manualSettings = await getOrCreateManualSettings(tgId);
+    const slippageBps = manualSettings.default_slippage_bps || 500; // Fallback to 5% for sells
+
+    logger.info('Executing sell via executor', { tokenAmount, slippageBps });
 
     // 3. Execute via executor (handles routing automatically)
     const result = await solanaExecutor.executeSellWithKeypair(
       tokenMint,
       tokenAmount,
       keypair,
-      { slippageBps: 500 }  // 5% slippage for sells
+      { slippageBps }  // L-2 FIX: Use user's slippage setting
     );
 
     if (!result.success) {

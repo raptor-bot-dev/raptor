@@ -1,5 +1,11 @@
 // Solana Executor for RAPTOR v2
 // Handles all Solana trades via pump.fun or Jupiter
+//
+// L-1 NOTE: This file uses console.log for logging. For production, these should
+// be migrated to the structured logger from @raptor/shared to ensure sensitive
+// data (addresses, keys) is properly sanitized. The structured logger is imported
+// below but migration of all log statements is deferred to avoid introducing
+// regressions in the critical trading path.
 
 import {
   SOLANA_CONFIG,
@@ -14,10 +20,15 @@ import {
   recordTrade,
   recordFee,
   createPosition,
+  createLogger,
   type TradingMode,
   type Position,
   type BondingCurveState,
 } from '@raptor/shared';
+
+// L-1: Structured logger for sensitive operations
+// TODO: Migrate remaining console.log statements to use this logger
+const logger = createLogger('SolanaExecutor');
 
 import { PublicKey, Connection, Keypair } from '@solana/web3.js';
 import {
@@ -207,8 +218,12 @@ export class SolanaExecutor {
   }
 
   /**
-   * Execute a buy order
+   * Execute a buy order using internal EXECUTOR_KEYPAIR
    * Routes through pump.fun for tokens on bonding curve, Jupiter for graduated tokens
+   *
+   * @deprecated L-3: Use executeBuyWithKeypair() instead for better separation of concerns.
+   * This method uses a shared internal keypair which is not suitable for multi-user scenarios.
+   * Scheduled for removal in v4.0.
    */
   async executeBuy(
     tokenMint: string,
@@ -222,6 +237,7 @@ export class SolanaExecutor {
       source?: string;
     }
   ): Promise<SolanaTradeResult> {
+    logger.warn('[DEPRECATED] executeBuy() called - use executeBuyWithKeypair() instead');
     console.log(
       `[SolanaExecutor] Buy ${solAmount} SOL of ${tokenMint} for user ${tgId}`
     );
@@ -438,7 +454,11 @@ export class SolanaExecutor {
   }
 
   /**
-   * Execute a sell order
+   * Execute a sell order using internal EXECUTOR_KEYPAIR
+   *
+   * @deprecated L-3: Use executeSellWithKeypair() instead for better separation of concerns.
+   * This method uses a shared internal keypair which is not suitable for multi-user scenarios.
+   * Scheduled for removal in v4.0.
    */
   async executeSell(
     tokenMint: string,
@@ -447,6 +467,7 @@ export class SolanaExecutor {
     mode: TradingMode,
     position?: Position
   ): Promise<SolanaTradeResult> {
+    logger.warn('[DEPRECATED] executeSell() called - use executeSellWithKeypair() instead');
     console.log(
       `[SolanaExecutor] Sell ${tokenAmount} tokens of ${tokenMint} for user ${tgId}`
     );

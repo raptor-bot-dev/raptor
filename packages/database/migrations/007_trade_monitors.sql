@@ -46,7 +46,15 @@ CREATE TABLE IF NOT EXISTS trade_monitors (
   CONSTRAINT unique_user_mint_monitor UNIQUE (user_id, mint, status)
 );
 
+-- =============================================================================
 -- Indexes for efficient queries
+-- L-4 VERIFIED: These indexes cover all major query patterns:
+--   1. get_monitors_for_refresh: uses idx_trade_monitors_refresh
+--   2. getUserActiveMonitors: uses idx_trade_monitors_user_status
+--   3. expire_old_monitors: uses idx_trade_monitors_expires_at
+--   4. getMonitorById: uses primary key
+--   5. get_user_monitor: uses idx_trade_monitors_user_status
+-- =============================================================================
 CREATE INDEX IF NOT EXISTS idx_trade_monitors_user_id ON trade_monitors(user_id);
 CREATE INDEX IF NOT EXISTS idx_trade_monitors_status ON trade_monitors(status);
 CREATE INDEX IF NOT EXISTS idx_trade_monitors_expires_at ON trade_monitors(expires_at) WHERE status = 'ACTIVE';

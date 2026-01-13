@@ -26,6 +26,7 @@ import {
   getActiveWallet,
   getUserWallets,
   getUserDefaultStrategy,
+  getOrCreateManualSettings,
   createLogger,
   loadSolanaKeypair,
   applyBuyFeeDecimal,
@@ -108,6 +109,10 @@ export async function handleManualBuy(
   await ctx.answerCallbackQuery({ text: `Processing ${amountSol} SOL buy...` });
 
   try {
+    // L-2 FIX: Fetch user's manual settings for slippage instead of hardcoding
+    const manualSettings = await getOrCreateManualSettings(user.id);
+    const slippageBps = manualSettings.default_slippage_bps || 50; // Fallback to 0.5%
+
     // Execute the manual buy with v3.1 flow
     const result = await executeManualBuy({
       userId: user.id,
@@ -115,7 +120,7 @@ export async function handleManualBuy(
       tokenMint,
       amountSol,
       tgEventId: callbackQueryId,
-      slippageBps: 50, // Default 0.5% slippage
+      slippageBps,
     });
 
     // Display result

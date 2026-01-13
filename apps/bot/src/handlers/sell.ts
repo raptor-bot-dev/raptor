@@ -25,6 +25,7 @@ import {
   getActiveWallet,
   getUserWallets,
   getUserOpenPositions,
+  getOrCreateManualSettings,
   createLogger,
   loadSolanaKeypair,
   applySellFeeDecimal,
@@ -109,6 +110,10 @@ export async function handleManualSell(
     // Calculate tokens to sell
     const tokensToSell = (position.size_tokens * sellPercent) / 100;
 
+    // L-2 FIX: Fetch user's manual settings for slippage instead of hardcoding
+    const manualSettings = await getOrCreateManualSettings(user.id);
+    const slippageBps = manualSettings.default_slippage_bps || 100; // Fallback to 1%
+
     // Execute the manual sell with v3.1 flow
     const result = await executeManualSell({
       userId: user.id,
@@ -116,6 +121,7 @@ export async function handleManualSell(
       tokensToSell,
       sellPercent,
       tgEventId: callbackQueryId,
+      slippageBps,
     });
 
     // Display result
@@ -221,8 +227,9 @@ export async function executeManualSell(params: {
   tokensToSell: number;
   sellPercent: number;
   tgEventId: string | number;
+  slippageBps: number; // L-2 FIX: Use user's slippage setting
 }): Promise<ManualSellResult> {
-  const { userId, position, tokensToSell, sellPercent, tgEventId } = params;
+  const { userId, position, tokensToSell, sellPercent, tgEventId, slippageBps } = params;
   const chain = position.chain;
 
   logger.info('Starting manual sell', { userId, positionId: position.id, tokensToSell });
@@ -312,14 +319,14 @@ export async function executeManualSell(params: {
   });
 
   // Step 6: Execute sell via executor
-  logger.info('Executing sell via executor', { tokensToSell });
+  logger.info('Executing sell via executor', { tokensToSell, slippageBps });
 
   try {
     const result = await solanaExecutor.executeSellWithKeypair(
       position.token_mint,
       tokensToSell,
       keypair,
-      { slippageBps: 100 } // 1% slippage for sells
+      { slippageBps } // L-2 FIX: Use user's slippage setting
     );
 
     if (!result.success) {
