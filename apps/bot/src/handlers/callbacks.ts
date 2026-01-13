@@ -168,8 +168,9 @@ import {
   closeMonitorAfterSell,
   formatTradeMonitorMessage,
   buildTradeMonitorKeyboard,
+  resetToMonitorView,
 } from '../services/tradeMonitor.js';
-import { getMonitorById, getUserMonitor, createPositionV31, getOrCreateManualStrategy } from '@raptor/shared';
+import { getMonitorById, getUserMonitor, createPositionV31, getOrCreateManualStrategy, setMonitorView } from '@raptor/shared';
 import { solanaExecutor } from '@raptor/executor/solana';
 
 export async function handleCallbackQuery(ctx: MyContext) {
@@ -1214,7 +1215,7 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Open sell panel (open_sell:<mint>)
+    // Open sell panel (open_sell:<mint>) - from monitor
     if (data.startsWith('open_sell:')) {
       const mint = data.replace('open_sell:', '');
       await ctx.answerCallbackQuery({ text: '💰 Opening sell panel...' });
@@ -1235,21 +1236,46 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
+    // Open sell panel directly from token card (open_sell_direct:<mint>)
+    // v3.2: Opens sell as a NEW message (doesn't edit token card)
+    if (data.startsWith('open_sell_direct:')) {
+      const mint = data.replace('open_sell_direct:', '');
+      await ctx.answerCallbackQuery({ text: '💰 Opening sell panel...' });
+
+      try {
+        // Create a new sell panel message instead of editing
+        const { openSellPanelNew } = await import('../services/tradeMonitor.js');
+        await openSellPanelNew(
+          ctx.api,
+          user.id,
+          ctx.chat!.id,
+          mint,
+          solanaExecutor
+        );
+      } catch (error) {
+        console.error('[Callbacks] Open sell direct error:', error);
+        await ctx.reply('❌ Failed to open sell panel');
+      }
+      return;
+    }
+
     // View monitor (view_monitor:<mint>) - go back from sell panel
+    // v3.2 FIX: Uses resetToMonitorView to properly reset view state
     if (data.startsWith('view_monitor:')) {
       const mint = data.replace('view_monitor:', '');
       await ctx.answerCallbackQuery();
 
       try {
-        const monitor = await getUserMonitor(user.id, mint);
-        if (monitor) {
-          const message = formatTradeMonitorMessage(monitor);
-          const keyboard = buildTradeMonitorKeyboard(mint, monitor.id);
-          await ctx.editMessageText(message, {
-            parse_mode: 'Markdown',
-            reply_markup: keyboard,
-          });
-        } else {
+        // Use the new function that resets view state
+        const success = await resetToMonitorView(
+          ctx.api,
+          user.id,
+          ctx.chat!.id,
+          ctx.callbackQuery?.message?.message_id || 0,
+          mint
+        );
+        
+        if (!success) {
           await ctx.reply('Monitor not found. Position may have been closed.');
         }
       } catch (error) {

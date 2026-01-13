@@ -13,8 +13,13 @@ import {
   getUserMonitor,
   expireOldMonitors,
   getMonitorById,
+  setMonitorView,
+  getOrCreateManualSettings,
+  getUserActiveMonitors,
+  getActiveWallet,
   type TradeMonitor,
   type Chain,
+  type ManualSettings,
 } from '@raptor/shared';
 import type { SolanaExecutor } from '@raptor/executor';
 
@@ -86,8 +91,12 @@ function getCachedPrice(mint: string): number | null {
 
 /**
  * Format the Trade Monitor message
+ * v3.2: Added USD pricing throughout
  */
-export function formatTradeMonitorMessage(monitor: TradeMonitor): string {
+export function formatTradeMonitorMessage(
+  monitor: TradeMonitor,
+  solPriceUsd: number = 180 // Default SOL price, should be fetched
+): string {
   const {
     token_symbol,
     token_name,
@@ -129,8 +138,17 @@ export function formatTradeMonitorMessage(monitor: TradeMonitor): string {
     if (n < 0.000001) return n.toExponential(4);
     return n.toFixed(9);
   };
+  const solToUsd = (sol: number | null) => {
+    if (sol === null) return '—';
+    return formatUsd(sol * solPriceUsd);
+  };
 
-  // Truncate mint for display
+  // Calculate USD values
+  const entryValueUsd = entry_amount_sol !== null ? entry_amount_sol * solPriceUsd : null;
+  const currentValueUsd = current_value_sol !== null ? current_value_sol * solPriceUsd : null;
+  const pnlUsd = pnl_sol !== null ? pnl_sol * solPriceUsd : null;
+
+  // Truncate mint for display - tap to copy
   const shortMint = `${mint.slice(0, 6)}...${mint.slice(-4)}`;
 
   let message = `📊 *TRADE MONITOR*\n\n`;
@@ -139,16 +157,26 @@ export function formatTradeMonitorMessage(monitor: TradeMonitor): string {
   message += `Route: ${route_label || 'Unknown'}\n\n`;
 
   message += `━━━━ *Position* ━━━━\n`;
-  message += `Entry: ${formatSol(entry_amount_sol)} SOL\n`;
+  message += `Entry: ${formatSol(entry_amount_sol)} SOL (${solToUsd(entry_amount_sol)})\n`;
   message += `Tokens: ${formatTokens(current_tokens ?? entry_tokens)}\n`;
-  message += `Value: ${formatSol(current_value_sol)} SOL\n\n`;
+  message += `Value: ${formatSol(current_value_sol)} SOL (${solToUsd(current_value_sol)})\n\n`;
 
   message += `━━━━ *Price* ━━━━\n`;
-  message += `Entry: ${formatPrice(entry_price_sol)} SOL\n`;
-  message += `Current: ${formatPrice(current_price_sol)} SOL\n\n`;
+  const entryPriceUsd = entry_price_sol !== null ? entry_price_sol * solPriceUsd : null;
+  const currentPriceUsd = current_price_sol !== null ? current_price_sol * solPriceUsd : null;
+  message += `Entry: ${formatPrice(entry_price_sol)} SOL`;
+  if (entryPriceUsd !== null) message += ` ($${entryPriceUsd.toFixed(8)})`;
+  message += `\n`;
+  message += `Current: ${formatPrice(current_price_sol)} SOL`;
+  if (currentPriceUsd !== null) message += ` ($${currentPriceUsd.toFixed(8)})`;
+  message += `\n\n`;
 
   message += `━━━━ *P&L* ━━━━\n`;
-  message += `${pnlEmoji} ${pnlSign}${formatSol(pnl_sol)} SOL (${pnlSign}${(pnl_percent || 0).toFixed(2)}%)\n\n`;
+  message += `${pnlEmoji} ${pnlSign}${formatSol(pnl_sol)} SOL (${pnlSign}${(pnl_percent || 0).toFixed(2)}%)\n`;
+  if (pnlUsd !== null) {
+    message += `   ${pnlSign}${formatUsd(Math.abs(pnlUsd))} USD\n`;
+  }
+  message += '\n';
 
   if (market_cap_usd || liquidity_usd) {
     message += `━━━━ *Market* ━━━━\n`;
@@ -168,15 +196,14 @@ export function formatTradeMonitorMessage(monitor: TradeMonitor): string {
 
 /**
  * Build Trade Monitor keyboard
+ * v3.2: Removed Copy CA button (use tap-to-copy on CA in message)
  */
 export function buildTradeMonitorKeyboard(mint: string, monitorId: number): InlineKeyboard {
   const keyboard = new InlineKeyboard()
-    .text('📋 Copy CA', `copy_ca:${mint}`)
+    .text('💰 → Sell', `open_sell:${mint}`)
     .text('🔄 Refresh', `refresh_monitor:${monitorId}`)
     .row()
-    .text('💰 → Sell', `open_sell:${mint}`)
     .text('📊 Chart', `chart:${mint}`)
-    .row()
     .text('« Back to Token', `token:${mint}`);
 
   return keyboard;
@@ -184,6 +211,7 @@ export function buildTradeMonitorKeyboard(mint: string, monitorId: number): Inli
 
 /**
  * Build Sell Panel keyboard
+ * v3.2: Added 10% option and improved layout
  */
 export function buildSellPanelKeyboard(
   mint: string,
@@ -193,13 +221,15 @@ export function buildSellPanelKeyboard(
 
   if (hasBalance) {
     keyboard
+      .text('10%', `sell_pct:${mint}:10`)
       .text('25%', `sell_pct:${mint}:25`)
       .text('50%', `sell_pct:${mint}:50`)
+      .row()
       .text('75%', `sell_pct:${mint}:75`)
       .text('100%', `sell_pct:${mint}:100`)
       .row()
-      .text('X Tokens', `sell_custom:${mint}:tokens`)
-      .text('X%', `sell_custom:${mint}:percent`)
+      .text('✏️ X Tokens', `sell_custom:${mint}:tokens`)
+      .text('✏️ X%', `sell_custom:${mint}:percent`)
       .row();
   }
 
@@ -214,7 +244,46 @@ export function buildSellPanelKeyboard(
 }
 
 /**
+ * Reset view state back to MONITOR when navigating away from sell panel
+ * v3.2: Call this when user clicks "Back to Monitor"
+ */
+export async function resetToMonitorView(
+  api: Api<RawApi>,
+  userId: number,
+  chatId: number,
+  messageId: number,
+  mint: string
+): Promise<boolean> {
+  try {
+    // Reset view state first
+    await setMonitorView(userId, mint, 'MONITOR');
+
+    // Get updated monitor
+    const monitor = await getUserMonitor(userId, mint);
+    if (!monitor) {
+      console.warn(`[TradeMonitor] No monitor found for ${mint}`);
+      return false;
+    }
+
+    // Render monitor view
+    const message = formatTradeMonitorMessage(monitor);
+    const keyboard = buildTradeMonitorKeyboard(mint, monitor.id);
+
+    await api.editMessageText(chatId, messageId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+
+    return true;
+  } catch (error) {
+    console.error('[TradeMonitor] Error resetting to monitor view:', error);
+    return false;
+  }
+}
+
+/**
  * Format the Sell Panel message
+ * v3.2: Added USD pricing
  */
 export function formatSellPanelMessage(
   tokenSymbol: string,
@@ -223,7 +292,8 @@ export function formatSellPanelMessage(
   estimatedValueSol: number | null,
   currentPriceSol: number | null,
   slippageBps: number = 500,
-  priorityFee: number = 100000
+  priorityFee: number = 100000,
+  solPriceUsd: number = 180 // Default SOL price, should be fetched
 ): string {
   const shortMint = `${mint.slice(0, 6)}...${mint.slice(-4)}`;
 
@@ -235,7 +305,14 @@ export function formatSellPanelMessage(
     return n.toFixed(4);
   };
 
-  let message = `💰 *SELL ${tokenSymbol || 'TOKEN'}*\n\n`;
+  const formatUsd = (sol: number | null) => {
+    if (sol === null) return '—';
+    const usd = sol * solPriceUsd;
+    if (usd >= 1000) return '$' + (usd / 1000).toFixed(2) + 'K';
+    return '$' + usd.toFixed(2);
+  };
+
+  let message = `💰 *SELL ${tokenSymbol}*\n\n`;
   message += `\`${shortMint}\`\n\n`;
 
   message += `━━━━ *Holdings* ━━━━\n`;
@@ -244,12 +321,21 @@ export function formatSellPanelMessage(
     message += `_Wallet has no tokens for this mint_\n\n`;
   } else {
     message += `Tokens: ${formatTokens(tokensHeld)}\n`;
-    message += `Est. Value: ${estimatedValueSol !== null ? estimatedValueSol.toFixed(4) : '—'} SOL\n\n`;
+    message += `Est. Value: ${estimatedValueSol !== null ? estimatedValueSol.toFixed(4) : '—'} SOL`;
+    if (estimatedValueSol !== null) {
+      message += ` (${formatUsd(estimatedValueSol)})`;
+    }
+    message += `\n`;
+    if (currentPriceSol !== null) {
+      const priceUsd = currentPriceSol * solPriceUsd;
+      message += `Current Price: ${currentPriceSol.toFixed(9)} SOL ($${priceUsd.toFixed(6)})\n`;
+    }
+    message += `\n`;
   }
 
   message += `━━━━ *Settings* ━━━━\n`;
   message += `Slippage: ${(slippageBps / 100).toFixed(1)}%\n`;
-  message += `Priority: ${(priorityFee / 1_000_000).toFixed(2)} SOL\n\n`;
+  message += `Priority: ${(priorityFee / 1_000_000).toFixed(4)} SOL\n\n`;
 
   if (tokensHeld && tokensHeld > 0) {
     message += `_Select amount to sell:_`;
@@ -368,10 +454,16 @@ export async function refreshMonitor(
       }
     }
 
-    // Fetch token balance
+    // Fetch token balance - MUST use user's wallet, not executor wallet
     try {
-      const balance = await executor.getTokenBalance(mint);
-      currentTokens = balance;
+      const userWallet = await getActiveWallet(user_id, 'sol');
+      if (userWallet) {
+        const balance = await executor.getTokenBalance(mint, userWallet.public_key);
+        currentTokens = balance;
+      } else {
+        console.warn(`[TradeMonitor] No active wallet for user ${user_id}`);
+        currentTokens = monitor.current_tokens;
+      }
     } catch (balanceError) {
       console.warn(`[TradeMonitor] Balance fetch failed for ${mint}:`, balanceError);
       currentTokens = monitor.current_tokens;
@@ -537,6 +629,7 @@ export async function handleManualRefresh(
 
 /**
  * Handle opening sell panel
+ * v3.2 FIX: Sets current_view to 'SELL' to prevent refresh loop overwrites
  */
 export async function openSellPanel(
   api: Api<RawApi>,
@@ -549,16 +642,31 @@ export async function openSellPanel(
   priorityFee: number = 100000
 ): Promise<void> {
   try {
+    // v3.2 FIX: Set view state to SELL FIRST
+    // This prevents the refresh loop from overwriting this message
+    await setMonitorView(userId, mint, 'SELL');
+
     // Get monitor for token info
     const monitor = await getUserMonitor(userId, mint);
 
-    // Fetch current balance
+    // Get user's manual settings for slippage/priority
+    const settings = await getOrCreateManualSettings(userId);
+    const effectiveSlippage = slippageBps || settings.default_slippage_bps || 500;
+    const effectivePriority = priorityFee || Math.round(settings.default_priority_sol * 1_000_000) || 100000;
+
+    // Fetch current balance - MUST use user's wallet
     let tokensHeld: number | null = null;
     let estimatedValueSol: number | null = null;
     let currentPriceSol: number | null = null;
 
     try {
-      tokensHeld = await executor.getTokenBalance(mint);
+      // Get user's active wallet
+      const userWallet = await getActiveWallet(userId, 'sol');
+      if (userWallet) {
+        tokensHeld = await executor.getTokenBalance(mint, userWallet.public_key);
+      } else {
+        console.warn(`[TradeMonitor] No active wallet for user ${userId} in sell panel`);
+      }
 
       // Get price (P0-4 FIX: use cache helper)
       currentPriceSol = getCachedPrice(mint);
@@ -591,8 +699,8 @@ export async function openSellPanel(
       tokensHeld,
       estimatedValueSol,
       currentPriceSol,
-      slippageBps,
-      priorityFee
+      effectiveSlippage,
+      effectivePriority
     );
     const keyboard = buildSellPanelKeyboard(mint, hasBalance);
 
@@ -602,6 +710,12 @@ export async function openSellPanel(
     });
   } catch (error) {
     console.error('[TradeMonitor] Error opening sell panel:', error);
+    // If view state was set but message edit failed, reset to MONITOR
+    try {
+      await setMonitorView(userId, mint, 'MONITOR');
+    } catch {
+      // Ignore cleanup error
+    }
   }
 }
 
@@ -636,5 +750,114 @@ export async function closeMonitorAfterSell(
     }
   } catch (error) {
     console.error('[TradeMonitor] Error closing monitor:', error);
+  }
+}
+
+/**
+ * Open sell panel as a NEW message (not editing existing)
+ * v3.2: Used when opening sell directly from token card
+ */
+export async function openSellPanelNew(
+  api: Api<RawApi>,
+  userId: number,
+  chatId: number,
+  mint: string,
+  executor: SolanaExecutor,
+  slippageBps?: number,
+  priorityFee?: number
+): Promise<void> {
+  try {
+    // Get user's manual settings for slippage/priority
+    const settings = await getOrCreateManualSettings(userId);
+    const effectiveSlippage = slippageBps || settings.default_slippage_bps || 500;
+    const effectivePriority = priorityFee || Math.round(settings.default_priority_sol * 1_000_000) || 100000;
+
+    // Fetch current balance from user's wallet
+    let tokensHeld: number | null = null;
+    let estimatedValueSol: number | null = null;
+    let currentPriceSol: number | null = null;
+    let tokenSymbol = 'TOKEN';
+
+    try {
+      // Try to get token symbol from cache/API
+      const monitor = await getUserMonitor(userId, mint);
+      if (monitor?.token_symbol) {
+        tokenSymbol = monitor.token_symbol;
+      }
+
+      // Get balance from user's wallet
+      const { getUserWallets } = await import('@raptor/shared');
+      const wallets = await getUserWallets(userId);
+      const activeWallet = wallets.find(w => w.chain === 'sol' && w.is_active);
+      
+      if (activeWallet) {
+        const walletAddress = activeWallet.public_key || activeWallet.solana_address;
+        tokensHeld = await executor.getTokenBalance(mint, walletAddress);
+      }
+
+      // Get price
+      currentPriceSol = getCachedPrice(mint);
+      if (currentPriceSol === null) {
+        const quote = await executor.jupiter.getQuote(
+          mint,
+          'So11111111111111111111111111111111111111112',
+          BigInt(1_000_000_000),
+          100
+        );
+        if (quote) {
+          currentPriceSol = parseInt(quote.outAmount) / 1_000_000_000;
+          setCachedPrice(mint, currentPriceSol);
+        }
+      }
+
+      if (tokensHeld && currentPriceSol) {
+        estimatedValueSol = tokensHeld * currentPriceSol;
+      }
+    } catch (error) {
+      console.warn(`[TradeMonitor] Error fetching data for sell panel:`, error);
+    }
+
+    const hasBalance = tokensHeld !== null && tokensHeld > 0;
+
+    const message = formatSellPanelMessage(
+      tokenSymbol,
+      mint,
+      tokensHeld,
+      estimatedValueSol,
+      currentPriceSol,
+      effectiveSlippage,
+      effectivePriority
+    );
+    
+    // Build keyboard without "Back to Monitor" since we came from token card
+    const keyboard = new InlineKeyboard();
+
+    if (hasBalance) {
+      keyboard
+        .text('10%', `sell_pct:${mint}:10`)
+        .text('25%', `sell_pct:${mint}:25`)
+        .text('50%', `sell_pct:${mint}:50`)
+        .row()
+        .text('75%', `sell_pct:${mint}:75`)
+        .text('100%', `sell_pct:${mint}:100`)
+        .row()
+        .text('✏️ X Tokens', `sell_custom:${mint}:tokens`)
+        .text('✏️ X%', `sell_custom:${mint}:percent`)
+        .row();
+    }
+
+    keyboard
+      .text('⚙️ Slippage', `sell_slippage:${mint}`)
+      .text('⚡ Priority', `sell_priority:${mint}`)
+      .row()
+      .text('« Back to Token', `token:${mint}`);
+
+    // Send as new message
+    await api.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  } catch (error) {
+    console.error('[TradeMonitor] Error opening sell panel new:', error);
   }
 }

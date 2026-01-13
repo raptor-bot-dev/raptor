@@ -91,6 +91,18 @@ async function handleSessionFlow(ctx: MyContext, text: string): Promise<boolean>
       await handleSendAmountInput(ctx, text);
       return true;
 
+    // v3.2: Handle sell CA input
+    case 'awaiting_sell_ca': {
+      const { handleSellCaInput } = await import('../commands/sell.js');
+      return await handleSellCaInput(ctx, text);
+    }
+
+    // v3.2: Handle custom sell inputs
+    case 'awaiting_sell_tokens':
+    case 'awaiting_sell_percent':
+      await handleCustomSellInput(ctx, text);
+      return true;
+
     default:
       return false;
   }
@@ -603,6 +615,7 @@ ${LINE}
   }
 
   // Build keyboard with buy options - smaller amounts for all chains
+  // v3.2: Added → Sell button
   const keyboard = new InlineKeyboard();
 
   if (chain === 'sol') {
@@ -637,9 +650,13 @@ ${LINE}
 
   keyboard
     .row()
+    .text('💰 → Sell', `open_sell_direct:${tokenAddress}`)
     .text('🔍 Full Scan', `analyze_${chain}_${tokenAddress}`)
-    .text('🔄 Refresh', `refresh_${chain}_${tokenAddress}`)
     .row()
+    .text('⚙️ Slippage', `buy_slippage:${chain}_${tokenAddress}`)
+    .text('⚡ Priority', `buy_priority:${chain}_${tokenAddress}`)
+    .row()
+    .text('🔄 Refresh', `refresh_${chain}_${tokenAddress}`)
     .text('« Back', 'back_to_menu');
 
   await ctx.reply(message, {
@@ -941,6 +958,143 @@ ${LINE}`,
         parse_mode: 'Markdown',
         reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),
       }
+    );
+  }
+}
+
+/**
+ * Handle custom sell input (tokens or percent)
+ * v3.2: For when user enters a custom amount after clicking "X Tokens" or "X%"
+ */
+async function handleCustomSellInput(ctx: MyContext, text: string): Promise<void> {
+  const user = ctx.from;
+  if (!user) return;
+
+  const step = ctx.session.step;
+  const mint = ctx.session.pendingSellMint;
+
+  if (!mint) {
+    await ctx.reply('❌ Session expired. Please try again.');
+    ctx.session.step = null;
+    return;
+  }
+
+  const value = parseFloat(text);
+
+  if (isNaN(value) || value <= 0) {
+    await ctx.reply(
+      step === 'awaiting_sell_tokens'
+        ? '❌ Invalid amount. Please enter a positive number of tokens:'
+        : '❌ Invalid percentage. Please enter a number between 1 and 100:'
+    );
+    return;
+  }
+
+  // Validate percent range
+  if (step === 'awaiting_sell_percent' && (value < 1 || value > 100)) {
+    await ctx.reply('❌ Percentage must be between 1 and 100:');
+    return;
+  }
+
+  // Clear session state
+  ctx.session.step = null;
+  ctx.session.pendingSellMint = undefined;
+
+  try {
+    // Import required modules
+    const { solanaExecutor } = await import('@raptor/executor/solana');
+    const { getUserWallets, idKeyManualSell, reserveTradeBudget, updateExecution } = await import('@raptor/shared');
+    const { executeSolanaSell } = await import('../services/solanaTrade.js');
+    const { closeMonitorAfterSell } = await import('../services/tradeMonitor.js');
+
+    // Get user's active Solana wallet
+    const wallets = await getUserWallets(user.id);
+    const activeWallet = wallets.find(w => w.chain === 'sol' && w.is_active);
+
+    if (!activeWallet) {
+      await ctx.reply('⚠️ *No Active Wallet*\n\nPlease create a Solana wallet first.', {
+        parse_mode: 'Markdown',
+      });
+      return;
+    }
+
+    // Get token balance
+    const walletAddress = activeWallet.public_key || activeWallet.solana_address;
+    const tokensHeld = await solanaExecutor.getTokenBalance(mint, walletAddress);
+
+    if (!tokensHeld || tokensHeld <= 0) {
+      await ctx.reply('⚠️ *No Balance Detected*\n\nYour wallet has no tokens for this mint.', {
+        parse_mode: 'Markdown',
+      });
+      return;
+    }
+
+    // Calculate sell amount
+    let sellAmount: number;
+    let percent: number;
+
+    if (step === 'awaiting_sell_tokens') {
+      if (value > tokensHeld) {
+        await ctx.reply(
+          `⚠️ You only have ${tokensHeld.toLocaleString()} tokens.\n\n` +
+          `Max sell amount: ${tokensHeld.toLocaleString()}`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+      sellAmount = value;
+      percent = (sellAmount / tokensHeld) * 100;
+    } else {
+      percent = value;
+      sellAmount = (tokensHeld * percent) / 100;
+    }
+
+    // Show processing message
+    await ctx.reply(
+      `⏳ *PROCESSING SELL*\n\n` +
+        `Selling ${percent.toFixed(1)}% (${sellAmount.toLocaleString()} tokens)...\n\n` +
+        `_Finding best route..._`,
+      { parse_mode: 'Markdown' }
+    );
+
+    // Execute sell
+    const result = await executeSolanaSell(user.id, mint, sellAmount);
+
+    if (result.success && result.txHash) {
+      const explorerUrl = `https://solscan.io/tx/${result.txHash}`;
+
+      await ctx.reply(
+        `✅ *SELL SUCCESSFUL*\n\n` +
+          `*Tokens Sold:* ${sellAmount.toLocaleString()}\n` +
+          `*SOL Received:* ${result.solReceived?.toFixed(4) || '—'} SOL\n` +
+          `*Route:* ${result.route || 'Unknown'}\n\n` +
+          `[View Transaction](${explorerUrl})`,
+        {
+          parse_mode: 'Markdown',
+          link_preview_options: { is_disabled: true },
+        }
+      );
+
+      // If 100% sell, close the monitor
+      if (percent >= 100) {
+        await closeMonitorAfterSell(ctx.api, user.id, mint);
+      }
+    } else {
+      await ctx.reply(
+        `❌ *SELL FAILED*\n\n` +
+          `${result.error || 'Unknown error'}\n\n` +
+          `Please try again.`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+  } catch (error) {
+    console.error('[Messages] Custom sell error:', error);
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    await ctx.reply(
+      `❌ *SELL FAILED*\n\n` +
+        `${errorMsg}\n\n` +
+        `Please try again.`,
+      { parse_mode: 'Markdown' }
     );
   }
 }

@@ -45,28 +45,27 @@ export const MODE_EMOJI: Record<TradingMode, string> = {
 };
 
 /**
- * Main menu keyboard (v2.3 wide layout)
+ * Main menu keyboard (v3.2 redesigned - simplified)
+ * Removed: Positions, Orders, Chains, Copytrade
+ * Renamed: Bridge → Mixer
  */
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text('🔗 Chains', 'chains')
-    .row()
     .text('💳 Wallets', 'wallets')
-    .text('⚙️ Settings', 'settings')
+    .text('⚙️ Manual Settings', 'settings_manual')
     .row()
-    .text('🦖 Auto Hunt', 'hunt')
-    .text('📋 Copytrade', 'copytrade')
+    .text('🦖 AutoHunt', 'hunt')
+    .text('🎯 AutoHunt Settings', 'settings_autohunt')
     .row()
-    .text('📊 Positions', 'positions')
-    .text('📜 Orders', 'orders')
+    .text('🔍 Scan Token', 'quick_trade')
     .row()
     .text('💎 Premium', 'premium')
-    .text('🌉 Bridge', 'bridge')
+    .text('🌀 Mixer', 'mixer')
     .row()
     .text('💸 Cashback', 'cashback')
     .text('🎁 Referral', 'referral')
     .row()
-    .text('⚡ BUY & SELL NOW!', 'quick_trade');
+    .text('❓ Help', 'help');
 }
 
 /**

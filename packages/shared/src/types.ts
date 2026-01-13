@@ -368,6 +368,10 @@ export interface TradeMonitor {
   expires_at: string;
   refresh_count: number;
 
+  // View state (v3.2 - for sell panel stability)
+  current_view: 'MONITOR' | 'SELL' | 'TOKEN';
+  view_changed_at: string | null;
+
   created_at: string;
   updated_at: string;
 }

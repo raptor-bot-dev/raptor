@@ -2232,3 +2232,101 @@ export async function updateMonitorMessageId(
 
   if (error) throw error;
 }
+
+// ============================================================================
+// View State Management (v3.2 - fixes sell panel revert bug)
+// ============================================================================
+
+export type MonitorView = 'MONITOR' | 'SELL' | 'TOKEN';
+
+/**
+ * Set the current view for a monitor
+ * CRITICAL: This prevents refresh loop from overwriting sell panel
+ */
+export async function setMonitorView(
+  userId: number,
+  mint: string,
+  view: MonitorView
+): Promise<TradeMonitor | null> {
+  const { data, error } = await supabase.rpc('set_monitor_view', {
+    p_user_id: userId,
+    p_mint: mint,
+    p_view: view,
+  });
+
+  if (error) throw error;
+  return data as TradeMonitor | null;
+}
+
+/**
+ * Get user's active monitors (up to 5)
+ */
+export async function getUserActiveMonitors(
+  userId: number,
+  limit: number = 5
+): Promise<TradeMonitor[]> {
+  const { data, error } = await supabase
+    .from('trade_monitors')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('status', 'ACTIVE')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return (data || []) as TradeMonitor[];
+}
+
+// ============================================================================
+// Manual Settings (v3.2 - separated from AutoHunt settings)
+// ============================================================================
+
+export interface ManualSettings {
+  id: number;
+  user_id: number;
+  default_slippage_bps: number;
+  default_priority_sol: number;
+  quick_buy_amounts: number[];
+  quick_sell_percents: number[];
+  show_usd_values: boolean;
+  confirm_large_trades: boolean;
+  large_trade_threshold_sol: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Get or create manual settings for user
+ */
+export async function getOrCreateManualSettings(
+  userId: number
+): Promise<ManualSettings> {
+  const { data, error } = await supabase.rpc('get_or_create_manual_settings', {
+    p_user_id: userId,
+  });
+
+  if (error) throw error;
+  return data as ManualSettings;
+}
+
+/**
+ * Update manual settings
+ */
+export async function updateManualSettings(params: {
+  userId: number;
+  slippageBps?: number;
+  prioritySol?: number;
+  quickBuyAmounts?: number[];
+  quickSellPercents?: number[];
+}): Promise<ManualSettings> {
+  const { data, error } = await supabase.rpc('update_manual_settings', {
+    p_user_id: params.userId,
+    p_slippage_bps: params.slippageBps || null,
+    p_priority_sol: params.prioritySol || null,
+    p_quick_buy_amounts: params.quickBuyAmounts ? JSON.stringify(params.quickBuyAmounts) : null,
+    p_quick_sell_percents: params.quickSellPercents ? JSON.stringify(params.quickSellPercents) : null,
+  });
+
+  if (error) throw error;
+  return data as ManualSettings;
+}

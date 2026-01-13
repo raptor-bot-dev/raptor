@@ -18,6 +18,7 @@ export interface SessionData {
     | 'awaiting_send_confirm'
     | 'awaiting_sell_tokens'
     | 'awaiting_sell_percent'
+    | 'awaiting_sell_ca'  // v3.2: For /sell command flow
     | CustomStrategyStep
     | null;
   pendingWithdrawal: {

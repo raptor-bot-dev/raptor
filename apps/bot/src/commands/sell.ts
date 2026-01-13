@@ -1,7 +1,9 @@
-// /sell command - Sell a position
-// Usage: /sell <contract> [amount|max] or select from active positions
+// /sell command - Sell tokens
+// v3.2: New flow - prompts for CA, then shows sell panel
+// Usage: /sell (prompts for CA) or /sell <contract>
 
 import { CommandContext, Context, InlineKeyboard } from 'grammy';
+import type { MyContext } from '../types.js';
 import {
   getActivePositions,
   getPositionByToken,
@@ -17,7 +19,10 @@ const CHAIN_SYMBOLS: Record<Chain, string> = {
   sol: 'SOL',
 };
 
-export async function sellCommand(ctx: CommandContext<Context>): Promise<void> {
+// Solana address regex
+const SOLANA_ADDRESS_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+export async function sellCommand(ctx: MyContext): Promise<void> {
   const tgId = ctx.from?.id;
   if (!tgId) {
     await ctx.reply('Could not identify user.');
@@ -26,136 +31,93 @@ export async function sellCommand(ctx: CommandContext<Context>): Promise<void> {
 
   const args = ctx.match?.toString().trim().split(/\s+/) || [];
 
-  // If no arguments, show active positions for selection
-  if (args.length === 0 || args[0] === '') {
-    await showPositionsForSale(ctx, tgId);
-    return;
-  }
+  // If CA provided directly: /sell <contract>
+  if (args.length > 0 && args[0] !== '') {
+    const tokenAddress = args[0];
+    
+    // Validate - only Solana for now
+    if (SOLANA_ADDRESS_REGEX.test(tokenAddress)) {
+      // Show sell panel directly
+      await showSellPanelForMint(ctx, tgId, tokenAddress);
+      return;
+    }
 
-  // If contract provided: /sell <contract> [amount]
-  const [tokenAddress, amountOrMax] = args;
-
-  // Validate token address
-  const isSolanaAddress = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(tokenAddress);
-  const isEvmAddress = /^0x[a-fA-F0-9]{40}$/.test(tokenAddress);
-
-  if (!isSolanaAddress && !isEvmAddress) {
     await ctx.reply(
-      'Invalid token address. Use /sell without arguments to see your positions.'
+      '❌ Invalid token address.\n\nPlease enter a valid Solana contract address.',
+      { parse_mode: 'Markdown' }
     );
     return;
   }
 
-  // Find position across all chains
-  const positions = await getActivePositions(tgId);
-  const position = positions.find(
-    (p) => p.token_address.toLowerCase() === tokenAddress.toLowerCase()
-  );
-
-  if (!position) {
-    await ctx.reply(
-      'No active position found for this token.\n' +
-        'Use /sell without arguments to see your positions.'
-    );
-    return;
-  }
-
-  // Determine amount to sell
-  const tokensHeld = parseFloat(position.tokens_held);
-  let sellAmount: number;
-
-  if (!amountOrMax || amountOrMax.toLowerCase() === 'max' || amountOrMax === '100%') {
-    sellAmount = tokensHeld;
-  } else if (amountOrMax.endsWith('%')) {
-    const percent = parseFloat(amountOrMax.slice(0, -1));
-    if (isNaN(percent) || percent <= 0 || percent > 100) {
-      await ctx.reply('Invalid percentage. Use a value between 1% and 100%.');
-      return;
-    }
-    sellAmount = (tokensHeld * percent) / 100;
-  } else {
-    sellAmount = parseFloat(amountOrMax);
-    if (isNaN(sellAmount) || sellAmount <= 0) {
-      await ctx.reply('Invalid amount. Enter a positive number or "max".');
-      return;
-    }
-    if (sellAmount > tokensHeld) {
-      await ctx.reply(
-        `You only hold ${tokensHeld.toFixed(4)} tokens. Use "max" to sell all.`
-      );
-      return;
-    }
-  }
-
-  // Show confirmation
-  const sellPercent = (sellAmount / tokensHeld) * 100;
-  const symbol = CHAIN_SYMBOLS[position.chain];
-  const pnl = parseFloat(position.unrealized_pnl);
-  const pnlPercent = position.unrealized_pnl_percent;
-  const pnlEmoji = pnl >= 0 ? '📈' : '📉';
-
-  const keyboard = new InlineKeyboard()
-    .text('✅ Confirm Sell', `confirm_sell:${position.id}:${sellAmount}`)
-    .text('❌ Cancel', 'cancel_sell');
-
+  // No arguments - prompt for CA
+  ctx.session.step = 'awaiting_sell_ca';
+  
   await ctx.reply(
-    `*Confirm Sell Order*\n\n` +
-      `Token: ${position.token_symbol}\n` +
-      `Chain: ${position.chain.toUpperCase()}\n` +
-      `Amount: ${sellAmount.toFixed(4)} tokens (${sellPercent.toFixed(1)}%)\n\n` +
-      `Entry: ${parseFloat(position.entry_price).toFixed(8)} ${symbol}\n` +
-      `Current: ${parseFloat(position.current_price).toFixed(8)} ${symbol}\n` +
-      `${pnlEmoji} P&L: ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%\n\n` +
-      `*Note:* 1% fee will be applied to proceeds.`,
-    { parse_mode: 'Markdown', reply_markup: keyboard }
+    `💰 *SELL TOKEN*\n\n` +
+    `Paste the contract address (CA) of the token you want to sell:`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: new InlineKeyboard().text('❌ Cancel', 'back_to_menu'),
+    }
   );
 }
 
-async function showPositionsForSale(
-  ctx: CommandContext<Context>,
-  tgId: number
+/**
+ * Show sell panel for a specific mint
+ */
+async function showSellPanelForMint(
+  ctx: MyContext,
+  userId: number,
+  mint: string
 ): Promise<void> {
-  const positions = await getActivePositions(tgId);
-
-  if (positions.length === 0) {
-    await ctx.reply(
-      'You have no active positions to sell.\n\n' +
-        'Use /snipe to open a new position.'
+  try {
+    const { openSellPanelNew } = await import('../services/tradeMonitor.js');
+    const { solanaExecutor } = await import('@raptor/executor/solana');
+    
+    await openSellPanelNew(
+      ctx.api,
+      userId,
+      ctx.chat!.id,
+      mint,
+      solanaExecutor
     );
-    return;
+  } catch (error) {
+    console.error('[Sell] Error showing sell panel:', error);
+    await ctx.reply('❌ Failed to load sell panel. Please try again.');
   }
-
-  let message = '*Your Active Positions*\n\n';
-
-  const keyboard = new InlineKeyboard();
-
-  for (let i = 0; i < positions.length && i < 10; i++) {
-    const p = positions[i];
-    const pnl = p.unrealized_pnl_percent;
-    const pnlEmoji = pnl >= 0 ? '🟢' : '🔴';
-    const symbol = CHAIN_SYMBOLS[p.chain];
-
-    message += `${pnlEmoji} *${p.token_symbol}* (${p.chain.toUpperCase()})\n`;
-    message += `   Entry: ${parseFloat(p.entry_price).toFixed(8)} ${symbol}\n`;
-    message += `   P&L: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%\n\n`;
-
-    // Add sell buttons
-    keyboard
-      .text(`Sell 50% ${p.token_symbol}`, `sell:${p.id}:50`)
-      .text(`Sell 100% ${p.token_symbol}`, `sell:${p.id}:100`)
-      .row();
-  }
-
-  message += 'Select a position to sell, or use:\n';
-  message += '`/sell <contract> [amount|max]`';
-
-  await ctx.reply(message, {
-    parse_mode: 'Markdown',
-    reply_markup: keyboard,
-  });
 }
 
-// Handle sell callback buttons
+/**
+ * Handle CA input for /sell flow
+ * Called from messages.ts when step === 'awaiting_sell_ca'
+ */
+export async function handleSellCaInput(
+  ctx: MyContext,
+  text: string
+): Promise<boolean> {
+  const tgId = ctx.from?.id;
+  if (!tgId) return false;
+
+  // Validate Solana address
+  if (!SOLANA_ADDRESS_REGEX.test(text)) {
+    await ctx.reply(
+      '❌ Invalid Solana address.\n\nPlease enter a valid contract address (CA):',
+      {
+        reply_markup: new InlineKeyboard().text('❌ Cancel', 'back_to_menu'),
+      }
+    );
+    return true; // Handled, but stay in awaiting state
+  }
+
+  // Clear step
+  ctx.session.step = null;
+
+  // Show sell panel
+  await showSellPanelForMint(ctx, tgId, text);
+  return true;
+}
+
+// Handle sell callback buttons (legacy - kept for backwards compatibility)
 export async function handleSellCallback(
   ctx: Context,
   data: string
