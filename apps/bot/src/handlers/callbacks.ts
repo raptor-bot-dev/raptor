@@ -2195,32 +2195,45 @@ Tap "Show Keys" to reveal your private keys.`;
     }
 
     // ============================================
-    // v3.3 FIX (Issue 5): SELL PANEL SLIPPAGE/PRIORITY
+    // v3.5: SELL PANEL SLIPPAGE/GWEI - Chain-aware
     // ============================================
 
-    // Sell slippage adjustment (sell_slippage:<mint>)
+    // Sell slippage adjustment - v3.5: Uses chain_settings
+    // Format: sell_slippage:<chain>_<mint> or sell_slippage:<mint> (legacy, defaults to sol)
     if (data.startsWith('sell_slippage:')) {
-      const mint = data.replace('sell_slippage:', '');
+      const payload = data.replace('sell_slippage:', '');
+      let chain: Chain = 'sol';
+      let mint: string;
 
-      const { getOrCreateManualSettings } = await import('@raptor/shared');
-      const settings = await getOrCreateManualSettings(user.id);
-      const currentBps = settings.default_slippage_bps;
+      // Check if chain is included (new format)
+      if (payload.includes('_') && ['sol', 'eth', 'base', 'bsc'].includes(payload.split('_')[0])) {
+        const parts = payload.split('_');
+        chain = parts[0] as Chain;
+        mint = parts.slice(1).join('_');
+      } else {
+        mint = payload;
+      }
+
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, chain);
+      const currentBps = settings.sell_slippage_bps;
+      const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'BASE' : 'ETH';
 
       const message =
-        `*SELL SLIPPAGE*\n\n` +
+        `*SELL SLIPPAGE* | ${chainName}\n\n` +
         `Current: ${(currentBps / 100).toFixed(1)}%\n\n` +
         `Select slippage for sells:`;
 
       const keyboard = new InlineKeyboard()
-        .text(currentBps === 100 ? '> 1%' : '1%', `set_sell_slip:${mint}_100`)
-        .text(currentBps === 300 ? '> 3%' : '3%', `set_sell_slip:${mint}_300`)
-        .text(currentBps === 500 ? '> 5%' : '5%', `set_sell_slip:${mint}_500`)
+        .text(currentBps === 100 ? '> 1%' : '1%', `set_sell_slip:${chain}_${mint}_100`)
+        .text(currentBps === 300 ? '> 3%' : '3%', `set_sell_slip:${chain}_${mint}_300`)
+        .text(currentBps === 500 ? '> 5%' : '5%', `set_sell_slip:${chain}_${mint}_500`)
         .row()
-        .text(currentBps === 1000 ? '> 10%' : '10%', `set_sell_slip:${mint}_1000`)
-        .text(currentBps === 1500 ? '> 15%' : '15%', `set_sell_slip:${mint}_1500`)
-        .text(currentBps === 2000 ? '> 20%' : '20%', `set_sell_slip:${mint}_2000`)
+        .text(currentBps === 1000 ? '> 10%' : '10%', `set_sell_slip:${chain}_${mint}_1000`)
+        .text(currentBps === 1500 ? '> 15%' : '15%', `set_sell_slip:${chain}_${mint}_1500`)
+        .text(currentBps === 2000 ? '> 20%' : '20%', `set_sell_slip:${chain}_${mint}_2000`)
         .row()
-        .text('Back', `open_sell:${mint}`);
+        .text('« Back', `open_sell:${chain}_${mint}`);
 
       await ctx.editMessageText(message, {
         parse_mode: 'Markdown',
@@ -2229,18 +2242,19 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Set sell slippage
+    // Set sell slippage - v3.5: Updates chain_settings
     if (data.startsWith('set_sell_slip:')) {
       const parts = data.replace('set_sell_slip:', '').split('_');
       const bps = parseInt(parts[parts.length - 1]);
-      const mint = parts.slice(0, -1).join('_');
+      const chain = parts[0] as Chain;
+      const mint = parts.slice(1, -1).join('_');
 
-      const { updateManualSettings } = await import('@raptor/shared');
-      await updateManualSettings({ userId: user.id, slippageBps: bps });
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: user.id, chain, sellSlippageBps: bps });
 
-      await ctx.answerCallbackQuery({ text: `✓ Slippage set to ${(bps / 100).toFixed(1)}%` });
+      await ctx.answerCallbackQuery({ text: `Sell slippage set to ${(bps / 100).toFixed(1)}%` });
 
-      // v3.3.1 FIX: Return to sell panel after setting slippage
+      // v3.5: Return to sell panel with chain
       await openSellPanel(
         ctx.api,
         user.id,
@@ -2252,30 +2266,93 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Sell priority adjustment (sell_priority:<mint>)
+    // Sell priority/GWEI adjustment - v3.5: Chain-aware
+    // Format: sell_priority:<chain>_<mint> or sell_priority:<mint> (legacy)
     if (data.startsWith('sell_priority:')) {
-      const mint = data.replace('sell_priority:', '');
+      const payload = data.replace('sell_priority:', '');
+      let chain: Chain = 'sol';
+      let mint: string;
 
-      const { getOrCreateManualSettings } = await import('@raptor/shared');
-      const settings = await getOrCreateManualSettings(user.id);
-      const current = settings.default_priority_sol;
+      // Check if chain is included
+      if (payload.includes('_') && ['sol', 'eth', 'base', 'bsc'].includes(payload.split('_')[0])) {
+        const parts = payload.split('_');
+        chain = parts[0] as Chain;
+        mint = parts.slice(1).join('_');
+      } else {
+        mint = payload;
+      }
 
-      const message =
-        `*SELL PRIORITY*\n\n` +
-        `Current: ${current} SOL\n\n` +
-        `Select priority fee for sells:`;
+      const isEvm = chain !== 'sol';
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, chain);
+      const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'BASE' : 'ETH';
 
-      const keyboard = new InlineKeyboard()
-        .text(current === 0.00005 ? '> 0.00005' : '0.00005', `set_sell_prio:${mint}_0.00005`)
-        .text(current === 0.0001 ? '> 0.0001' : '0.0001', `set_sell_prio:${mint}_0.0001`)
-        .row()
-        .text(current === 0.0005 ? '> 0.0005' : '0.0005', `set_sell_prio:${mint}_0.0005`)
-        .text(current === 0.001 ? '> 0.001' : '0.001', `set_sell_prio:${mint}_0.001`)
-        .row()
-        .text(current === 0.005 ? '> 0.005' : '0.005', `set_sell_prio:${mint}_0.005`)
-        .text(current === 0.01 ? '> 0.01' : '0.01', `set_sell_prio:${mint}_0.01`)
-        .row()
-        .text('Back', `open_sell:${mint}`);
+      let message: string;
+      let keyboard: InlineKeyboard;
+
+      if (isEvm) {
+        // EVM chains: Show GWEI options
+        const currentGwei = settings.gas_gwei;
+        message =
+          `*GAS PRICE* | ${chainName}\n\n` +
+          `Current: ${currentGwei ?? 'Auto'} GWEI\n\n` +
+          `Select gas price:`;
+
+        if (chain === 'bsc') {
+          keyboard = new InlineKeyboard()
+            .text(currentGwei === 3 ? '> 3' : '3', `set_sell_gwei:${chain}_${mint}_3`)
+            .text(currentGwei === 5 ? '> 5' : '5', `set_sell_gwei:${chain}_${mint}_5`)
+            .text(currentGwei === 7 ? '> 7' : '7', `set_sell_gwei:${chain}_${mint}_7`)
+            .row()
+            .text(currentGwei === 10 ? '> 10' : '10', `set_sell_gwei:${chain}_${mint}_10`)
+            .text(currentGwei === 15 ? '> 15' : '15', `set_sell_gwei:${chain}_${mint}_15`)
+            .text(currentGwei === 20 ? '> 20' : '20', `set_sell_gwei:${chain}_${mint}_20`)
+            .row()
+            .text('« Back', `open_sell:${chain}_${mint}`);
+        } else if (chain === 'base') {
+          keyboard = new InlineKeyboard()
+            .text(currentGwei === 0.01 ? '> 0.01' : '0.01', `set_sell_gwei:${chain}_${mint}_0.01`)
+            .text(currentGwei === 0.05 ? '> 0.05' : '0.05', `set_sell_gwei:${chain}_${mint}_0.05`)
+            .text(currentGwei === 0.1 ? '> 0.1' : '0.1', `set_sell_gwei:${chain}_${mint}_0.1`)
+            .row()
+            .text(currentGwei === 0.5 ? '> 0.5' : '0.5', `set_sell_gwei:${chain}_${mint}_0.5`)
+            .text(currentGwei === 1 ? '> 1' : '1', `set_sell_gwei:${chain}_${mint}_1`)
+            .text(currentGwei === 2 ? '> 2' : '2', `set_sell_gwei:${chain}_${mint}_2`)
+            .row()
+            .text('« Back', `open_sell:${chain}_${mint}`);
+        } else {
+          // ETH
+          keyboard = new InlineKeyboard()
+            .text(currentGwei === 10 ? '> 10' : '10', `set_sell_gwei:${chain}_${mint}_10`)
+            .text(currentGwei === 20 ? '> 20' : '20', `set_sell_gwei:${chain}_${mint}_20`)
+            .text(currentGwei === 30 ? '> 30' : '30', `set_sell_gwei:${chain}_${mint}_30`)
+            .row()
+            .text(currentGwei === 50 ? '> 50' : '50', `set_sell_gwei:${chain}_${mint}_50`)
+            .text(currentGwei === 75 ? '> 75' : '75', `set_sell_gwei:${chain}_${mint}_75`)
+            .text(currentGwei === 100 ? '> 100' : '100', `set_sell_gwei:${chain}_${mint}_100`)
+            .row()
+            .text('« Back', `open_sell:${chain}_${mint}`);
+        }
+      } else {
+        // Solana: Show priority fee options
+        const current = settings.priority_sol;
+        message =
+          `*PRIORITY FEE* | SOL\n\n` +
+          `Current: ${current ?? 0.0001} SOL\n\n` +
+          `Select priority fee:`;
+
+        keyboard = new InlineKeyboard()
+          .text(current === 0.00005 ? '> 0.00005' : '0.00005', `set_sell_prio:${chain}_${mint}_0.00005`)
+          .text(current === 0.0001 ? '> 0.0001' : '0.0001', `set_sell_prio:${chain}_${mint}_0.0001`)
+          .row()
+          .text(current === 0.0005 ? '> 0.0005' : '0.0005', `set_sell_prio:${chain}_${mint}_0.0005`)
+          .text(current === 0.001 ? '> 0.001' : '0.001', `set_sell_prio:${chain}_${mint}_0.001`)
+          .row()
+          .text(current === 0.005 ? '> 0.005' : '0.005', `set_sell_prio:${chain}_${mint}_0.005`)
+          .text(current === 0.01 ? '> 0.01' : '0.01', `set_sell_prio:${chain}_${mint}_0.01`)
+          .row()
+          .text('« Back', `open_sell:${chain}_${mint}`);
+      }
 
       await ctx.editMessageText(message, {
         parse_mode: 'Markdown',
@@ -2284,32 +2361,74 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Set sell priority
-    if (data.startsWith('set_sell_prio:')) {
-      const parts = data.replace('set_sell_prio:', '').split('_');
-      const priority = parseFloat(parts[parts.length - 1]);
-      const mint = parts.slice(0, -1).join('_');
+    // Set sell GWEI (EVM chains) - v3.5
+    if (data.startsWith('set_sell_gwei:')) {
+      const parts = data.replace('set_sell_gwei:', '').split('_');
+      const gwei = parseFloat(parts[parts.length - 1]);
+      const chain = parts[0] as Chain;
+      const mint = parts.slice(1, -1).join('_');
 
-      const { updateManualSettings } = await import('@raptor/shared');
-      await updateManualSettings({ userId: user.id, prioritySol: priority });
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: user.id, chain, gasGwei: gwei });
 
-      await ctx.answerCallbackQuery({ text: `✓ Priority set to ${priority} SOL` });
+      await ctx.answerCallbackQuery({ text: `Gas set to ${gwei} GWEI` });
 
-      // v3.3.1 FIX: Return to sell panel after setting priority
+      // Return to sell panel
       await openSellPanel(
         ctx.api,
         user.id,
         ctx.chat!.id,
         ctx.callbackQuery?.message?.message_id || 0,
         mint,
-        solanaExecutor
+        solanaExecutor,
+        undefined,
+        undefined,
+        chain
       );
       return;
     }
 
-    // v3.4: Refresh sell panel
+    // Set sell priority (Solana) - v3.5: Updates chain_settings
+    if (data.startsWith('set_sell_prio:')) {
+      const parts = data.replace('set_sell_prio:', '').split('_');
+      const priority = parseFloat(parts[parts.length - 1]);
+      const chain = parts[0] as Chain;
+      const mint = parts.slice(1, -1).join('_');
+
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: user.id, chain, prioritySol: priority });
+
+      await ctx.answerCallbackQuery({ text: `Priority set to ${priority} SOL` });
+
+      // Return to sell panel
+      await openSellPanel(
+        ctx.api,
+        user.id,
+        ctx.chat!.id,
+        ctx.callbackQuery?.message?.message_id || 0,
+        mint,
+        solanaExecutor,
+        undefined,
+        undefined,
+        chain
+      );
+      return;
+    }
+
+    // v3.4: Refresh sell panel - v3.5: Chain-aware
     if (data.startsWith('refresh_sell:')) {
-      const mint = data.replace('refresh_sell:', '');
+      const payload = data.replace('refresh_sell:', '');
+      let chain: Chain = 'sol';
+      let mint: string;
+
+      if (payload.includes('_') && ['sol', 'eth', 'base', 'bsc'].includes(payload.split('_')[0])) {
+        const parts = payload.split('_');
+        chain = parts[0] as Chain;
+        mint = parts.slice(1).join('_');
+      } else {
+        mint = payload;
+      }
+
       await ctx.answerCallbackQuery({ text: '🔄 Refreshing...' });
 
       await openSellPanel(
@@ -2318,7 +2437,10 @@ Tap "Show Keys" to reveal your private keys.`;
         ctx.chat!.id,
         ctx.callbackQuery?.message?.message_id || 0,
         mint,
-        solanaExecutor
+        solanaExecutor,
+        undefined,
+        undefined,
+        chain
       );
       return;
     }
@@ -2327,20 +2449,22 @@ Tap "Show Keys" to reveal your private keys.`;
     // v3.3 FIX (Issue 4): BUY PANEL SLIPPAGE/PRIORITY
     // ============================================
 
-    // Buy panel slippage adjustment
+    // Buy panel slippage adjustment - v3.5: Uses chain_settings
     if (data.startsWith('buy_slippage:')) {
       const parts = data.replace('buy_slippage:', '').split('_');
-      const chain = parts[0];
+      const chain = parts[0] as Chain;
       const mint = parts.slice(1).join('_');
 
-      const { getOrCreateManualSettings } = await import('@raptor/shared');
-      const settings = await getOrCreateManualSettings(user.id);
-      const currentBps = settings.default_slippage_bps;
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, chain);
+      const currentBps = settings.buy_slippage_bps;
+
+      const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'BASE' : 'ETH';
 
       const message =
-        `*BUY SLIPPAGE*\n\n` +
+        `*BUY SLIPPAGE* | ${chainName}\n\n` +
         `Current: ${(currentBps / 100).toFixed(1)}%\n\n` +
-        `Select slippage for this trade:`;
+        `Select slippage for buys:`;
 
       const keyboard = new InlineKeyboard()
         .text(currentBps === 100 ? '> 1%' : '1%', `set_buy_slip:${chain}_${mint}_100`)
@@ -2351,8 +2475,7 @@ Tap "Show Keys" to reveal your private keys.`;
         .text(currentBps === 1500 ? '> 15%' : '15%', `set_buy_slip:${chain}_${mint}_1500`)
         .text(currentBps === 2000 ? '> 20%' : '20%', `set_buy_slip:${chain}_${mint}_2000`)
         .row()
-        // v3.4.2 FIX: Include chain in back button
-        .text('Back to Token', `token:${chain}_${mint}`);
+        .text('« Back to Token', `token:${chain}_${mint}`);
 
       await ctx.editMessageText(message, {
         parse_mode: 'Markdown',
@@ -2361,50 +2484,102 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Set buy slippage
+    // Set buy slippage - v3.5: Updates chain_settings
     if (data.startsWith('set_buy_slip:')) {
       const parts = data.replace('set_buy_slip:', '').split('_');
       const bps = parseInt(parts[parts.length - 1]);
-      const chain = parts[0];
+      const chain = parts[0] as Chain;
       const mint = parts.slice(1, -1).join('_');
 
-      const { updateManualSettings } = await import('@raptor/shared');
-      await updateManualSettings({ userId: user.id, slippageBps: bps });
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: user.id, chain, buySlippageBps: bps });
 
-      await ctx.answerCallbackQuery({ text: `Slippage set to ${(bps / 100).toFixed(1)}%` });
+      await ctx.answerCallbackQuery({ text: `Buy slippage set to ${(bps / 100).toFixed(1)}%` });
 
       // Return to token panel
-      await handleTradeChainSelected(ctx, chain as Chain, mint);
+      await handleTradeChainSelected(ctx, chain, mint);
       return;
     }
 
-    // Buy panel priority adjustment
+    // Buy panel priority/GWEI adjustment - v3.5: Chain-aware
     if (data.startsWith('buy_priority:')) {
       const parts = data.replace('buy_priority:', '').split('_');
-      const chain = parts[0];
+      const chain = parts[0] as Chain;
       const mint = parts.slice(1).join('_');
+      const isEvm = chain !== 'sol';
 
-      const { getOrCreateManualSettings } = await import('@raptor/shared');
-      const settings = await getOrCreateManualSettings(user.id);
-      const current = settings.default_priority_sol;
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, chain);
 
-      const message =
-        `*BUY PRIORITY*\n\n` +
-        `Current: ${current} SOL\n\n` +
-        `Select priority fee for this trade:`;
+      const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'BASE' : 'ETH';
 
-      const keyboard = new InlineKeyboard()
-        .text(current === 0.00005 ? '> 0.00005' : '0.00005', `set_buy_prio:${chain}_${mint}_0.00005`)
-        .text(current === 0.0001 ? '> 0.0001' : '0.0001', `set_buy_prio:${chain}_${mint}_0.0001`)
-        .row()
-        .text(current === 0.0005 ? '> 0.0005' : '0.0005', `set_buy_prio:${chain}_${mint}_0.0005`)
-        .text(current === 0.001 ? '> 0.001' : '0.001', `set_buy_prio:${chain}_${mint}_0.001`)
-        .row()
-        .text(current === 0.005 ? '> 0.005' : '0.005', `set_buy_prio:${chain}_${mint}_0.005`)
-        .text(current === 0.01 ? '> 0.01' : '0.01', `set_buy_prio:${chain}_${mint}_0.01`)
-        .row()
-        // v3.4 FIX: Include chain in back button to return to correct chain's token panel
-        .text('Back to Token', `token:${chain}_${mint}`);
+      let message: string;
+      let keyboard: InlineKeyboard;
+
+      if (isEvm) {
+        // EVM chains: Show GWEI options
+        const currentGwei = settings.gas_gwei;
+        message =
+          `*GAS PRICE* | ${chainName}\n\n` +
+          `Current: ${currentGwei ?? 'Auto'} GWEI\n\n` +
+          `Select gas price:`;
+
+        // Different gwei presets per chain
+        if (chain === 'bsc') {
+          keyboard = new InlineKeyboard()
+            .text(currentGwei === 3 ? '> 3' : '3', `set_buy_gwei:${chain}_${mint}_3`)
+            .text(currentGwei === 5 ? '> 5' : '5', `set_buy_gwei:${chain}_${mint}_5`)
+            .text(currentGwei === 7 ? '> 7' : '7', `set_buy_gwei:${chain}_${mint}_7`)
+            .row()
+            .text(currentGwei === 10 ? '> 10' : '10', `set_buy_gwei:${chain}_${mint}_10`)
+            .text(currentGwei === 15 ? '> 15' : '15', `set_buy_gwei:${chain}_${mint}_15`)
+            .text(currentGwei === 20 ? '> 20' : '20', `set_buy_gwei:${chain}_${mint}_20`)
+            .row()
+            .text('« Back to Token', `token:${chain}_${mint}`);
+        } else if (chain === 'base') {
+          keyboard = new InlineKeyboard()
+            .text(currentGwei === 0.01 ? '> 0.01' : '0.01', `set_buy_gwei:${chain}_${mint}_0.01`)
+            .text(currentGwei === 0.05 ? '> 0.05' : '0.05', `set_buy_gwei:${chain}_${mint}_0.05`)
+            .text(currentGwei === 0.1 ? '> 0.1' : '0.1', `set_buy_gwei:${chain}_${mint}_0.1`)
+            .row()
+            .text(currentGwei === 0.5 ? '> 0.5' : '0.5', `set_buy_gwei:${chain}_${mint}_0.5`)
+            .text(currentGwei === 1 ? '> 1' : '1', `set_buy_gwei:${chain}_${mint}_1`)
+            .text(currentGwei === 2 ? '> 2' : '2', `set_buy_gwei:${chain}_${mint}_2`)
+            .row()
+            .text('« Back to Token', `token:${chain}_${mint}`);
+        } else {
+          // ETH
+          keyboard = new InlineKeyboard()
+            .text(currentGwei === 10 ? '> 10' : '10', `set_buy_gwei:${chain}_${mint}_10`)
+            .text(currentGwei === 20 ? '> 20' : '20', `set_buy_gwei:${chain}_${mint}_20`)
+            .text(currentGwei === 30 ? '> 30' : '30', `set_buy_gwei:${chain}_${mint}_30`)
+            .row()
+            .text(currentGwei === 50 ? '> 50' : '50', `set_buy_gwei:${chain}_${mint}_50`)
+            .text(currentGwei === 75 ? '> 75' : '75', `set_buy_gwei:${chain}_${mint}_75`)
+            .text(currentGwei === 100 ? '> 100' : '100', `set_buy_gwei:${chain}_${mint}_100`)
+            .row()
+            .text('« Back to Token', `token:${chain}_${mint}`);
+        }
+      } else {
+        // Solana: Show priority fee options
+        const current = settings.priority_sol;
+        message =
+          `*PRIORITY FEE* | SOL\n\n` +
+          `Current: ${current ?? 0.0001} SOL\n\n` +
+          `Select priority fee:`;
+
+        keyboard = new InlineKeyboard()
+          .text(current === 0.00005 ? '> 0.00005' : '0.00005', `set_buy_prio:${chain}_${mint}_0.00005`)
+          .text(current === 0.0001 ? '> 0.0001' : '0.0001', `set_buy_prio:${chain}_${mint}_0.0001`)
+          .row()
+          .text(current === 0.0005 ? '> 0.0005' : '0.0005', `set_buy_prio:${chain}_${mint}_0.0005`)
+          .text(current === 0.001 ? '> 0.001' : '0.001', `set_buy_prio:${chain}_${mint}_0.001`)
+          .row()
+          .text(current === 0.005 ? '> 0.005' : '0.005', `set_buy_prio:${chain}_${mint}_0.005`)
+          .text(current === 0.01 ? '> 0.01' : '0.01', `set_buy_prio:${chain}_${mint}_0.01`)
+          .row()
+          .text('« Back to Token', `token:${chain}_${mint}`);
+      }
 
       await ctx.editMessageText(message, {
         parse_mode: 'Markdown',
@@ -2413,20 +2588,37 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Set buy priority
+    // Set buy GWEI (EVM chains) - v3.5
+    if (data.startsWith('set_buy_gwei:')) {
+      const parts = data.replace('set_buy_gwei:', '').split('_');
+      const gwei = parseFloat(parts[parts.length - 1]);
+      const chain = parts[0] as Chain;
+      const mint = parts.slice(1, -1).join('_');
+
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: user.id, chain, gasGwei: gwei });
+
+      await ctx.answerCallbackQuery({ text: `Gas set to ${gwei} GWEI` });
+
+      // Return to token panel
+      await handleTradeChainSelected(ctx, chain, mint);
+      return;
+    }
+
+    // Set buy priority (Solana) - v3.5: Updates chain_settings
     if (data.startsWith('set_buy_prio:')) {
       const parts = data.replace('set_buy_prio:', '').split('_');
       const priority = parseFloat(parts[parts.length - 1]);
-      const chain = parts[0];
+      const chain = parts[0] as Chain;
       const mint = parts.slice(1, -1).join('_');
 
-      const { updateManualSettings } = await import('@raptor/shared');
-      await updateManualSettings({ userId: user.id, prioritySol: priority });
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: user.id, chain, prioritySol: priority });
 
       await ctx.answerCallbackQuery({ text: `Priority set to ${priority} SOL` });
 
       // Return to token panel
-      await handleTradeChainSelected(ctx, chain as Chain, mint);
+      await handleTradeChainSelected(ctx, chain, mint);
       return;
     }
 
@@ -2566,14 +2758,22 @@ async function handleTradeChainSelected(ctx: MyContext, chain: Chain, address: s
     // Ignore if no monitor exists for this token
   }
 
-  const chainName = chain === 'sol' ? 'Solana' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'Base' : 'Ethereum';
+  const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'BASE' : 'ETH';
   const chainEmoji = chain === 'sol' ? '🟢' : chain === 'bsc' ? '🟡' : chain === 'base' ? '🔵' : '🟣';
   const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+  const isEvm = chain !== 'sol';
 
   // Fetch all data in parallel for speed
-  const { tokenData, goplus, pumpfun } = await import('@raptor/shared');
+  const { tokenData, goplus, pumpfun, getOrCreateChainSettings } = await import('@raptor/shared');
 
   try {
+    // v3.5: Fetch chain settings for slippage/gas display
+    const chainSettings = await getOrCreateChainSettings(user.id, chain);
+    const buySlippage = (chainSettings.buy_slippage_bps / 100).toFixed(1);
+    const gasOrPriority = isEvm
+      ? `${chainSettings.gas_gwei ?? 'Auto'} GWEI`
+      : `${chainSettings.priority_sol ?? 0.0001} SOL`;
+
     // Parallel fetch: DexScreener + GoPlus + PumpFun (if Solana)
     const [tokenInfo, security, pumpInfo] = await Promise.all([
       tokenData.getTokenInfo(address, chain).catch(() => null),
@@ -2589,8 +2789,7 @@ async function handleTradeChainSelected(ctx: MyContext, chain: Chain, address: s
       const progressBar = pumpfun.formatBondingCurveBar(pumpInfo.bondingCurveProgress);
       const links = pumpfun.getPumpFunLinks(address);
 
-      // v3.4 FIX: Standard line format (below heading only)
-      message = `🎰 *${pumpInfo.symbol}* — Pump.fun
+      message = `🎰 *BUY ${pumpInfo.symbol}* | Pump.fun
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 *${pumpInfo.name}*
@@ -2603,59 +2802,92 @@ ${curveStatus.emoji} ${curveStatus.label}
 ${progressBar} ${pumpInfo.bondingCurveProgress.toFixed(1)}%
 💎 ${pumpInfo.realSolReserves.toFixed(2)} / ~85 SOL
 
+*Settings*
+Slippage: ${buySlippage}%
+Priority: ${gasOrPriority}
+
 🔗 [Pump.fun](${links.pumpfun}) • [DexScreener](${links.dexscreener})
 \`${address}\``;
     } else if (tokenInfo) {
-      const priceStr = tokenData.formatPrice(tokenInfo.priceUsd);
       const mcapStr = tokenData.formatLargeNumber(tokenInfo.marketCap);
       const liqStr = tokenData.formatLargeNumber(tokenInfo.liquidity);
       const volStr = tokenData.formatLargeNumber(tokenInfo.volume24h);
-      const changeStr = tokenData.formatPercentage(tokenInfo.priceChange24h);
-      const changeEmoji = (tokenInfo.priceChange24h ?? 0) >= 0 ? '🟢' : '🔴';
 
-      const securityBadge = security
-        ? goplus.getRiskBadge(security)
-        : tokenData.getSecurityBadge(tokenInfo.riskScore);
-
-      let securitySection = `\n*Security:* ${securityBadge.emoji} ${securityBadge.label}`;
-      if (security) {
-        if (security.buyTax > 0 || security.sellTax > 0) {
-          securitySection += `\n💸 Tax: ${security.buyTax.toFixed(1)}%/${security.sellTax.toFixed(1)}%`;
-        }
-        if (security.risks.length > 0) {
-          securitySection += `\n${security.risks.slice(0, 2).join('\n')}`;
-        }
+      // v3.5: Build chain-specific explorer links
+      let explorerLink: string;
+      let explorerName: string;
+      if (chain === 'sol') {
+        explorerLink = `https://solscan.io/token/${address}`;
+        explorerName = 'Solscan';
+      } else if (chain === 'bsc') {
+        explorerLink = `https://bscscan.com/token/${address}`;
+        explorerName = 'BscScan';
+      } else if (chain === 'base') {
+        explorerLink = `https://basescan.org/token/${address}`;
+        explorerName = 'Basescan';
+      } else {
+        explorerLink = `https://etherscan.io/token/${address}`;
+        explorerName = 'Etherscan';
       }
 
       const dexLink = `https://dexscreener.com/${chain === 'sol' ? 'solana' : chain}/${address}`;
+      const dextoolsLink = `https://www.dextools.io/app/en/${chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bnb' : chain}/pair-explorer/${address}`;
+      const birdeyeLink = `https://birdeye.so/token/${address}?chain=${chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bsc' : chain === 'base' ? 'base' : 'ethereum'}`;
 
-      // v3.4 FIX: Standard line format (below heading only)
-      message = `${chainEmoji} *${tokenInfo.symbol}* — ${chainName}
+      // v3.5: Format taxes from GoPlus
+      let taxStr = '0%B / 0%S';
+      if (security && (security.buyTax > 0 || security.sellTax > 0)) {
+        taxStr = `${security.buyTax.toFixed(0)}%B / ${security.sellTax.toFixed(0)}%S`;
+      }
+
+      // v3.5: Build security section for EVM
+      let securitySection = '';
+      if (isEvm && security) {
+        const honeypotStatus = security.isHoneypot ? '⚠️ Risk' : 'Safe ✅';
+        const blacklistStatus = security.isBlacklisted ? '⚠️ Risk' : 'Safe ✅';
+        securitySection = `
+*Security*
+Honeypot: ${honeypotStatus}
+Blacklist: ${blacklistStatus}
+`;
+      } else if (!isEvm) {
+        // Solana security badge
+        const securityBadge = security
+          ? goplus.getRiskBadge(security)
+          : tokenData.getSecurityBadge(tokenInfo.riskScore);
+        securitySection = `\n*Security:* ${securityBadge.emoji} ${securityBadge.label}\n`;
+      }
+
+      // v3.5: Updated panel format
+      message = `${chainEmoji} *BUY ${tokenInfo.symbol}* | ${chainName}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 *${tokenInfo.name}*
+\`${address}\`
 
-💰 *Price:* ${priceStr}
-${changeEmoji} *24h:* ${changeStr}
+📊 *MC:* ${mcapStr}
+💧 *Liquidity:* ${liqStr}
+⚡️ *Volume:* ${volStr}
+💳 *Taxes:* ${taxStr}
 
-📊 *MCap:* ${mcapStr}
-💧 *Liq:* ${liqStr}
-📈 *Vol:* ${volStr}
-${tokenInfo.holders ? `👥 *Holders:* ${tokenInfo.holders.toLocaleString()}` : ''}
+*Settings*
+Slippage: ${buySlippage}%
+${isEvm ? 'Gas' : 'Priority'}: ${gasOrPriority}
 ${securitySection}
-
-🔗 [DexScreener](${dexLink})
-\`${address}\``;
+🔗 [DexScreener](${dexLink}) • [Dextools](${dextoolsLink}) • [Birdeye](${birdeyeLink}) • [${explorerName}](${explorerLink})`;
     } else {
-      // v3.4 FIX: Standard line format (below heading only)
-      message = `${chainEmoji} *TOKEN* — ${chainName}
+      // v3.5: Unknown token panel
+      message = `${chainEmoji} *BUY TOKEN* | ${chainName}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ⚠️ *New/Unlisted Token*
+\`${address}\`
 
 Data not available. Proceed with caution.
 
-\`${address}\``;
+*Settings*
+Slippage: ${buySlippage}%
+${isEvm ? 'Gas' : 'Priority'}: ${gasOrPriority}`;
     }
 
     // Build keyboard with appropriate buy amounts
@@ -2690,11 +2922,11 @@ Data not available. Proceed with caution.
         .text('✏️ X', `buy_${chain}_${address}_custom`);
     }
 
-    // v3.4.2: Add Slippage and Priority buttons to buy panel
+    // v3.5: Add Slippage and GWEI/Priority buttons to buy panel
     keyboard
       .row()
       .text('⚙️ Slippage', `buy_slippage:${chain}_${address}`)
-      .text('⚡ Priority', `buy_priority:${chain}_${address}`)
+      .text(isEvm ? '⛽ GWEI' : '⚡ Priority', `buy_priority:${chain}_${address}`)
       .row()
       .text('🔍 Scan', `analyze_${chain}_${address}`)
       .text('🔄 Refresh', `refresh_${chain}_${address}`)
