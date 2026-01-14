@@ -48,6 +48,7 @@ export interface SessionData {
   };
   awaitingImport?: Chain;
   pendingSellMint?: string;
+  pendingSellChain?: Chain;  // v3.5: Chain for pending sell
   // v3.4: Custom buy amount pending data
   pendingBuy?: {
     chain: Chain;

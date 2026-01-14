@@ -2096,9 +2096,22 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Open sell panel (open_sell:<mint>) - from monitor
+    // Open sell panel (open_sell:<mint> or open_sell:<chain>_<mint>) - from monitor
+    // v3.5: Now supports chain prefix in callback data
     if (data.startsWith('open_sell:')) {
-      const mint = data.replace('open_sell:', '');
+      const payload = data.replace('open_sell:', '');
+      let chain: Chain = 'sol';
+      let mint: string;
+
+      // v3.5: Check if chain is included (new format: chain_mint)
+      if (payload.includes('_') && ['sol', 'eth', 'base', 'bsc'].includes(payload.split('_')[0])) {
+        const parts = payload.split('_');
+        chain = parts[0] as Chain;
+        mint = parts.slice(1).join('_');
+      } else {
+        mint = payload;
+      }
+
       await ctx.answerCallbackQuery({ text: '💰 Opening sell panel...' });
 
       try {
@@ -2108,7 +2121,10 @@ Tap "Show Keys" to reveal your private keys.`;
           ctx.chat!.id,
           ctx.callbackQuery?.message?.message_id || 0,
           mint,
-          solanaExecutor
+          solanaExecutor,
+          undefined,
+          undefined,
+          chain  // v3.5: Pass chain override
         );
       } catch (error) {
         console.error('[Callbacks] Open sell panel error:', error);
@@ -2117,10 +2133,23 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Open sell panel directly from token card (open_sell_direct:<mint>)
+    // Open sell panel directly from token card (open_sell_direct:<mint> or open_sell_direct:<chain>_<mint>)
     // v3.2: Opens sell as a NEW message (doesn't edit token card)
+    // v3.5: Now supports chain prefix in callback data
     if (data.startsWith('open_sell_direct:')) {
-      const mint = data.replace('open_sell_direct:', '');
+      const payload = data.replace('open_sell_direct:', '');
+      let chain: Chain = 'sol';
+      let mint: string;
+
+      // v3.5: Check if chain is included (new format: chain_mint)
+      if (payload.includes('_') && ['sol', 'eth', 'base', 'bsc'].includes(payload.split('_')[0])) {
+        const parts = payload.split('_');
+        chain = parts[0] as Chain;
+        mint = parts.slice(1).join('_');
+      } else {
+        mint = payload;
+      }
+
       await ctx.answerCallbackQuery({ text: '💰 Opening sell panel...' });
 
       try {
@@ -2131,7 +2160,10 @@ Tap "Show Keys" to reveal your private keys.`;
           user.id,
           ctx.chat!.id,
           mint,
-          solanaExecutor
+          solanaExecutor,
+          undefined,
+          undefined,
+          chain  // v3.5: Pass chain
         );
       } catch (error) {
         console.error('[Callbacks] Open sell direct error:', error);
@@ -2165,25 +2197,54 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Sell percentage (sell_pct:<mint>:<percent>)
+    // Sell percentage (sell_pct:<mint>:<percent> or sell_pct:<chain>_<mint>:<percent>)
+    // v3.5: Now supports chain prefix in callback data
     if (data.startsWith('sell_pct:')) {
       const parts = data.replace('sell_pct:', '').split(':');
       if (parts.length === 2) {
-        const [mint, percentStr] = parts;
+        let mintPart = parts[0];
+        const percentStr = parts[1];
         const percent = parseInt(percentStr);
-        await handleSellPctFromMonitor(ctx, mint, percent);
+
+        // v3.5: Extract chain if present (new format: chain_mint)
+        let chain: Chain = 'sol';
+        let mint: string;
+        if (mintPart.includes('_') && ['sol', 'eth', 'base', 'bsc'].includes(mintPart.split('_')[0])) {
+          const mintParts = mintPart.split('_');
+          chain = mintParts[0] as Chain;
+          mint = mintParts.slice(1).join('_');
+        } else {
+          mint = mintPart;
+        }
+
+        await handleSellPctFromMonitor(ctx, mint, percent, chain);
         return;
       }
     }
 
-    // Custom sell amount (sell_custom:<mint>:<type>)
+    // Custom sell amount (sell_custom:<mint>:<type> or sell_custom:<chain>_<mint>:<type>)
+    // v3.5: Now supports chain prefix in callback data
     if (data.startsWith('sell_custom:')) {
       const parts = data.replace('sell_custom:', '').split(':');
       if (parts.length === 2) {
-        const [mint, type] = parts;
+        let mintPart = parts[0];
+        const type = parts[1];
+
+        // v3.5: Extract chain if present (new format: chain_mint)
+        let chain: Chain = 'sol';
+        let mint: string;
+        if (mintPart.includes('_') && ['sol', 'eth', 'base', 'bsc'].includes(mintPart.split('_')[0])) {
+          const mintParts = mintPart.split('_');
+          chain = mintParts[0] as Chain;
+          mint = mintParts.slice(1).join('_');
+        } else {
+          mint = mintPart;
+        }
+
         // Store in session for next message
         ctx.session.step = type === 'tokens' ? 'awaiting_sell_tokens' : 'awaiting_sell_percent';
         ctx.session.pendingSellMint = mint;
+        ctx.session.pendingSellChain = chain;  // v3.5: Store chain in session
         await ctx.answerCallbackQuery();
         await ctx.reply(
           type === 'tokens'
@@ -3879,7 +3940,7 @@ This aligns our incentives with yours.`;
  * Handle sell from trade monitor panel
  * P0-1 FIX: Now uses idempotency via callbackQuery.id to prevent double-sells
  */
-async function handleSellPctFromMonitor(ctx: MyContext, mint: string, percent: number) {
+async function handleSellPctFromMonitor(ctx: MyContext, mint: string, percent: number, chain: Chain = 'sol') {
   const user = ctx.from;
   if (!user) return;
 
@@ -3897,18 +3958,27 @@ async function handleSellPctFromMonitor(ctx: MyContext, mint: string, percent: n
     const { getActivePositions, getUserWallets, loadSolanaKeypair } = await import('@raptor/shared');
     const { idKeyManualSell, reserveTradeBudget, updateExecution, closePositionV31 } = await import('@raptor/shared');
 
-    // Get user's active Solana wallet for balance check
+    // v3.5: Get user's active wallet for the correct chain
     const wallets = await getUserWallets(user.id);
-    const activeWallet = wallets.find(w => w.chain === 'sol' && w.is_active);
+    const activeWallet = wallets.find(w => w.chain === chain && w.is_active);
 
     if (!activeWallet) {
-      await ctx.reply('⚠️ *No Active Wallet*\n\nPlease create a Solana wallet first.', {
+      const chainName = chain === 'sol' ? 'Solana' : chain === 'eth' ? 'Ethereum' : chain === 'base' ? 'Base' : 'BSC';
+      await ctx.reply(`⚠️ *No Active Wallet*\n\nPlease create a ${chainName} wallet first.`, {
         parse_mode: 'Markdown',
       });
       return;
     }
 
-    // Get token balance from USER's wallet (not executor wallet) - P1-1 fix
+    // v3.5: Get token balance from USER's wallet - currently only Solana supported for sell
+    // TODO: Add EVM sell support
+    if (chain !== 'sol') {
+      await ctx.reply('⚠️ *Not Supported*\n\nSelling is currently only supported on Solana.', {
+        parse_mode: 'Markdown',
+      });
+      return;
+    }
+
     const walletAddress = activeWallet.public_key || activeWallet.solana_address;
     const tokensHeld = await solanaExecutor.getTokenBalance(mint, walletAddress);
 
@@ -3921,11 +3991,11 @@ async function handleSellPctFromMonitor(ctx: MyContext, mint: string, percent: n
 
     // Find position for this token (needed for idempotency key)
     const positions = await getActivePositions(user.id);
-    const position = positions.find(p => p.token_address === mint && p.chain === 'sol');
+    const position = positions.find(p => p.token_address === mint && p.chain === chain);
 
     // Generate idempotency key - P0-1 core fix
     const idempotencyKey = idKeyManualSell({
-      chain: 'sol',
+      chain,
       userId: user.id,
       mint,
       positionId: position?.id?.toString() || 'no-position',
@@ -3938,7 +4008,7 @@ async function handleSellPctFromMonitor(ctx: MyContext, mint: string, percent: n
       mode: 'MANUAL',
       userId: user.id,
       strategyId: '00000000-0000-0000-0000-000000000000', // Manual sells use default strategy
-      chain: 'sol',
+      chain,
       action: 'SELL',
       tokenMint: mint,
       amountSol: 0, // SELL doesn't spend SOL
