@@ -2322,7 +2322,10 @@ Tap "Show Keys" to reveal your private keys.`;
         ctx.chat!.id,
         ctx.callbackQuery?.message?.message_id || 0,
         mint,
-        solanaExecutor
+        solanaExecutor,
+        undefined,
+        undefined,
+        chain
       );
       return;
     }

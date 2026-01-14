@@ -217,7 +217,7 @@ export function formatTradeMonitorMessage(
  */
 export function buildTradeMonitorKeyboard(mint: string, monitorId: number, chain: Chain = 'sol'): InlineKeyboard {
   const keyboard = new InlineKeyboard()
-    .text('💰 → Sell', `open_sell:${mint}`)
+    .text('💰 → Sell', `open_sell:${chain}_${mint}`)
     .text('🔄 Refresh', `refresh_monitor:${monitorId}`)
     .row()
     // v3.4 FIX: Include chain for correct DexScreener URL
