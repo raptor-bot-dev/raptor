@@ -457,8 +457,8 @@ export function huntKeyboard(chain: Chain, isEnabled: boolean): InlineKeyboard {
     .row()
     .text('🎯 Launchpads', `hunt_launchpads_${chain}`)
     .row()
-    .text('⚡ Priority Fee', `chain_priority:${chain}`)
-    .text('🎚️ Slippage', `chain_buy_slip:${chain}`)
+    .text('⚡ Priority Fee', `hunt_priority_${chain}`)  // v4.2: Hunt-specific priority
+    .text('🎚️ Slippage', `hunt_slippage_${chain}`)     // v4.2: Hunt-specific slippage
     .row()
     .text('← Back', 'hunt');
 }

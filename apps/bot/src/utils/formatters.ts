@@ -580,6 +580,8 @@ export function formatHuntStatus(huntSettings: {
   minScore: number;
   maxPositionSize?: string;
   launchpads: string[];
+  slippageBps?: number;    // v4.2: Hunt-specific slippage
+  prioritySol?: number;    // v4.2: Hunt-specific priority
 }): string {
   const chain = huntSettings.chain;
   const emoji = CHAIN_EMOJI[chain];
@@ -594,6 +596,12 @@ export function formatHuntStatus(huntSettings: {
     const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
     message += `\n*Max Position:* ${formatCrypto(huntSettings.maxPositionSize, symbol)}`;
   }
+
+  // v4.2: Show hunt-specific slippage and priority
+  const slippagePercent = (huntSettings.slippageBps || 1500) / 100;
+  const priorityFee = huntSettings.prioritySol || 0.001;
+  message += `\n*Slippage:* ${slippagePercent}%`;
+  message += `\n*Priority:* ${priorityFee} SOL`;
 
   if (huntSettings.launchpads.length > 0) {
     message += '\n\n*Active Launchpads:*\n';

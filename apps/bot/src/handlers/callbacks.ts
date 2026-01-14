@@ -76,6 +76,10 @@ import {
   enableAllLaunchpads,
   disableAllLaunchpads,
   showOpportunities,
+  showHuntSlippage,     // v4.2: Hunt-specific slippage
+  setHuntSlippage,      // v4.2: Hunt-specific slippage
+  showHuntPriority,     // v4.2: Hunt-specific priority
+  setHuntPriority,      // v4.2: Hunt-specific priority
 } from '../commands/hunt.js';
 
 // Settings imports
@@ -2206,6 +2210,48 @@ Tap "Show Keys" to reveal your private keys.`;
     if (data.startsWith('hunt_lp_none_')) {
       const chain = data.replace('hunt_lp_none_', '') as Chain;
       await disableAllLaunchpads(ctx, chain);
+      return;
+    }
+
+    // v4.2: Hunt slippage (hunt_slippage_sol)
+    if (data.startsWith('hunt_slippage_')) {
+      const chain = data.replace('hunt_slippage_', '') as Chain;
+      await showHuntSlippage(ctx, chain);
+      return;
+    }
+
+    // v4.2: Set hunt slippage (hunt_slip_set_sol_1500)
+    if (data.startsWith('hunt_slip_set_')) {
+      const rest = data.replace('hunt_slip_set_', '');
+      const underscoreIdx = rest.indexOf('_');
+      if (underscoreIdx > 0) {
+        const chain = rest.substring(0, underscoreIdx) as Chain;
+        const bps = parseInt(rest.substring(underscoreIdx + 1));
+        if (!isNaN(bps)) {
+          await setHuntSlippage(ctx, chain, bps);
+        }
+      }
+      return;
+    }
+
+    // v4.2: Hunt priority (hunt_priority_sol)
+    if (data.startsWith('hunt_priority_')) {
+      const chain = data.replace('hunt_priority_', '') as Chain;
+      await showHuntPriority(ctx, chain);
+      return;
+    }
+
+    // v4.2: Set hunt priority (hunt_prio_set_sol_0.001)
+    if (data.startsWith('hunt_prio_set_')) {
+      const rest = data.replace('hunt_prio_set_', '');
+      const underscoreIdx = rest.indexOf('_');
+      if (underscoreIdx > 0) {
+        const chain = rest.substring(0, underscoreIdx) as Chain;
+        const sol = parseFloat(rest.substring(underscoreIdx + 1));
+        if (!isNaN(sol)) {
+          await setHuntPriority(ctx, chain, sol);
+        }
+      }
       return;
     }
 

@@ -28,10 +28,18 @@ interface HuntSettings {
   minScore: number;
   maxPositionSize?: string;
   launchpads: string[];
+  slippageBps?: number;    // v4.2: Hunt-specific buy slippage (default: 1500 = 15%)
+  prioritySol?: number;    // v4.2: Hunt-specific priority fee (default: 0.001 SOL)
 }
 
 const defaultHuntSettings: Record<Chain, HuntSettings> = {
-  sol: { enabled: false, minScore: 23, launchpads: ['pump.fun', 'moonshot', 'bonk.fun'] },
+  sol: {
+    enabled: false,
+    minScore: 23,
+    launchpads: ['pump.fun', 'moonshot', 'bonk.fun'],
+    slippageBps: 1500,   // v4.2: 15% default for hunt (higher than manual 10%)
+    prioritySol: 0.001,  // v4.2: 0.001 SOL default tip
+  },
 };
 
 // In-memory cache with database persistence
@@ -162,6 +170,8 @@ export async function showChainHunt(ctx: MyContext, chain: Chain) {
     minScore: settings.minScore,
     maxPositionSize: settings.maxPositionSize,
     launchpads: settings.launchpads,
+    slippageBps: settings.slippageBps,      // v4.2: Pass hunt-specific slippage
+    prioritySol: settings.prioritySol,      // v4.2: Pass hunt-specific priority
   });
 
   await ctx.editMessageText(message, {
@@ -426,6 +436,135 @@ export async function disableAllLaunchpads(ctx: MyContext, chain: Chain) {
 
   await ctx.answerCallbackQuery({ text: 'All launchpads disabled' });
   await showLaunchpadSelection(ctx, chain);
+}
+
+/**
+ * Show hunt slippage selection (v4.2)
+ */
+export async function showHuntSlippage(ctx: MyContext, chain: Chain) {
+  const user = ctx.from;
+  if (!user) return;
+
+  const allSettings = await getUserHuntSettingsAsync(user.id);
+  const settings = allSettings[chain];
+  const currentBps = settings.slippageBps || 1500;
+  const currentPercent = currentBps / 100;
+
+  const message = `🎚️ *Hunt Slippage - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}
+
+Current: *${currentPercent}%*
+
+Set slippage tolerance for auto-hunt trades:
+
+_Higher slippage = faster fills but worse prices_
+_Hunt default is higher than manual for speed_`;
+
+  const slippageOptions = [
+    { bps: 1000, label: '10%' },
+    { bps: 1500, label: '15%' },
+    { bps: 2000, label: '20%' },
+    { bps: 2500, label: '25%' },
+    { bps: 3000, label: '30%' },
+  ];
+
+  const keyboard = new InlineKeyboard();
+  for (let i = 0; i < slippageOptions.length; i += 3) {
+    if (i > 0) keyboard.row();
+    for (let j = i; j < Math.min(i + 3, slippageOptions.length); j++) {
+      const opt = slippageOptions[j];
+      const check = currentBps === opt.bps ? ' ✓' : '';
+      keyboard.text(`${opt.label}${check}`, `hunt_slip_set_${chain}_${opt.bps}`);
+    }
+  }
+  keyboard.row().text('← Back', `hunt_chain_${chain}`);
+
+  await ctx.editMessageText(message, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
+
+  await ctx.answerCallbackQuery();
+}
+
+/**
+ * Set hunt slippage (v4.2)
+ */
+export async function setHuntSlippage(ctx: MyContext, chain: Chain, bps: number) {
+  const user = ctx.from;
+  if (!user) return;
+
+  const settings = await getUserHuntSettingsAsync(user.id);
+  settings[chain].slippageBps = bps;
+  await saveUserHuntSettings(user.id, settings);
+
+  await ctx.answerCallbackQuery({ text: `Hunt slippage set to ${bps / 100}%` });
+
+  // Refresh slippage selection view
+  await showHuntSlippage(ctx, chain);
+}
+
+/**
+ * Show hunt priority fee selection (v4.2)
+ */
+export async function showHuntPriority(ctx: MyContext, chain: Chain) {
+  const user = ctx.from;
+  if (!user) return;
+
+  const allSettings = await getUserHuntSettingsAsync(user.id);
+  const settings = allSettings[chain];
+  const currentPriority = settings.prioritySol || 0.001;
+
+  const message = `⚡ *Hunt Priority Fee - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}
+
+Current: *${currentPriority} SOL*
+
+Set priority fee (tip) for auto-hunt trades:
+
+_Higher priority = faster transaction inclusion_
+_Paid to validators for priority processing_`;
+
+  const priorityOptions = [
+    { sol: 0.0005, label: '0.0005' },
+    { sol: 0.001, label: '0.001' },
+    { sol: 0.002, label: '0.002' },
+    { sol: 0.005, label: '0.005' },
+    { sol: 0.01, label: '0.01' },
+  ];
+
+  const keyboard = new InlineKeyboard();
+  for (let i = 0; i < priorityOptions.length; i += 3) {
+    if (i > 0) keyboard.row();
+    for (let j = i; j < Math.min(i + 3, priorityOptions.length); j++) {
+      const opt = priorityOptions[j];
+      const check = currentPriority === opt.sol ? ' ✓' : '';
+      keyboard.text(`${opt.label} SOL${check}`, `hunt_prio_set_${chain}_${opt.sol}`);
+    }
+  }
+  keyboard.row().text('← Back', `hunt_chain_${chain}`);
+
+  await ctx.editMessageText(message, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
+
+  await ctx.answerCallbackQuery();
+}
+
+/**
+ * Set hunt priority fee (v4.2)
+ */
+export async function setHuntPriority(ctx: MyContext, chain: Chain, sol: number) {
+  const user = ctx.from;
+  if (!user) return;
+
+  const settings = await getUserHuntSettingsAsync(user.id);
+  settings[chain].prioritySol = sol;
+  await saveUserHuntSettings(user.id, settings);
+
+  await ctx.answerCallbackQuery({ text: `Hunt priority set to ${sol} SOL` });
+
+  // Refresh priority selection view
+  await showHuntPriority(ctx, chain);
 }
 
 /**
