@@ -91,6 +91,7 @@ import {
   toggleChainEnabled,
   showNotifications,
   toggleNotification,
+  toggleAntiMev,  // v4.2: Anti-MEV toggle
 } from '../commands/settings.js';
 
 // Strategy imports (v2.3 - full custom strategy support)
@@ -855,6 +856,12 @@ Tap "Show Keys" to reveal your private keys.`;
 
     if (data === 'settings_notif') {
       await showNotifications(ctx);
+      return;
+    }
+
+    // v4.2: Anti-MEV toggle
+    if (data === 'settings_antimev') {
+      await toggleAntiMev(ctx);
       return;
     }
 
