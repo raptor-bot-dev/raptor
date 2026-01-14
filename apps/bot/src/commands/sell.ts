@@ -13,9 +13,6 @@ import {
 } from '@raptor/shared';
 
 const CHAIN_SYMBOLS: Record<Chain, string> = {
-  bsc: 'BNB',
-  base: 'ETH',
-  eth: 'ETH',
   sol: 'SOL',
 };
 

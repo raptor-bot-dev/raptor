@@ -12,20 +12,14 @@ import type { Chain, TradingStrategy, TradingMode } from '@raptor/shared';
 // Constants
 // ============================================================================
 
-// Chain emoji mapping (v2.3 uses status colors)
+// Chain emoji mapping (v4.0 Solana-only)
 export const CHAIN_EMOJI: Record<Chain, string> = {
   sol: '🟢',  // Green for Solana
-  bsc: '🟡',  // Yellow for BSC
-  base: '🔵', // Blue for Base
-  eth: '🟣',  // Purple for Ethereum
 };
 
 // Chain name mapping
 export const CHAIN_NAME: Record<Chain, string> = {
   sol: 'Solana',
-  bsc: 'BSC',
-  base: 'Base',
-  eth: 'Ethereum',
 };
 
 // Strategy emoji mapping
@@ -97,25 +91,15 @@ export function backWithActionKeyboard(
 }
 
 /**
- * Chain selection keyboard
+ * Chain selection keyboard (Solana-only build)
  */
-export function chainsKeyboard(callbackPrefix: string, showAll: boolean = true): InlineKeyboard {
-  const kb = new InlineKeyboard()
-    .text(`${CHAIN_EMOJI.sol} Solana`, `${callbackPrefix}_sol`)
-    .text(`${CHAIN_EMOJI.bsc} BSC`, `${callbackPrefix}_bsc`)
-    .row()
-    .text(`${CHAIN_EMOJI.base} Base`, `${callbackPrefix}_base`)
-    .text(`${CHAIN_EMOJI.eth} ETH`, `${callbackPrefix}_eth`);
-
-  if (showAll) {
-    kb.row().text('📋 All Chains', `${callbackPrefix}_all`);
-  }
-
-  return kb;
+export function chainsKeyboard(callbackPrefix: string, _showAll: boolean = true): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(`${CHAIN_EMOJI.sol} Solana`, `${callbackPrefix}_sol`);
 }
 
 /**
- * Chain selection with back button
+ * Chain selection with back button (Solana-only build)
  */
 export function chainsWithBackKeyboard(
   callbackPrefix: string,
@@ -123,10 +107,6 @@ export function chainsWithBackKeyboard(
 ): InlineKeyboard {
   return new InlineKeyboard()
     .text(`${CHAIN_EMOJI.sol} Solana`, `${callbackPrefix}_sol`)
-    .text(`${CHAIN_EMOJI.bsc} BSC`, `${callbackPrefix}_bsc`)
-    .row()
-    .text(`${CHAIN_EMOJI.base} Base`, `${callbackPrefix}_base`)
-    .text(`${CHAIN_EMOJI.eth} ETH`, `${callbackPrefix}_eth`)
     .row()
     .text('← Back', `back_to_${backDestination}`);
 }
@@ -228,15 +208,11 @@ export function portfolioKeyboard(
 }
 
 /**
- * Wallet chain selection keyboard
+ * Wallet chain selection keyboard (Solana-only build)
  */
 export function walletChainKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text(`${CHAIN_EMOJI.sol} Solana`, 'wallet_chain_sol')
-    .text(`${CHAIN_EMOJI.bsc} BSC`, 'wallet_chain_bsc')
-    .row()
-    .text(`${CHAIN_EMOJI.base} Base`, 'wallet_chain_base')
-    .text(`${CHAIN_EMOJI.eth} Ethereum`, 'wallet_chain_eth')
+    .text(`${CHAIN_EMOJI.sol} Create Solana Wallet`, 'wallet_create_sol')
     .row()
     .text('« Back', 'back_to_wallets');
 }
@@ -334,22 +310,15 @@ export function settingsKeyboard(): InlineKeyboard {
 }
 
 /**
- * Chains selection keyboard (v2.3)
+ * Chains selection keyboard (Solana-only build)
  */
 export function chainsSelectionKeyboard(enabledChains: Chain[]): InlineKeyboard {
   const kb = new InlineKeyboard();
-
-  const chains: Chain[] = ['sol', 'bsc', 'base', 'eth'];
-
-  for (const chain of chains) {
-    const isEnabled = enabledChains.includes(chain);
-    const status = isEnabled ? '✓' : '✗';
-    kb.text(`${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]} ${status}`, `toggle_chain_${chain}`);
-    kb.row();
-  }
-
+  const isEnabled = enabledChains.includes('sol');
+  const status = isEnabled ? '✓' : '✗';
+  kb.text(`${CHAIN_EMOJI.sol} ${CHAIN_NAME.sol} ${status}`, 'toggle_chain_sol');
+  kb.row();
   kb.text('« Back', 'back_to_menu');
-
   return kb;
 }
 
@@ -722,15 +691,13 @@ export function percentageSelectKeyboard(
 // ============================================================================
 
 /**
- * Send options keyboard (when user pastes an address)
+ * Send options keyboard (when user pastes an address) - Solana-only
  */
 export function sendOptionsKeyboard(chain: Chain): InlineKeyboard {
-  const nativeToken = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
-
   return new InlineKeyboard()
-    .text(`${CHAIN_EMOJI[chain]} Send ${nativeToken}`, `send_native_${chain}`)
+    .text(`${CHAIN_EMOJI.sol} Send SOL`, `send_native_sol`)
     .row()
-    .text('🪙 Send Token (paste CA)', `send_token_${chain}`)
+    .text('🪙 Send Token (paste CA)', `send_token_sol`)
     .row()
     .text('« Cancel', 'back_to_menu');
 }
@@ -756,28 +723,27 @@ export function amountSelectKeyboard(callbackPrefix: string): InlineKeyboard {
 // ============================================================================
 
 /**
- * Token buy card keyboard
+ * Token buy card keyboard (Solana-only)
  */
 export function tokenBuyKeyboard(
   chain: Chain,
   tokenAddress: string,
   amounts: string[] = ['0.1', '0.5', '1', '5']
 ): InlineKeyboard {
-  const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
   const kb = new InlineKeyboard();
 
   // Amount buttons
   for (let i = 0; i < amounts.length; i += 2) {
-    kb.text(`🛒 ${amounts[i]} ${symbol}`, `buy_${chain}_${tokenAddress}_${amounts[i]}`);
+    kb.text(`🛒 ${amounts[i]} SOL`, `buy_sol_${tokenAddress}_${amounts[i]}`);
     if (i + 1 < amounts.length) {
-      kb.text(`🛒 ${amounts[i + 1]} ${symbol}`, `buy_${chain}_${tokenAddress}_${amounts[i + 1]}`);
+      kb.text(`🛒 ${amounts[i + 1]} SOL`, `buy_sol_${tokenAddress}_${amounts[i + 1]}`);
     }
     kb.row();
   }
 
-  kb.text('🛒 X', `buy_${chain}_${tokenAddress}_custom`);
+  kb.text('🛒 X', `buy_sol_${tokenAddress}_custom`);
   kb.row();
-  kb.text('🔄 Refresh', `refresh_token_${chain}_${tokenAddress}`);
+  kb.text('🔄 Refresh', `refresh_token_sol_${tokenAddress}`);
   kb.row();
   kb.text('« Back', 'back_to_menu');
 

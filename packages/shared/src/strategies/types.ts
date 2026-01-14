@@ -1,15 +1,14 @@
 /**
- * Trading Strategies for RAPTOR v2.2
+ * Trading Strategies for RAPTOR v4.0
+ * Solana-only build
  *
  * Five predefined strategies with different risk/reward profiles:
  *
  * MICRO_SCALP - Quick scalps for high-frequency opportunities
  *   TP: 15%, SL: 8%, Max Hold: 15min
- *   Only on SOL/Base/BSC (blocked on ETH due to gas)
  *
  * STANDARD - Balanced default strategy
  *   TP: 50%, SL: 30%, Max Hold: 4h
- *   Works on all chains
  *
  * MOON_BAG - Take profit but keep exposure
  *   TP: 50%, SL: 30%, Max Hold: 8h
@@ -57,11 +56,11 @@ export const STRATEGY_CONFIGS: Record<TradingStrategy, StrategyConfig> = {
   MICRO_SCALP: {
     name: 'MICRO_SCALP',
     displayName: 'Micro Scalp',
-    description: 'Quick 15% scalps, 15min max. Not for ETH mainnet.',
+    description: 'Quick 15% scalps, 15min max.',
     takeProfitPercent: 15,
     stopLossPercent: 8,
     maxHoldMs: 15 * 60 * 1000, // 15 minutes
-    allowedChains: ['sol', 'base', 'bsc'], // ETH blocked due to high gas
+    allowedChains: ['sol'],
   },
 
   STANDARD: {
@@ -71,7 +70,7 @@ export const STRATEGY_CONFIGS: Record<TradingStrategy, StrategyConfig> = {
     takeProfitPercent: 50,
     stopLossPercent: 30,
     maxHoldMs: 4 * 60 * 60 * 1000, // 4 hours
-    allowedChains: ['sol', 'bsc', 'base', 'eth'],
+    allowedChains: ['sol'],
   },
 
   MOON_BAG: {
@@ -81,7 +80,7 @@ export const STRATEGY_CONFIGS: Record<TradingStrategy, StrategyConfig> = {
     takeProfitPercent: 50,
     stopLossPercent: 30,
     maxHoldMs: 8 * 60 * 60 * 1000, // 8 hours
-    allowedChains: ['sol', 'bsc', 'base', 'eth'],
+    allowedChains: ['sol'],
     moonBagPercent: 25,
   },
 
@@ -92,7 +91,7 @@ export const STRATEGY_CONFIGS: Record<TradingStrategy, StrategyConfig> = {
     takeProfitPercent: 200, // Final exit
     stopLossPercent: 30,
     maxHoldMs: 8 * 60 * 60 * 1000, // 8 hours
-    allowedChains: ['sol', 'bsc', 'base', 'eth'],
+    allowedChains: ['sol'],
     exitLadder: [
       { percent: 25, sellPercent: 25 },
       { percent: 50, sellPercent: 25 },
@@ -108,7 +107,7 @@ export const STRATEGY_CONFIGS: Record<TradingStrategy, StrategyConfig> = {
     takeProfitPercent: 100, // Max cap
     stopLossPercent: 30,
     maxHoldMs: 8 * 60 * 60 * 1000, // 8 hours
-    allowedChains: ['sol', 'bsc', 'base', 'eth'],
+    allowedChains: ['sol'],
     trailingActivationPercent: 30,
     trailingDistancePercent: 20,
   },

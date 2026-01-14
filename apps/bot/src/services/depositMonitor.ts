@@ -7,11 +7,8 @@
  * to prevent reorg attacks and double-deposit exploits.
  */
 
-import { ethers } from 'ethers';
 import {
   Chain,
-  EVMChain,
-  getChainConfig,
   SOLANA_CONFIG,
   updateBalance,
   supabase,
@@ -53,9 +50,6 @@ const POLL_INTERVAL_MS = 15000; // 15 seconds
  */
 const REQUIRED_CONFIRMATIONS: Record<Chain, number> = {
   sol: 32, // ~13 seconds on Solana (fast finality)
-  bsc: 15, // ~45 seconds on BSC
-  base: 12, // ~24 seconds on Base
-  eth: 12, // ~2.4 minutes on Ethereum
 };
 
 /**
@@ -65,22 +59,12 @@ const DEPOSIT_TIMEOUT_MS = 60 * 60 * 1000;
 
 export class DepositMonitor {
   private watchedAddresses: Map<string, WatchedAddress> = new Map();
-  private providers: Map<string, ethers.JsonRpcProvider> = new Map();
   private pendingDeposits: Map<string, PendingDeposit> = new Map();
   private running: boolean = false;
   private pollIntervalId: NodeJS.Timeout | null = null;
 
   constructor() {
-    // Initialize providers for each EVM chain
-    const evmChains: EVMChain[] = ['bsc', 'base', 'eth'];
-    for (const chain of evmChains) {
-      try {
-        const config = getChainConfig(chain);
-        this.providers.set(chain, new ethers.JsonRpcProvider(config.rpcUrl));
-      } catch (error) {
-        logger.warn(`Could not initialize ${chain} provider`, { chain });
-      }
-    }
+    // Solana-only build - no EVM providers needed
   }
 
   /**
@@ -349,10 +333,8 @@ export class DepositMonitor {
    * Get confirmation count for a pending deposit
    */
   private async getConfirmations(deposit: PendingDeposit): Promise<number> {
-    if (deposit.chain === 'sol') {
-      return this.getSolanaConfirmations(deposit);
-    }
-    return this.getEvmConfirmations(deposit);
+    // Solana-only build
+    return this.getSolanaConfirmations(deposit);
   }
 
   /**
@@ -388,66 +370,27 @@ export class DepositMonitor {
   }
 
   /**
-   * Get EVM block confirmations
-   */
-  private async getEvmConfirmations(deposit: PendingDeposit): Promise<number> {
-    const provider = this.providers.get(deposit.chain);
-    if (!provider) return 0;
-
-    try {
-      const currentBlock = await provider.getBlockNumber();
-
-      // If we don't have a block yet, get current and use as baseline
-      if (!deposit.blockNumber) {
-        deposit.blockNumber = currentBlock;
-        return 0;
-      }
-
-      return Math.max(0, currentBlock - deposit.blockNumber);
-    } catch (error) {
-      logger.error('Error getting EVM confirmations', error, { chain: deposit.chain });
-      return 0;
-    }
-  }
-
-  /**
    * Get native token symbol for chain
    */
-  private getChainSymbol(chain: Chain): string {
-    switch (chain) {
-      case 'sol':
-        return 'SOL';
-      case 'bsc':
-        return 'BNB';
-      default:
-        return 'ETH';
-    }
+  private getChainSymbol(_chain: Chain): string {
+    // Solana-only build
+    return 'SOL';
   }
 
   /**
    * Format amount for display
    */
-  private formatAmount(chain: Chain, amountWei: bigint): string {
-    if (chain === 'sol') {
-      return (Number(amountWei) / 1e9).toFixed(6);
-    }
-    return ethers.formatEther(amountWei);
+  private formatAmount(_chain: Chain, amountWei: bigint): string {
+    // Solana-only build - amount is in lamports (1 SOL = 1e9 lamports)
+    return (Number(amountWei) / 1e9).toFixed(6);
   }
 
   /**
    * Get balance for an address on a chain
    */
-  private async getBalance(chain: Chain, address: string): Promise<bigint> {
-    if (chain === 'sol') {
-      return this.getSolanaBalance(address);
-    }
-
-    const provider = this.providers.get(chain);
-    if (!provider) {
-      throw new Error(`No provider for chain ${chain}`);
-    }
-
-    return provider.getBalance(address);
+  private async getBalance(_chain: Chain, address: string): Promise<bigint> {
+    // Solana-only build
+    return this.getSolanaBalance(address);
   }
 
   /**

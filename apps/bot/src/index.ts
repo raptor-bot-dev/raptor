@@ -52,8 +52,8 @@ if (!process.env.TELEGRAM_BOT_TOKEN) {
 
 // Build info for debugging production deployments
 console.log('==================================================');
-console.log('RAPTOR Bot Startup');
-console.log(`  Version:  ${process.env.npm_package_version || '3.1.0'}`);
+console.log('RAPTOR Bot - Solana-only build');
+console.log(`  Version:  ${process.env.npm_package_version || '3.5.0'}`);
 console.log(`  Commit:   ${process.env.GIT_COMMIT || process.env.FLY_IMAGE_REF || 'unknown'}`);
 console.log(`  Env:      ${process.env.NODE_ENV || 'development'}`);
 console.log(`  Region:   ${process.env.FLY_REGION || 'local'}`);

@@ -15,11 +15,9 @@ import type { Chain } from '../types.js';
 const GOPLUS_API = 'https://api.gopluslabs.io/api/v1';
 
 // Chain IDs for GoPlus
+// v4.0: Solana-only build
 const CHAIN_IDS: Record<Chain, string> = {
   sol: 'solana',
-  bsc: '56',
-  base: '8453',
-  eth: '1',
 };
 
 // Cache for security results

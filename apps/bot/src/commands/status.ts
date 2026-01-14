@@ -16,8 +16,9 @@ export async function statusCommand(ctx: MyContext) {
 
     let balanceText = '';
     for (const balance of balances) {
-      const token = balance.chain === 'bsc' ? 'BNB' : 'ETH';
-      const chainEmoji = balance.chain === 'bsc' ? '🟡' : '🔵';
+      // Solana-only build
+      const token = 'SOL';
+      const chainEmoji = '🟢';
       balanceText += `${chainEmoji} ${parseFloat(balance.current_value).toFixed(4)} ${token}\n`;
     }
 

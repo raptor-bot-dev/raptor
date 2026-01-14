@@ -1120,16 +1120,6 @@ export async function createUserWallet(wallet: {
     private_key_encrypted: wallet.solana_private_key_encrypted,
   });
 
-  // Create EVM wallets for all EVM chains using the same address/key
-  for (const chain of ['bsc', 'base', 'eth'] as Chain[]) {
-    await createWallet({
-      tg_id: wallet.tg_id,
-      chain,
-      address: wallet.evm_address,
-      private_key_encrypted: wallet.evm_private_key_encrypted,
-    });
-  }
-
   return solWallet;
 }
 
@@ -1140,7 +1130,6 @@ export async function getOrCreateUserWallet(
   tgId: number,
   createKeypairs: () => {
     solana: { publicKey: string; privateKeyEncrypted: Record<string, unknown> };
-    evm: { publicKey: string; privateKeyEncrypted: Record<string, unknown> };
   }
 ): Promise<{ wallet: UserWallet; isNew: boolean }> {
   // Check for existing wallets
@@ -1160,16 +1149,6 @@ export async function getOrCreateUserWallet(
     address: keypairs.solana.publicKey,
     private_key_encrypted: keypairs.solana.privateKeyEncrypted,
   });
-
-  // Create EVM wallets for all chains
-  for (const chain of ['bsc', 'base', 'eth'] as Chain[]) {
-    await createWallet({
-      tg_id: tgId,
-      chain,
-      address: keypairs.evm.publicKey,
-      private_key_encrypted: keypairs.evm.privateKeyEncrypted,
-    });
-  }
 
   return { wallet: solWallet, isNew: true };
 }

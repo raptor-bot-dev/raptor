@@ -110,28 +110,17 @@ function isValidAddress(address: string): boolean {
 }
 
 /**
- * Detect chain from address format - with auto-detection for EVM
+ * Detect chain from address format - Solana-only build
  */
-async function detectChainAsync(address: string): Promise<Chain> {
-  if (!address.startsWith('0x')) {
-    return 'sol';
-  }
-
-  // For EVM addresses, try to detect the chain
-  const { chainDetector } = await import('@raptor/shared');
-  const result = await chainDetector.detectChain(address);
-
-  // Return first detected chain, or default to ETH
-  return result.primaryChain || 'eth';
+async function detectChainAsync(_address: string): Promise<Chain> {
+  // Solana-only build
+  return 'sol';
 }
 
 /**
- * Detect chain from address format (sync version)
+ * Detect chain from address format (sync version) - Solana-only
  */
-function detectChain(address: string): Chain {
-  if (address.startsWith('0x')) {
-    return 'eth'; // Default, will be overridden by async detection
-  }
+function detectChain(_address: string): Chain {
   return 'sol';
 }
 

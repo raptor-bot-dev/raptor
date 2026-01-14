@@ -18,26 +18,15 @@ import { snipeConfirmKeyboard, backKeyboard, CHAIN_EMOJI, CHAIN_NAME } from '../
 import { formatAddress } from '../utils/formatters.js';
 
 const CHAIN_NAMES: Record<string, Chain> = {
-  bsc: 'bsc',
-  bnb: 'bsc',
-  base: 'base',
-  eth: 'eth',
-  ethereum: 'eth',
   sol: 'sol',
   solana: 'sol',
 };
 
 const CHAIN_SYMBOLS: Record<Chain, string> = {
-  bsc: 'BNB',
-  base: 'ETH',
-  eth: 'ETH',
   sol: 'SOL',
 };
 
 const MIN_AMOUNTS: Record<Chain, number> = {
-  bsc: 0.05,
-  base: 0.01,
-  eth: 0.05,
   sol: 0.1,
 };
 
@@ -336,15 +325,11 @@ async function showSnipeHelp(ctx: MyContext) {
   await ctx.reply(
     '🎯 *Manual Snipe*\n\n' +
     'Snipe a token with full analysis.\n\n' +
-    '*Usage:* `/snipe <contract> <amount> <chain>`\n\n' +
+    '*Usage:* `/snipe <contract> <amount> sol`\n\n' +
     '*Examples:*\n' +
-    '`/snipe 0x1234...abcd 0.5 bsc`\n' +
     '`/snipe 6EF8...xyz 1.0 sol`\n\n' +
     '*Supported chains:*\n' +
-    `${CHAIN_EMOJI.sol} sol - Solana\n` +
-    `${CHAIN_EMOJI.bsc} bsc - BNB Smart Chain\n` +
-    `${CHAIN_EMOJI.base} base - Base\n` +
-    `${CHAIN_EMOJI.eth} eth - Ethereum\n\n` +
+    `${CHAIN_EMOJI.sol} sol - Solana\n\n` +
     '*Process:*\n' +
     '1. Token is analyzed (FULL check)\n' +
     '2. Score and risks are shown\n' +

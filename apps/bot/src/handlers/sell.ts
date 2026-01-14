@@ -40,9 +40,6 @@ import { escapeMarkdown } from '../utils/formatters.js';
 const logger = createLogger('ManualSell');
 
 const CHAIN_SYMBOLS: Record<Chain, string> = {
-  bsc: 'BNB',
-  base: 'ETH',
-  eth: 'ETH',
   sol: 'SOL',
 };
 

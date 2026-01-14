@@ -1,8 +1,9 @@
 /**
- * Wallet Command - Full wallet management for RAPTOR v2.3
+ * Wallet Command - Full wallet management for RAPTOR v4.0
+ * Solana-only build
  *
  * Provides:
- * - Multi-wallet support (up to 5 wallets per chain)
+ * - Multi-wallet support (up to 5 wallets)
  * - Wallet generation with auto-delete credentials (2 minutes)
  * - Deposit/Withdrawal flows
  * - Wallet deletion with confirmation
@@ -20,16 +21,12 @@ import {
   setActiveWallet,
   getWalletCount,
   generateSolanaKeypair,
-  generateEvmKeypair,
   importSolanaKeypair,
-  importEvmKeypair,
   decryptPrivateKey,
   markWalletBackupExported,
   SOLANA_CONFIG,
-  getChainConfig,
 } from '@raptor/shared';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { JsonRpcProvider, formatEther } from 'ethers';
 import {
   walletKeyboard,
   portfolioKeyboard,
@@ -57,36 +54,24 @@ const pendingDeletions = new Map<number, { chain: Chain; walletIndex: number }>(
 const autoDeleteTimeouts = new Map<string, NodeJS.Timeout>();
 
 /**
- * Fetch live balances for wallets from chain RPCs
+ * Fetch live balances for wallets from Solana RPC
  */
 async function fetchWalletBalances(
   wallets: UserWallet[]
 ): Promise<Map<string, { balance: number; usdValue: number }>> {
   const balances = new Map<string, { balance: number; usdValue: number }>();
+  const connection = new Connection(SOLANA_CONFIG.rpcUrl);
 
   for (const wallet of wallets) {
     const key = `${wallet.chain}_${wallet.wallet_index}`;
-    const address = wallet.chain === 'sol' ? wallet.solana_address : wallet.evm_address;
+    const address = wallet.solana_address;
 
     try {
-      let balance: bigint;
-
-      if (wallet.chain === 'sol') {
-        // Solana: Get SOL balance
-        const connection = new Connection(SOLANA_CONFIG.rpcUrl);
-        balance = BigInt(
-          await connection.getBalance(new PublicKey(address), 'finalized')
-        );
-        const sol = Number(balance) / LAMPORTS_PER_SOL;
-        balances.set(key, { balance: sol, usdValue: 0 });
-      } else {
-        // EVM: Get native token balance (ETH/BNB)
-        const config = getChainConfig(wallet.chain);
-        const provider = new JsonRpcProvider(config.rpcUrl);
-        balance = await provider.getBalance(address);
-        const eth = Number(formatEther(balance));
-        balances.set(key, { balance: eth, usdValue: 0 });
-      }
+      const balance = BigInt(
+        await connection.getBalance(new PublicKey(address), 'finalized')
+      );
+      const sol = Number(balance) / LAMPORTS_PER_SOL;
+      balances.set(key, { balance: sol, usdValue: 0 });
     } catch (error) {
       console.error(`[Wallet] Failed to fetch balance for ${key}:`, error);
       balances.set(key, { balance: 0, usdValue: 0 });
@@ -206,14 +191,14 @@ Select a wallet to manage:`;
 }
 
 /**
- * Show chain selection for wallet creation
+ * Show chain selection for wallet creation (Solana only)
  */
 export async function showWalletCreate(ctx: MyContext) {
   const message = `➕ *CREATE WALLET*
 ${LINE}
 
-Select a chain to create a new wallet.
-You can have up to 5 wallets per chain.`;
+Create a new Solana wallet.
+You can have up to 5 wallets.`;
 
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',
@@ -224,31 +209,39 @@ You can have up to 5 wallets per chain.`;
 }
 
 /**
- * Create a new wallet for a chain
+ * Create a new Solana wallet
  */
 export async function createNewWallet(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only build
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({
+      text: 'This build is Solana-only',
+      show_alert: true,
+    });
+    return;
+  }
+
   try {
     // Check wallet count
-    const count = await getWalletCount(user.id, chain);
+    const count = await getWalletCount(user.id, 'sol');
     if (count >= 5) {
       await ctx.answerCallbackQuery({
-        text: `Maximum 5 wallets reached for ${CHAIN_NAME[chain]}`,
+        text: 'Maximum 5 wallets reached',
         show_alert: true,
       });
       return;
     }
 
-    // Generate keypair based on chain type
-    const isSolana = chain === 'sol';
-    const keypair = isSolana ? generateSolanaKeypair() : generateEvmKeypair();
+    // Generate Solana keypair
+    const keypair = generateSolanaKeypair();
 
     // Create wallet in database
     const wallet = await createWallet({
       tg_id: user.id,
-      chain,
+      chain: 'sol',
       address: keypair.publicKey,
       private_key_encrypted: keypair.privateKeyEncrypted,
     });
@@ -258,7 +251,7 @@ export async function createNewWallet(ctx: MyContext, chain: Chain) {
 
     // Show credentials
     const message = formatWalletCredentials(
-      chain,
+      'sol',
       keypair.publicKey,
       privateKey,
       wallet.wallet_index
@@ -268,13 +261,13 @@ export async function createNewWallet(ctx: MyContext, chain: Chain) {
     const credentialsMsg = await ctx.reply(message, {
       parse_mode: 'Markdown',
       reply_markup: new InlineKeyboard()
-        .text('✅ I Saved It', `wallet_saved_${chain}_${wallet.wallet_index}`)
+        .text('✅ I Saved It', `wallet_saved_sol_${wallet.wallet_index}`)
         .row()
         .text('📋 Copy Address', `copy_${keypair.publicKey}`),
     });
 
     // Schedule auto-delete after 2 minutes
-    const timeoutKey = `${user.id}_${chain}_${wallet.wallet_index}`;
+    const timeoutKey = `${user.id}_sol_${wallet.wallet_index}`;
     const existingTimeout = autoDeleteTimeouts.get(timeoutKey);
     if (existingTimeout) {
       clearTimeout(existingTimeout);
@@ -293,12 +286,12 @@ export async function createNewWallet(ctx: MyContext, chain: Chain) {
 
     // Update original message
     // v3.4 (F1): Use cleaner wallet naming with chain icon
-    const walletDisplayName = formatWalletName(wallet.wallet_index, null, chain, true);
+    const walletDisplayName = formatWalletName(wallet.wallet_index, null, 'sol', true);
     await ctx.editMessageText(
       `✅ *WALLET CREATED*
 ${LINE}
 
-${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - ${walletDisplayName}
+${CHAIN_EMOJI.sol} *Solana* - ${walletDisplayName}
 
 Your new wallet has been created.
 Credentials shown in the message above.
@@ -319,7 +312,7 @@ Make sure to save your private key!`,
     // v3.4.1: Better error handling with specific messages
     let userMessage = 'Error creating wallet. Please try again.';
     if (errorMsg.includes('Maximum 5 wallets') || errorMsg.includes('maximum')) {
-      userMessage = 'Maximum 5 wallets reached for this chain.';
+      userMessage = 'Maximum 5 wallets reached.';
     } else if (errorMsg.includes('duplicate') || errorMsg.includes('unique')) {
       userMessage = 'Wallet already exists. Try refreshing.';
     } else if (errorMsg.includes('connection') || errorMsg.includes('timeout')) {
@@ -336,14 +329,14 @@ Make sure to save your private key!`,
 }
 
 /**
- * Show chain selection for wallet import
+ * Show wallet import screen (Solana only)
  */
 export async function showWalletImport(ctx: MyContext) {
   const message = `${LINE}
 📥 *IMPORT WALLET*
 ${LINE}
 
-Select a chain to import an existing wallet.
+Import an existing Solana wallet.
 You'll need to provide your private key.
 
 ⚠️ *SECURITY WARNING:*
@@ -356,11 +349,7 @@ ${LINE}`;
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',
     reply_markup: new InlineKeyboard()
-      .text(`${CHAIN_EMOJI.sol} Solana`, 'wallet_import_sol')
-      .text(`${CHAIN_EMOJI.bsc} BSC`, 'wallet_import_bsc')
-      .row()
-      .text(`${CHAIN_EMOJI.base} Base`, 'wallet_import_base')
-      .text(`${CHAIN_EMOJI.eth} Ethereum`, 'wallet_import_eth')
+      .text(`${CHAIN_EMOJI.sol} Import Solana`, 'wallet_import_sol')
       .row()
       .text('« Back', 'wallets'),
   });
@@ -369,36 +358,41 @@ ${LINE}`;
 }
 
 /**
- * Start import flow for a specific chain
+ * Start import flow for Solana
  */
 export async function startWalletImport(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only build
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({
+      text: 'This build is Solana-only',
+      show_alert: true,
+    });
+    return;
+  }
+
   try {
     // Check wallet count
-    const count = await getWalletCount(user.id, chain);
+    const count = await getWalletCount(user.id, 'sol');
     if (count >= 5) {
       await ctx.answerCallbackQuery({
-        text: `Maximum 5 wallets reached for ${CHAIN_NAME[chain]}`,
+        text: 'Maximum 5 wallets reached',
         show_alert: true,
       });
       return;
     }
 
-    const isSolana = chain === 'sol';
-    const keyFormat = isSolana ? 'base58' : 'hex (with or without 0x prefix)';
-    const example = isSolana ? '5Kj...abc123' : '0x1234...abcd';
-
     await ctx.editMessageText(
       `${LINE}
-📥 *IMPORT ${CHAIN_NAME[chain].toUpperCase()} WALLET*
+📥 *IMPORT SOLANA WALLET*
 ${LINE}
 
 Send your private key in the next message.
 
-*Format:* ${keyFormat}
-*Example:* \`${example}\`
+*Format:* base58
+*Example:* \`5Kj...abc123\`
 
 ⚠️ *SECURITY:*
 • Your message will be deleted immediately
@@ -421,7 +415,7 @@ ${LINE}`,
         pendingWithdrawal: null,
       };
     }
-    ctx.session.awaitingImport = chain;
+    ctx.session.awaitingImport = 'sol';
 
     await ctx.answerCallbackQuery();
   } catch (error) {
@@ -446,10 +440,10 @@ export async function handleWalletSaved(
 
   try {
     // Mark backup as exported
-    await markWalletBackupExported(user.id, chain, walletIndex);
+    await markWalletBackupExported(user.id, 'sol', walletIndex);
 
     // Clear auto-delete timeout
-    const timeoutKey = `${user.id}_${chain}_${walletIndex}`;
+    const timeoutKey = `${user.id}_sol_${walletIndex}`;
     const timeout = autoDeleteTimeouts.get(timeoutKey);
     if (timeout) {
       clearTimeout(timeout);
@@ -468,17 +462,23 @@ export async function handleWalletSaved(
 }
 
 /**
- * Show wallets for a specific chain
+ * Show wallets for Solana
  */
 export async function showChainWallets(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   try {
-    const wallets = await getUserWalletsForChain(user.id, chain);
+    const wallets = await getUserWalletsForChain(user.id, 'sol');
 
     // v3.4.1: Fix line formatting - lines only below headings
-    const message = `${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]} Wallets*
+    const message = `${CHAIN_EMOJI.sol} *Solana Wallets*
 ${LINE}
 
 ${wallets.length === 0 ? 'No wallets yet. Create one below.' : `You have ${wallets.length}/5 wallets.`}`;
@@ -492,7 +492,7 @@ ${wallets.length === 0 ? 'No wallets yet. Create one below.' : `You have ${walle
 
     await ctx.editMessageText(message, {
       parse_mode: 'Markdown',
-      reply_markup: walletListKeyboard(chain, walletList),
+      reply_markup: walletListKeyboard('sol', walletList),
     });
 
     await ctx.answerCallbackQuery();
@@ -513,47 +513,45 @@ export async function showWalletDetails(
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   try {
-    const wallet = await getWalletByIndex(user.id, chain, walletIndex);
+    const wallet = await getWalletByIndex(user.id, 'sol', walletIndex);
     if (!wallet) {
       await ctx.answerCallbackQuery({ text: 'Wallet not found' });
       return;
     }
 
-    const address = chain === 'sol' ? wallet.solana_address : wallet.evm_address;
+    const address = wallet.solana_address;
     const activeStatus = wallet.is_active ? '✓ Active' : '';
-    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
 
     // Fetch live balance
     let balance = 0;
     try {
-      if (chain === 'sol') {
-        const connection = new Connection(SOLANA_CONFIG.rpcUrl);
-        const balanceLamports = await connection.getBalance(new PublicKey(address), 'finalized');
-        balance = balanceLamports / LAMPORTS_PER_SOL;
-      } else {
-        const config = getChainConfig(chain);
-        const provider = new JsonRpcProvider(config.rpcUrl);
-        const balanceWei = await provider.getBalance(address);
-        balance = Number(formatEther(balanceWei));
-      }
+      const connection = new Connection(SOLANA_CONFIG.rpcUrl);
+      const balanceLamports = await connection.getBalance(new PublicKey(address), 'finalized');
+      balance = balanceLamports / LAMPORTS_PER_SOL;
     } catch (error) {
       console.error('[Wallet] Error fetching balance for details:', error);
     }
 
     // v3.4.1: Fix line formatting - lines only below headings, use formatWalletName()
-    const message = `${CHAIN_EMOJI[chain]} *${formatWalletName(walletIndex, wallet.wallet_label, chain)}* ${activeStatus}
+    const message = `${CHAIN_EMOJI.sol} *${formatWalletName(walletIndex, wallet.wallet_label, 'sol')}* ${activeStatus}
 ${LINE}
 
-*Chain:* ${CHAIN_NAME[chain]}
+*Chain:* Solana
 *Address:*
 \`${address}\`
 
-*Balance:* ${balance.toFixed(4)} ${symbol}`;
+*Balance:* ${balance.toFixed(4)} SOL`;
 
     await ctx.editMessageText(message, {
       parse_mode: 'Markdown',
-      reply_markup: walletActionsKeyboard(chain, walletIndex),
+      reply_markup: walletActionsKeyboard('sol', walletIndex),
     });
 
     await ctx.answerCallbackQuery();
@@ -574,31 +572,34 @@ export async function exportWalletKey(
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   try {
-    const wallet = await getWalletByIndex(user.id, chain, walletIndex);
+    const wallet = await getWalletByIndex(user.id, 'sol', walletIndex);
     if (!wallet) {
       await ctx.answerCallbackQuery({ text: 'Wallet not found' });
       return;
     }
 
     // Decrypt private key
-    const isSolana = chain === 'sol';
-    const encryptedKey = isSolana
-      ? wallet.solana_private_key_encrypted
-      : wallet.evm_private_key_encrypted;
-    const address = isSolana ? wallet.solana_address : wallet.evm_address;
+    const encryptedKey = wallet.solana_private_key_encrypted;
+    const address = wallet.solana_address;
     const privateKey = decryptPrivateKey(encryptedKey as EncryptedData);
 
     // Show credentials in new message
-    const message = formatWalletCredentials(chain, address, privateKey, walletIndex);
+    const message = formatWalletCredentials('sol', address, privateKey, walletIndex);
 
     const credentialsMsg = await ctx.reply(message, {
       parse_mode: 'Markdown',
-      reply_markup: new InlineKeyboard().text('✅ I Saved It', `wallet_saved_${chain}_${walletIndex}`),
+      reply_markup: new InlineKeyboard().text('✅ I Saved It', `wallet_saved_sol_${walletIndex}`),
     });
 
     // Schedule auto-delete
-    const timeoutKey = `${user.id}_${chain}_${walletIndex}_export`;
+    const timeoutKey = `${user.id}_sol_${walletIndex}_export`;
 
     const timeout = setTimeout(async () => {
       try {
@@ -635,15 +636,21 @@ export async function activateWallet(
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   try {
-    await setActiveWallet(user.id, chain, walletIndex);
+    await setActiveWallet(user.id, 'sol', walletIndex);
 
     await ctx.answerCallbackQuery({
       text: `Wallet #${walletIndex} is now active`,
     });
 
     // Refresh wallet details
-    await showWalletDetails(ctx, chain, walletIndex);
+    await showWalletDetails(ctx, 'sol', walletIndex);
   } catch (error) {
     console.error('[Wallet] Error activating wallet:', error);
     await ctx.answerCallbackQuery({ text: 'Error activating wallet' });
@@ -661,39 +668,45 @@ export async function startDeleteWallet(
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   try {
-    const wallet = await getWalletByIndex(user.id, chain, walletIndex);
+    const wallet = await getWalletByIndex(user.id, 'sol', walletIndex);
     if (!wallet) {
       await ctx.answerCallbackQuery({ text: 'Wallet not found' });
       return;
     }
 
-    // Check if this is the only wallet on the chain
-    const count = await getWalletCount(user.id, chain);
+    // Check if this is the only wallet
+    const count = await getWalletCount(user.id, 'sol');
     if (count <= 1) {
       await ctx.answerCallbackQuery({
-        text: 'Cannot delete the only wallet on this chain',
+        text: 'Cannot delete the only wallet',
         show_alert: true,
       });
       return;
     }
 
     // Store pending deletion
-    pendingDeletions.set(user.id, { chain, walletIndex });
+    pendingDeletions.set(user.id, { chain: 'sol', walletIndex });
 
     // Set session step
     ctx.session.step = 'awaiting_delete_confirmation';
 
     // v3.4.1: Use formatWalletName() for consistent naming
     const message = formatDeleteWalletWarning(
-      chain,
+      'sol',
       walletIndex,
-      formatWalletName(walletIndex, wallet.wallet_label, chain)
+      formatWalletName(walletIndex, wallet.wallet_label, 'sol')
     );
 
     await ctx.editMessageText(message, {
       parse_mode: 'Markdown',
-      reply_markup: new InlineKeyboard().text('❌ Cancel', `wallet_chain_${chain}`),
+      reply_markup: new InlineKeyboard().text('❌ Cancel', 'wallet_chain_sol'),
     });
 
     await ctx.answerCallbackQuery();
@@ -716,17 +729,17 @@ export async function confirmDeleteWallet(ctx: MyContext) {
     return;
   }
 
-  const { chain, walletIndex } = pendingDelete;
+  const { walletIndex } = pendingDelete;
 
   try {
-    await deleteWalletFromDb(user.id, chain, walletIndex);
+    await deleteWalletFromDb(user.id, 'sol', walletIndex);
 
     // Clear pending deletion
     pendingDeletions.delete(user.id);
     ctx.session.step = null;
 
     await ctx.reply(
-      `✅ Wallet #${walletIndex} on ${CHAIN_NAME[chain]} has been deleted.`,
+      `✅ Wallet #${walletIndex} on Solana has been deleted.`,
       {
         reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),
       }
@@ -755,35 +768,34 @@ export async function showWalletDeposit(
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   try {
-    const wallet = await getWalletByIndex(user.id, chain, walletIndex);
+    const wallet = await getWalletByIndex(user.id, 'sol', walletIndex);
     if (!wallet) {
       await ctx.answerCallbackQuery({ text: 'Wallet not found' });
       return;
     }
 
-    const address = chain === 'sol' ? wallet.solana_address : wallet.evm_address;
-    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
-    const minDeposit =
-      chain === 'sol'
-        ? '0.05 SOL'
-        : chain === 'bsc'
-          ? '0.01 BNB'
-          : '0.01 ETH';
+    const address = wallet.solana_address;
 
     // v3.4.1: Fix line formatting - lines only below headings
     const message = `📥 *DEPOSIT*
 ${LINE}
 
-${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - ${formatWalletName(walletIndex, wallet.wallet_label, chain)}
+${CHAIN_EMOJI.sol} *Solana* - ${formatWalletName(walletIndex, wallet.wallet_label, 'sol')}
 
-Send *${symbol}* to this address:
+Send *SOL* to this address:
 
 \`${address}\`
 
-*Minimum:* ${minDeposit}
+*Minimum:* 0.05 SOL
 
-⚠️ Only send ${symbol} on ${CHAIN_NAME[chain]} network.
+⚠️ Only send SOL on Solana network.
 Sending other tokens may result in loss.`;
 
     await ctx.editMessageText(message, {
@@ -791,9 +803,9 @@ Sending other tokens may result in loss.`;
       reply_markup: new InlineKeyboard()
         .text('📋 Copy Address', `copy_${address}`)
         .row()
-        .text('🔄 Check Balance', `wallet_select_${chain}_${walletIndex}`)
+        .text('🔄 Check Balance', `wallet_select_sol_${walletIndex}`)
         .row()
-        .text('« Back', `wallet_select_${chain}_${walletIndex}`),
+        .text('« Back', `wallet_select_sol_${walletIndex}`),
     });
 
     await ctx.answerCallbackQuery();
@@ -814,41 +826,38 @@ export async function startWithdrawal(
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   try {
-    const wallet = await getWalletByIndex(user.id, chain, walletIndex);
+    const wallet = await getWalletByIndex(user.id, 'sol', walletIndex);
     if (!wallet) {
       await ctx.answerCallbackQuery({ text: 'Wallet not found' });
       return;
     }
 
     // Fetch current balance
-    const address = chain === 'sol' ? wallet.solana_address : wallet.evm_address;
+    const address = wallet.solana_address;
     let balance = 0;
 
     try {
-      if (chain === 'sol') {
-        const connection = new Connection(SOLANA_CONFIG.rpcUrl);
-        const balanceLamports = await connection.getBalance(new PublicKey(address), 'finalized');
-        balance = balanceLamports / LAMPORTS_PER_SOL;
-      } else {
-        const config = getChainConfig(chain);
-        const provider = new JsonRpcProvider(config.rpcUrl);
-        const balanceWei = await provider.getBalance(address);
-        balance = Number(formatEther(balanceWei));
-      }
+      const connection = new Connection(SOLANA_CONFIG.rpcUrl);
+      const balanceLamports = await connection.getBalance(new PublicKey(address), 'finalized');
+      balance = balanceLamports / LAMPORTS_PER_SOL;
     } catch (error) {
       console.error('[Wallet] Error fetching balance for withdrawal:', error);
     }
-
-    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
 
     // v3.4.1: Fix line formatting - lines only below headings
     const message = `📤 *WITHDRAW*
 ${LINE}
 
-${CHAIN_EMOJI[chain]} *${CHAIN_NAME[chain]}* - ${formatWalletName(walletIndex, wallet.wallet_label, chain)}
+${CHAIN_EMOJI.sol} *Solana* - ${formatWalletName(walletIndex, wallet.wallet_label, 'sol')}
 
-*Current Balance:* ${balance.toFixed(4)} ${symbol}
+*Current Balance:* ${balance.toFixed(4)} SOL
 
 Select amount to withdraw:`;
 
@@ -860,7 +869,7 @@ Select amount to withdraw:`;
       };
     }
     ctx.session.pendingWithdrawal = {
-      chain,
+      chain: 'sol',
       walletIndex,
       amount: balance.toString(),
       address: undefined,
@@ -868,7 +877,7 @@ Select amount to withdraw:`;
 
     await ctx.editMessageText(message, {
       parse_mode: 'Markdown',
-      reply_markup: withdrawAmountKeyboard(chain, walletIndex),
+      reply_markup: withdrawAmountKeyboard('sol', walletIndex),
     });
 
     await ctx.answerCallbackQuery();
@@ -890,33 +899,32 @@ export async function selectWithdrawalPercentage(
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   try {
-    const wallet = await getWalletByIndex(user.id, chain, walletIndex);
+    const wallet = await getWalletByIndex(user.id, 'sol', walletIndex);
     if (!wallet) {
       await ctx.answerCallbackQuery({ text: 'Wallet not found' });
       return;
     }
 
     // Fetch current balance
-    const address = chain === 'sol' ? wallet.solana_address : wallet.evm_address;
+    const address = wallet.solana_address;
     let balance = 0;
 
-    if (chain === 'sol') {
-      const connection = new Connection(SOLANA_CONFIG.rpcUrl);
-      const balanceLamports = await connection.getBalance(new PublicKey(address), 'finalized');
-      balance = balanceLamports / LAMPORTS_PER_SOL;
-    } else {
-      const config = getChainConfig(chain);
-      const provider = new JsonRpcProvider(config.rpcUrl);
-      const balanceWei = await provider.getBalance(address);
-      balance = Number(formatEther(balanceWei));
-    }
+    const connection = new Connection(SOLANA_CONFIG.rpcUrl);
+    const balanceLamports = await connection.getBalance(new PublicKey(address), 'finalized');
+    balance = balanceLamports / LAMPORTS_PER_SOL;
 
     // Calculate amount (keep some for gas if not 100%)
     let withdrawAmount: number;
     if (percentage === 100) {
       // For 100%, leave minimum for gas
-      const gasReserve = chain === 'sol' ? 0.001 : chain === 'bsc' ? 0.001 : 0.001;
+      const gasReserve = 0.001;
       withdrawAmount = Math.max(0, balance - gasReserve);
     } else {
       withdrawAmount = (balance * percentage) / 100;
@@ -930,18 +938,16 @@ export async function selectWithdrawalPercentage(
       return;
     }
 
-    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
-
     // Update session with amount
     ctx.session.pendingWithdrawal = {
-      chain,
+      chain: 'sol',
       walletIndex,
       amount: withdrawAmount.toFixed(6),
       address: undefined,
     };
     ctx.session.step = 'awaiting_withdrawal_address';
 
-    const amountText = `${withdrawAmount.toFixed(6)} ${symbol}`;
+    const amountText = `${withdrawAmount.toFixed(6)} SOL`;
     // v3.4.1: Fix line formatting - lines only below headings
     const message = `📤 *WITHDRAW ${percentage}%*
 ${LINE}
@@ -952,7 +958,7 @@ Please enter the destination address:`;
 
     await ctx.editMessageText(message, {
       parse_mode: 'MarkdownV2',
-      reply_markup: new InlineKeyboard().text('« Cancel', `wallet_select_${chain}_${walletIndex}`),
+      reply_markup: new InlineKeyboard().text('« Cancel', `wallet_select_sol_${walletIndex}`),
     });
 
     await ctx.answerCallbackQuery();
@@ -973,13 +979,17 @@ export async function startCustomWithdrawal(
   const user = ctx.from;
   if (!user) return;
 
-  try {
-    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
 
+  try {
     // Set session for custom amount input
     ctx.session.step = 'awaiting_withdrawal_amount';
     ctx.session.pendingWithdrawal = {
-      chain,
+      chain: 'sol',
       walletIndex,
       amount: undefined,
       address: undefined,
@@ -989,7 +999,7 @@ export async function startCustomWithdrawal(
 📤 *CUSTOM WITHDRAWAL*
 ${LINE}
 
-Enter the amount to withdraw in ${symbol}:
+Enter the amount to withdraw in SOL:
 
 *Example:* 0.5
 
@@ -997,7 +1007,7 @@ ${LINE}`;
 
     await ctx.editMessageText(message, {
       parse_mode: 'Markdown',
-      reply_markup: new InlineKeyboard().text('« Cancel', `wallet_select_${chain}_${walletIndex}`),
+      reply_markup: new InlineKeyboard().text('« Cancel', `wallet_select_sol_${walletIndex}`),
     });
 
     await ctx.answerCallbackQuery();

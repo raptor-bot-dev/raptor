@@ -1,8 +1,10 @@
 // Core types used across all apps
 
-// Chain types - all supported chains
-export type EVMChain = 'bsc' | 'base' | 'eth';
-export type Chain = EVMChain | 'sol';
+// Chain types - Solana only (v4.0: EVM chains removed)
+export type Chain = 'sol';
+
+// EVMChain kept as never for compile-time detection of leftover EVM code
+export type EVMChain = never;
 
 // Mode types - trading modes (legacy, use StrategyKind for v3.1)
 export type TradingMode = 'pool' | 'solo' | 'snipe';

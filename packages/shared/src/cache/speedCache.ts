@@ -36,10 +36,9 @@ export interface CachedTokenInfo {
 }
 
 // Native token prices in USD
+// v4.0: Solana-only build
 export interface NativePrices {
   sol: number;
-  bnb: number;
-  eth: number;
   lastUpdated: number;
 }
 
@@ -111,11 +110,9 @@ class LRUCache<K, V> {
 // Singleton speed cache instance
 class SpeedCache {
   // Priority fees per chain - updated every 3s
+  // v4.0: Solana-only build
   public priorityFees: Record<Chain, PriorityFees> = {
     sol: { slow: 0n, normal: 0n, fast: 0n, turbo: 0n, lastUpdated: 0 },
-    bsc: { slow: 0n, normal: 0n, fast: 0n, turbo: 0n, lastUpdated: 0 },
-    base: { slow: 0n, normal: 0n, fast: 0n, turbo: 0n, lastUpdated: 0 },
-    eth: { slow: 0n, normal: 0n, fast: 0n, turbo: 0n, lastUpdated: 0 },
   };
 
   // O(1) blacklist lookups
@@ -128,8 +125,6 @@ class SpeedCache {
   // Native token prices in USD
   public prices: NativePrices = {
     sol: 0,
-    bnb: 0,
-    eth: 0,
     lastUpdated: 0,
   };
 
@@ -210,7 +205,7 @@ class SpeedCache {
   private async updatePriorityFees(): Promise<void> {
     if (!this.fetchPriorityFees) return;
 
-    const chains: Chain[] = ['sol', 'bsc', 'base', 'eth'];
+    const chains: Chain[] = ['sol'];
     await Promise.all(
       chains.map(async (chain) => {
         try {
@@ -294,16 +289,8 @@ class SpeedCache {
   /**
    * Get native token price in USD
    */
-  getNativePrice(chain: Chain): number {
-    switch (chain) {
-      case 'sol':
-        return this.prices.sol;
-      case 'bsc':
-        return this.prices.bnb;
-      case 'base':
-      case 'eth':
-        return this.prices.eth;
-    }
+  getNativePrice(_chain: Chain): number {
+    return this.prices.sol;
   }
 
   /**

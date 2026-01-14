@@ -32,9 +32,6 @@ interface HuntSettings {
 
 const defaultHuntSettings: Record<Chain, HuntSettings> = {
   sol: { enabled: false, minScore: 23, launchpads: ['pump.fun', 'moonshot', 'bonk.fun'] },
-  bsc: { enabled: false, minScore: 23, launchpads: ['four.meme'] },
-  base: { enabled: false, minScore: 23, launchpads: ['virtuals.fun', 'base.pump'] },
-  eth: { enabled: false, minScore: 25, launchpads: [] }, // Higher threshold for ETH due to gas
 };
 
 // In-memory cache with database persistence
@@ -82,11 +79,9 @@ export async function huntCommand(ctx: MyContext) {
   message += '🔥 Trending - Top performing tokens\n\n';
   message += '*Auto-Hunt Status:*\n';
 
-  for (const chain of ['sol', 'bsc', 'base', 'eth'] as Chain[]) {
-    const s = settings[chain];
-    const status = s.enabled ? '🟢' : '🔴';
-    message += `${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}: ${status}\n`;
-  }
+  const s = settings.sol;
+  const status = s.enabled ? '🟢' : '🔴';
+  message += `${CHAIN_EMOJI.sol} ${CHAIN_NAME.sol}: ${status}\n`;
 
   message += '\n_Configure auto-hunt to trade new tokens automatically._';
 
@@ -94,11 +89,7 @@ export async function huntCommand(ctx: MyContext) {
     .text('🌱 New Launches', 'hunt_new')
     .text('🔥 Trending', 'hunt_trending')
     .row()
-    .text(`${CHAIN_EMOJI.sol} Solana`, 'hunt_chain_sol')
-    .text(`${CHAIN_EMOJI.bsc} BSC`, 'hunt_chain_bsc')
-    .row()
-    .text(`${CHAIN_EMOJI.base} Base`, 'hunt_chain_base')
-    .text(`${CHAIN_EMOJI.eth} Ethereum`, 'hunt_chain_eth')
+    .text(`${CHAIN_EMOJI.sol} Solana Settings`, 'hunt_chain_sol')
     .row()
     .text('« Back', 'menu');
 
@@ -123,11 +114,9 @@ export async function showHunt(ctx: MyContext) {
   message += '🔥 Trending - Top performing tokens\n\n';
   message += '*Auto-Hunt Status:*\n';
 
-  for (const chain of ['sol', 'bsc', 'base', 'eth'] as Chain[]) {
-    const s = settings[chain];
-    const status = s.enabled ? '🟢' : '🔴';
-    message += `${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}: ${status}\n`;
-  }
+  const s = settings.sol;
+  const status = s.enabled ? '🟢' : '🔴';
+  message += `${CHAIN_EMOJI.sol} ${CHAIN_NAME.sol}: ${status}\n`;
 
   message += '\n_Configure auto-hunt to trade new tokens automatically._';
 
@@ -135,11 +124,7 @@ export async function showHunt(ctx: MyContext) {
     .text('🌱 New Launches', 'hunt_new')
     .text('🔥 Trending', 'hunt_trending')
     .row()
-    .text(`${CHAIN_EMOJI.sol} Solana`, 'hunt_chain_sol')
-    .text(`${CHAIN_EMOJI.bsc} BSC`, 'hunt_chain_bsc')
-    .row()
-    .text(`${CHAIN_EMOJI.base} Base`, 'hunt_chain_base')
-    .text(`${CHAIN_EMOJI.eth} Ethereum`, 'hunt_chain_eth')
+    .text(`${CHAIN_EMOJI.sol} Solana Settings`, 'hunt_chain_sol')
     .row()
     .text('« Back', 'menu');
 
@@ -328,12 +313,9 @@ export async function showLaunchpadSelection(ctx: MyContext, chain: Chain) {
   const allSettings = await getUserHuntSettingsAsync(user.id);
   const settings = allSettings[chain];
 
-  // Available launchpads per chain
+  // Available launchpads per chain (Solana-only build)
   const availableLaunchpads: Record<Chain, string[]> = {
     sol: ['pump.fun', 'pumpswap', 'moonshot', 'bonk.fun', 'believe.app'],
-    bsc: ['four.meme'],
-    base: ['virtuals.fun', 'wow.xyz', 'base.pump'],
-    eth: [],
   };
 
   const launchpads = availableLaunchpads[chain];
@@ -407,11 +389,9 @@ export async function enableAllLaunchpads(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only build
   const availableLaunchpads: Record<Chain, string[]> = {
     sol: ['pump.fun', 'pumpswap', 'moonshot', 'bonk.fun', 'believe.app'],
-    bsc: ['four.meme'],
-    base: ['virtuals.fun', 'wow.xyz', 'base.pump'],
-    eth: [],
   };
 
   const settings = await getUserHuntSettingsAsync(user.id);

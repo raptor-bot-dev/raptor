@@ -7,9 +7,6 @@ export * from './constants.js';
 // Re-export supabase utilities
 export * from './supabase.js';
 
-// Re-export chain utilities
-export * from './chains.js';
-
 // Re-export fee utilities
 export * from './fees.js';
 
@@ -41,9 +38,6 @@ export * from './strategies/types.js';
 
 // Multi-RPC broadcasting
 export * from './rpc/multiRpc.js';
-
-// Gas auto-tip
-export * from './gas/autoTip.js';
 
 // Token analysis service
 export * from './analysis/tokenAnalysis.js';

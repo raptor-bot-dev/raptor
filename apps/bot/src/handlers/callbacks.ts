@@ -2278,7 +2278,7 @@ Tap "Show Keys" to reveal your private keys.`;
       const { getOrCreateChainSettings } = await import('@raptor/shared');
       const settings = await getOrCreateChainSettings(user.id, chain);
       const currentBps = settings.sell_slippage_bps;
-      const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'BASE' : 'ETH';
+      const chainName = 'SOL';
 
       const message =
         `*SELL SLIPPAGE* | ${chainName}\n\n` +
@@ -2337,8 +2337,8 @@ Tap "Show Keys" to reveal your private keys.`;
       let chain: Chain = 'sol';
       let mint: string;
 
-      // Check if chain is included
-      if (payload.includes('_') && ['sol', 'eth', 'base', 'bsc'].includes(payload.split('_')[0])) {
+      // Solana-only build - check if chain is included
+      if (payload.includes('_') && payload.split('_')[0] === 'sol') {
         const parts = payload.split('_');
         chain = parts[0] as Chain;
         mint = parts.slice(1).join('_');
@@ -2346,77 +2346,27 @@ Tap "Show Keys" to reveal your private keys.`;
         mint = payload;
       }
 
-      const isEvm = chain !== 'sol';
       const { getOrCreateChainSettings } = await import('@raptor/shared');
       const settings = await getOrCreateChainSettings(user.id, chain);
-      const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'BASE' : 'ETH';
 
-      let message: string;
-      let keyboard: InlineKeyboard;
+      // Solana: Show priority fee options
+      const current = settings.priority_sol;
+      const message =
+        `*PRIORITY FEE* | SOL\n\n` +
+        `Current: ${current ?? 0.0001} SOL\n\n` +
+        `Select priority fee:`;
 
-      if (isEvm) {
-        // EVM chains: Show GWEI options
-        const currentGwei = settings.gas_gwei;
-        message =
-          `*GAS PRICE* | ${chainName}\n\n` +
-          `Current: ${currentGwei ?? 'Auto'} GWEI\n\n` +
-          `Select gas price:`;
-
-        if (chain === 'bsc') {
-          keyboard = new InlineKeyboard()
-            .text(currentGwei === 3 ? '> 3' : '3', `set_sell_gwei:${chain}_${mint}_3`)
-            .text(currentGwei === 5 ? '> 5' : '5', `set_sell_gwei:${chain}_${mint}_5`)
-            .text(currentGwei === 7 ? '> 7' : '7', `set_sell_gwei:${chain}_${mint}_7`)
-            .row()
-            .text(currentGwei === 10 ? '> 10' : '10', `set_sell_gwei:${chain}_${mint}_10`)
-            .text(currentGwei === 15 ? '> 15' : '15', `set_sell_gwei:${chain}_${mint}_15`)
-            .text(currentGwei === 20 ? '> 20' : '20', `set_sell_gwei:${chain}_${mint}_20`)
-            .row()
-            .text('« Back', `open_sell:${chain}_${mint}`);
-        } else if (chain === 'base') {
-          keyboard = new InlineKeyboard()
-            .text(currentGwei === 0.01 ? '> 0.01' : '0.01', `set_sell_gwei:${chain}_${mint}_0.01`)
-            .text(currentGwei === 0.05 ? '> 0.05' : '0.05', `set_sell_gwei:${chain}_${mint}_0.05`)
-            .text(currentGwei === 0.1 ? '> 0.1' : '0.1', `set_sell_gwei:${chain}_${mint}_0.1`)
-            .row()
-            .text(currentGwei === 0.5 ? '> 0.5' : '0.5', `set_sell_gwei:${chain}_${mint}_0.5`)
-            .text(currentGwei === 1 ? '> 1' : '1', `set_sell_gwei:${chain}_${mint}_1`)
-            .text(currentGwei === 2 ? '> 2' : '2', `set_sell_gwei:${chain}_${mint}_2`)
-            .row()
-            .text('« Back', `open_sell:${chain}_${mint}`);
-        } else {
-          // ETH
-          keyboard = new InlineKeyboard()
-            .text(currentGwei === 10 ? '> 10' : '10', `set_sell_gwei:${chain}_${mint}_10`)
-            .text(currentGwei === 20 ? '> 20' : '20', `set_sell_gwei:${chain}_${mint}_20`)
-            .text(currentGwei === 30 ? '> 30' : '30', `set_sell_gwei:${chain}_${mint}_30`)
-            .row()
-            .text(currentGwei === 50 ? '> 50' : '50', `set_sell_gwei:${chain}_${mint}_50`)
-            .text(currentGwei === 75 ? '> 75' : '75', `set_sell_gwei:${chain}_${mint}_75`)
-            .text(currentGwei === 100 ? '> 100' : '100', `set_sell_gwei:${chain}_${mint}_100`)
-            .row()
-            .text('« Back', `open_sell:${chain}_${mint}`);
-        }
-      } else {
-        // Solana: Show priority fee options
-        const current = settings.priority_sol;
-        message =
-          `*PRIORITY FEE* | SOL\n\n` +
-          `Current: ${current ?? 0.0001} SOL\n\n` +
-          `Select priority fee:`;
-
-        keyboard = new InlineKeyboard()
-          .text(current === 0.00005 ? '> 0.00005' : '0.00005', `set_sell_prio:${chain}_${mint}_0.00005`)
-          .text(current === 0.0001 ? '> 0.0001' : '0.0001', `set_sell_prio:${chain}_${mint}_0.0001`)
-          .row()
-          .text(current === 0.0005 ? '> 0.0005' : '0.0005', `set_sell_prio:${chain}_${mint}_0.0005`)
-          .text(current === 0.001 ? '> 0.001' : '0.001', `set_sell_prio:${chain}_${mint}_0.001`)
-          .row()
-          .text(current === 0.005 ? '> 0.005' : '0.005', `set_sell_prio:${chain}_${mint}_0.005`)
-          .text(current === 0.01 ? '> 0.01' : '0.01', `set_sell_prio:${chain}_${mint}_0.01`)
-          .row()
-          .text('« Back', `open_sell:${chain}_${mint}`);
-      }
+      const keyboard = new InlineKeyboard()
+        .text(current === 0.00005 ? '> 0.00005' : '0.00005', `set_sell_prio:${chain}_${mint}_0.00005`)
+        .text(current === 0.0001 ? '> 0.0001' : '0.0001', `set_sell_prio:${chain}_${mint}_0.0001`)
+        .row()
+        .text(current === 0.0005 ? '> 0.0005' : '0.0005', `set_sell_prio:${chain}_${mint}_0.0005`)
+        .text(current === 0.001 ? '> 0.001' : '0.001', `set_sell_prio:${chain}_${mint}_0.001`)
+        .row()
+        .text(current === 0.005 ? '> 0.005' : '0.005', `set_sell_prio:${chain}_${mint}_0.005`)
+        .text(current === 0.01 ? '> 0.01' : '0.01', `set_sell_prio:${chain}_${mint}_0.01`)
+        .row()
+        .text('« Back', `open_sell:${chain}_${mint}`);
 
       await ctx.editMessageText(message, {
         parse_mode: 'Markdown',
@@ -2523,7 +2473,7 @@ Tap "Show Keys" to reveal your private keys.`;
       const settings = await getOrCreateChainSettings(user.id, chain);
       const currentBps = settings.buy_slippage_bps;
 
-      const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'BASE' : 'ETH';
+      const chainName = 'SOL';
 
       const message =
         `*BUY SLIPPAGE* | ${chainName}\n\n` +
@@ -2575,7 +2525,7 @@ Tap "Show Keys" to reveal your private keys.`;
       const { getOrCreateChainSettings } = await import('@raptor/shared');
       const settings = await getOrCreateChainSettings(user.id, chain);
 
-      const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'BASE' : 'ETH';
+      const chainName = 'SOL';
 
       let message: string;
       let keyboard: InlineKeyboard;
@@ -2717,7 +2667,7 @@ Tap "Show Keys" to reveal your private keys.`;
         mint = payload;
       }
       // Map chain to DexScreener path
-      const chainPath = chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bsc' : chain === 'base' ? 'base' : 'ethereum';
+      const chainPath = 'solana';
       const chartUrl = `https://dexscreener.com/${chainPath}/${mint}`;
       await ctx.answerCallbackQuery({ text: '📊 Opening chart...', url: chartUrl });
       return;
@@ -2776,7 +2726,7 @@ async function handleAddressChainSelected(ctx: MyContext, chain: Chain, address:
     chain,
   };
 
-  const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+  const symbol = 'SOL';
 
   // v3.4 FIX: Standard line format (below heading only)
   const message = `📤 *SEND ${symbol}*
@@ -2822,9 +2772,9 @@ async function handleTradeChainSelected(ctx: MyContext, chain: Chain, address: s
     // Ignore if no monitor exists for this token
   }
 
-  const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'BASE' : 'ETH';
-  const chainEmoji = chain === 'sol' ? '🟢' : chain === 'bsc' ? '🟡' : chain === 'base' ? '🔵' : '🟣';
-  const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+  const chainName = 'SOL';
+  const chainEmoji = '🟢';
+  const symbol = 'SOL';
   const isEvm = chain !== 'sol';
 
   // Fetch all data in parallel for speed
@@ -3042,7 +2992,7 @@ async function handleSendAmount(ctx: MyContext, chain: Chain, amount: string) {
   ctx.session.step = 'awaiting_send_confirm';
 
   const { toAddress } = ctx.session.pendingSend;
-  const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+  const symbol = 'SOL';
 
   const keyboard = new InlineKeyboard()
     .text('✅ Confirm Send', 'confirm_send')
@@ -3107,7 +3057,7 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
 
   if (amount === 'custom') {
     // v3.4: Implement custom buy amount flow
-    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+    const symbol = 'SOL';
     ctx.session.step = 'awaiting_custom_buy_amount';
     ctx.session.pendingBuy = { chain, mint: tokenAddress };
 
@@ -3310,17 +3260,12 @@ async function handleConfirmWithdrawal(ctx: MyContext) {
   try {
     // Import processWithdrawal from wallet service
     const { processWithdrawal } = await import('../services/wallet.js');
-    const { getChainConfig } = await import('@raptor/shared');
 
     const tx = await processWithdrawal(user.id, chain, walletIndex, amount, address);
 
-    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
-    const config = chain === 'sol'
-      ? { explorerUrl: 'https://solscan.io' }
-      : getChainConfig(chain);
-    const explorerUrl = chain === 'sol'
-      ? `${config.explorerUrl}/tx/${tx.hash}`
-      : `${config.explorerUrl}/tx/${tx.hash}`;
+    // Solana-only build
+    const symbol = 'SOL';
+    const explorerUrl = `https://solscan.io/tx/${tx.hash}`;
 
     // v3.4 FIX: Standard line format (below heading only)
     const amountText = `${parseFloat(amount).toFixed(6)} ${symbol}`;
@@ -3402,7 +3347,7 @@ _You can add more chains later in Settings_`;
   await ctx.answerCallbackQuery();
 }
 
-async function generateWalletForChain(ctx: MyContext, chain: Chain) {
+async function generateWalletForChain(ctx: MyContext, _chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
@@ -3412,16 +3357,15 @@ async function generateWalletForChain(ctx: MyContext, chain: Chain) {
     // Import the new wallet service
     const { initializeUserWallet } = await import('../services/wallet.js');
 
-    // Generate wallet (creates both Solana and EVM keypairs)
-    const { solana, evm, isNew } = await initializeUserWallet(user.id);
+    // Solana-only build - generate wallet
+    const { solana, isNew } = await initializeUserWallet(user.id);
 
-    // Get the address for the selected chain
-    const address = chain === 'sol' ? solana.address : evm.address;
-    const chainEmoji = chain === 'sol' ? '🟣' : chain === 'bsc' ? '🟡' : chain === 'base' ? '🔵' : '⚪';
-    const chainName = chain === 'sol' ? 'Solana' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'Base' : 'Ethereum';
-    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
-    const minDeposit =
-      chain === 'sol' ? '0.05 SOL' : chain === 'bsc' ? '0.01 BNB' : chain === 'base' ? '0.005 ETH' : '0.01 ETH';
+    // Solana-only build
+    const address = solana.address;
+    const chainEmoji = '🟢';
+    const chainName = 'Solana';
+    const symbol = 'SOL';
+    const minDeposit = '0.05 SOL';
 
     const message = `✅ *Wallet ${isNew ? 'Created' : 'Ready'}!*
 
@@ -3432,9 +3376,8 @@ _(tap to copy)_
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-*Your Wallet Addresses:*
-🟣 Solana: \`${solana.address.slice(0, 8)}...${solana.address.slice(-6)}\`
-⚪ EVM: \`${evm.address.slice(0, 8)}...${evm.address.slice(-4)}\`
+*Your Wallet Address:*
+🟢 Solana: \`${solana.address.slice(0, 8)}...${solana.address.slice(-6)}\`
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
@@ -3563,7 +3506,7 @@ paste a token address to snipe.
     const pnlPercent = pos.unrealized_pnl_percent || 0;
     const pnlEmoji = pnlPercent >= 0 ? '🟢' : '🔴';
     const pnlStr = pnlPercent >= 0 ? `+${pnlPercent.toFixed(1)}%` : `${pnlPercent.toFixed(1)}%`;
-    const chainEmoji = pos.chain === 'sol' ? '🟢' : pos.chain === 'bsc' ? '🟡' : pos.chain === 'base' ? '🔵' : '🟣';
+    const chainEmoji = '🟢';
 
     message += `${i + 1}. ${chainEmoji} *${pos.token_symbol}* ${pnlEmoji} ${pnlStr}\n`;
 
@@ -3602,9 +3545,9 @@ async function showPositionDetail(ctx: MyContext, positionId: number) {
     return;
   }
 
-  const chainEmoji = pos.chain === 'sol' ? '🟢' : pos.chain === 'bsc' ? '🟡' : pos.chain === 'base' ? '🔵' : '🟣';
-  const chainName = pos.chain === 'sol' ? 'Solana' : pos.chain === 'bsc' ? 'BSC' : pos.chain === 'base' ? 'Base' : 'ETH';
-  const symbol = pos.chain === 'sol' ? 'SOL' : pos.chain === 'bsc' ? 'BNB' : 'ETH';
+  const chainEmoji = '🟢';
+  const chainName = 'Solana';
+  const symbol = 'SOL';
   const pnlPercent = pos.unrealized_pnl_percent || 0;
   const pnlEmoji = pnlPercent >= 0 ? '🟢' : '🔴';
   const pnlStr = pnlPercent >= 0 ? `+${pnlPercent.toFixed(2)}%` : `${pnlPercent.toFixed(2)}%`;
@@ -3966,7 +3909,7 @@ async function handleSellPctFromMonitor(ctx: MyContext, mint: string, percent: n
     const activeWallet = wallets.find(w => w.chain === chain && w.is_active);
 
     if (!activeWallet) {
-      const chainName = chain === 'sol' ? 'Solana' : chain === 'eth' ? 'Ethereum' : chain === 'base' ? 'Base' : 'BSC';
+      const chainName = 'Solana';
       await ctx.reply(`⚠️ *No Active Wallet*\n\nPlease create a ${chainName} wallet first.`, {
         parse_mode: 'Markdown',
       });

@@ -21,14 +21,7 @@ export {
 
 export {
   generateSolanaKeypair,
-  generateEvmKeypair,
-  generateUserWallets,
   loadSolanaKeypair,
-  loadEvmWallet,
-  getEvmAddressFromEncrypted,
-  isValidEvmAddress,
   importSolanaKeypair,
-  importEvmKeypair,
   type GeneratedWallet,
-  type UserWalletKeys,
 } from './keypairs.js';

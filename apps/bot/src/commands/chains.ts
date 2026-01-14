@@ -1,11 +1,8 @@
-// /chains command - Show supported chains and user balances
+// /chains command - Show supported chain (Solana-only build)
 
 import { CommandContext, Context } from 'grammy';
 import {
   getUserBalances,
-  BSC_CONFIG,
-  BASE_CONFIG,
-  ETH_CONFIG,
   SOLANA_CONFIG,
   type Chain,
 } from '@raptor/shared';
@@ -21,33 +18,6 @@ interface ChainInfo {
 }
 
 const CHAINS: ChainInfo[] = [
-  {
-    name: 'BNB Smart Chain',
-    symbol: 'BNB',
-    key: 'bsc',
-    emoji: '🟡',
-    explorerUrl: BSC_CONFIG.explorerUrl,
-    minPosition: '0.05 BNB',
-    dexName: 'PancakeSwap',
-  },
-  {
-    name: 'Base',
-    symbol: 'ETH',
-    key: 'base',
-    emoji: '🔵',
-    explorerUrl: BASE_CONFIG.explorerUrl,
-    minPosition: '0.01 ETH',
-    dexName: 'Uniswap/Aerodrome',
-  },
-  {
-    name: 'Ethereum',
-    symbol: 'ETH',
-    key: 'eth',
-    emoji: '⚪',
-    explorerUrl: ETH_CONFIG.explorerUrl,
-    minPosition: '0.05 ETH',
-    dexName: 'Uniswap',
-  },
   {
     name: 'Solana',
     symbol: 'SOL',
@@ -120,30 +90,19 @@ export async function chainsCommand(ctx: CommandContext<Context>): Promise<void>
   message += '• *Solo* - Personal vault (100% allocation)\n';
   message += '• *Snipe* - Manual token sniping\n\n';
 
-  message += '💡 Use /deposit to add funds to any chain.';
+  message += '💡 Use /deposit to add funds.';
 
   await ctx.reply(message, { parse_mode: 'Markdown' });
 }
 
-// Show gas prices for all chains
+// Show gas prices (Solana priority fees)
 export async function gasPricesCommand(
   ctx: CommandContext<Context>
 ): Promise<void> {
-  let message = '⛽ *Current Gas Prices*\n\n';
+  let message = '⛽ *Current Priority Fees*\n\n';
 
-  // In production, these would be fetched from RPC
-  const gasPrices: Record<Chain, string> = {
-    bsc: '~3 Gwei',
-    base: '~0.01 Gwei',
-    eth: '~15-50 Gwei',
-    sol: '~5000 lamports',
-  };
-
-  for (const chain of CHAINS) {
-    message += `${chain.emoji} ${chain.name}: ${gasPrices[chain.key]}\n`;
-  }
-
-  message += '\n💡 Gas prices vary based on network congestion.';
+  message += '🟣 Solana: ~5000 lamports\n';
+  message += '\n💡 Priority fees vary based on network congestion.';
 
   await ctx.reply(message, { parse_mode: 'Markdown' });
 }
@@ -154,49 +113,30 @@ export async function explorerCommand(
 ): Promise<void> {
   const args = ctx.match?.toString().trim().split(/\s+/) || [];
 
-  if (args.length < 2 || args[0] === '') {
+  if (args.length < 1 || args[0] === '') {
     await ctx.reply(
       '*Block Explorer Links*\n\n' +
-        'Usage: `/explorer <address|tx> <chain>`\n\n' +
+        'Usage: `/explorer <address|tx>`\n\n' +
         '*Examples:*\n' +
-        '`/explorer 0x123...abc bsc`\n' +
-        '`/explorer 4Nd1...xyz sol`',
+        '`/explorer 4Nd1...xyz`',
       { parse_mode: 'Markdown' }
     );
     return;
   }
 
-  const [addressOrTx, chainInput] = args;
-  const chainKey = chainInput.toLowerCase() as Chain;
-  const chain = CHAINS.find((c) => c.key === chainKey);
-
-  if (!chain) {
-    await ctx.reply('Invalid chain. Use: bsc, base, eth, or sol');
-    return;
-  }
+  const addressOrTx = args[0];
 
   let url: string;
-  if (chainKey === 'sol') {
-    // Determine if it's a transaction or address
-    if (addressOrTx.length > 50) {
-      url = `https://solscan.io/tx/${addressOrTx}`;
-    } else {
-      url = `https://solscan.io/account/${addressOrTx}`;
-    }
+  // Determine if it's a transaction or address based on length
+  if (addressOrTx.length > 50) {
+    url = `https://solscan.io/tx/${addressOrTx}`;
   } else {
-    // EVM chains
-    if (addressOrTx.length === 66) {
-      // Transaction hash
-      url = `${chain.explorerUrl}/tx/${addressOrTx}`;
-    } else {
-      // Address
-      url = `${chain.explorerUrl}/address/${addressOrTx}`;
-    }
+    url = `https://solscan.io/account/${addressOrTx}`;
   }
 
   await ctx.reply(
-    `${chain.emoji} *${chain.name} Explorer*\n\n` +
-      `[View on Explorer](${url})`,
+    `🟣 *Solana Explorer*\n\n` +
+      `[View on Solscan](${url})`,
     { parse_mode: 'Markdown' }
   );
 }

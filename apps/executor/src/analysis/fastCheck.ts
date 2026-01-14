@@ -40,12 +40,9 @@ export interface FastCheckResult {
   executionTimeMs: number;
 }
 
-// Minimum liquidity requirements per chain (in native token wei/lamports)
+// Minimum liquidity requirements (in native token lamports)
 const MIN_LIQUIDITY: Record<Chain, bigint> = {
   sol: BigInt(50e9), // 50 SOL (in lamports)
-  bsc: BigInt(3e18), // 3 BNB (in wei)
-  base: BigInt(1e18), // 1 ETH (in wei)
-  eth: BigInt(2e18), // 2 ETH (in wei)
 };
 
 // Maximum token age for fast-path (5 minutes)
@@ -124,20 +121,13 @@ export function fastCheck(input: FastCheckInput): FastCheckResult {
 /**
  * Format liquidity for display
  */
-function formatLiquidity(amount: bigint, chain: Chain): string {
-  const decimals = chain === 'sol' ? 9 : 18;
+function formatLiquidity(amount: bigint, _chain: Chain): string {
+  const decimals = 9; // Solana lamports
   const divisor = BigInt(10 ** decimals);
   const whole = amount / divisor;
   const fraction = (amount % divisor).toString().padStart(decimals, '0').slice(0, 2);
 
-  const symbol = {
-    sol: 'SOL',
-    bsc: 'BNB',
-    base: 'ETH',
-    eth: 'ETH',
-  }[chain];
-
-  return `${whole}.${fraction} ${symbol}`;
+  return `${whole}.${fraction} SOL`;
 }
 
 /**

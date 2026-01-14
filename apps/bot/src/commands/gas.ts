@@ -1,7 +1,8 @@
 /**
- * Gas Command - Per-chain gas/priority fee settings for RAPTOR v2.2
+ * Gas Command - Priority fee settings for RAPTOR v4.0
+ * Solana-only build
  *
- * Configure gas settings per chain:
+ * Configure priority fee settings:
  * - Auto-tip (enabled/disabled)
  * - Tip speed (slow/normal/fast/turbo)
  * - Max tip USD limit
@@ -11,7 +12,7 @@ import { InlineKeyboard } from 'grammy';
 import type { MyContext } from '../types.js';
 import type { Chain } from '@raptor/shared';
 import { getGasSettings, saveGasSettings } from '@raptor/shared';
-import { chainsWithBackKeyboard, backKeyboard, CHAIN_EMOJI, CHAIN_NAME } from '../utils/keyboards.js';
+import { backKeyboard, CHAIN_EMOJI, CHAIN_NAME } from '../utils/keyboards.js';
 
 type TipSpeed = 'slow' | 'normal' | 'fast' | 'turbo';
 
@@ -23,9 +24,6 @@ interface GasSettings {
 
 const defaultGasSettings: Record<Chain, GasSettings> = {
   sol: { autoTip: true, tipSpeed: 'fast', maxTipUSD: 5 },
-  bsc: { autoTip: true, tipSpeed: 'normal', maxTipUSD: 3 },
-  base: { autoTip: true, tipSpeed: 'fast', maxTipUSD: 5 },
-  eth: { autoTip: true, tipSpeed: 'normal', maxTipUSD: 20 },
 };
 
 // In-memory cache with database persistence (SECURITY: P0-2)
@@ -63,7 +61,7 @@ const SPEED_INFO: Record<TipSpeed, { emoji: string; name: string; multiplier: st
 };
 
 /**
- * Main gas command - show chain selection
+ * Main gas command - show Solana settings
  */
 export async function gasCommand(ctx: MyContext) {
   const user = ctx.from;
@@ -71,19 +69,20 @@ export async function gasCommand(ctx: MyContext) {
 
   const settings = await getUserGasSettingsAsync(user.id);
 
-  let message = '⛽ *Gas Settings*\n\n';
-  message += 'Configure priority fees per chain:\n\n';
+  let message = '⛽ *Priority Fee Settings*\n\n';
+  message += 'Configure Solana priority fees:\n\n';
 
-  for (const chain of ['sol', 'bsc', 'base', 'eth'] as Chain[]) {
-    const s = settings[chain];
-    const speedInfo = SPEED_INFO[s.tipSpeed];
-    const status = s.autoTip ? speedInfo.emoji : '⏸️';
-    message += `${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}: ${status} ${speedInfo.name}\n`;
-  }
+  const s = settings.sol;
+  const speedInfo = SPEED_INFO[s.tipSpeed];
+  const status = s.autoTip ? speedInfo.emoji : '⏸️';
+  message += `${CHAIN_EMOJI.sol} ${CHAIN_NAME.sol}: ${status} ${speedInfo.name}\n`;
 
   message += '\n_Higher priority = faster execution but more cost_';
 
-  const keyboard = chainsWithBackKeyboard('gas_chain', 'settings');
+  const keyboard = new InlineKeyboard()
+    .text(`${CHAIN_EMOJI.sol} Solana Settings`, 'gas_chain_sol')
+    .row()
+    .text('← Back', 'settings');
 
   await ctx.reply(message, {
     parse_mode: 'Markdown',
@@ -100,19 +99,20 @@ export async function showGas(ctx: MyContext) {
 
   const settings = await getUserGasSettingsAsync(user.id);
 
-  let message = '⛽ *Gas Settings*\n\n';
-  message += 'Configure priority fees per chain:\n\n';
+  let message = '⛽ *Priority Fee Settings*\n\n';
+  message += 'Configure Solana priority fees:\n\n';
 
-  for (const chain of ['sol', 'bsc', 'base', 'eth'] as Chain[]) {
-    const s = settings[chain];
-    const speedInfo = SPEED_INFO[s.tipSpeed];
-    const status = s.autoTip ? speedInfo.emoji : '⏸️';
-    message += `${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}: ${status} ${speedInfo.name}\n`;
-  }
+  const s = settings.sol;
+  const speedInfo = SPEED_INFO[s.tipSpeed];
+  const status = s.autoTip ? speedInfo.emoji : '⏸️';
+  message += `${CHAIN_EMOJI.sol} ${CHAIN_NAME.sol}: ${status} ${speedInfo.name}\n`;
 
   message += '\n_Higher priority = faster execution but more cost_';
 
-  const keyboard = chainsWithBackKeyboard('gas_chain', 'settings');
+  const keyboard = new InlineKeyboard()
+    .text(`${CHAIN_EMOJI.sol} Solana Settings`, 'gas_chain_sol')
+    .row()
+    .text('← Back', 'settings');
 
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',
@@ -123,17 +123,23 @@ export async function showGas(ctx: MyContext) {
 }
 
 /**
- * Show gas settings for a specific chain
+ * Show gas settings for Solana
  */
 export async function showChainGas(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only build
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   const allSettings = await getUserGasSettingsAsync(user.id);
-  const settings = allSettings[chain];
+  const settings = allSettings.sol;
   const speedInfo = SPEED_INFO[settings.tipSpeed];
 
-  let message = `⛽ *Gas Settings - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n`;
+  let message = `⛽ *Priority Fee Settings - Solana* ${CHAIN_EMOJI.sol}\n\n`;
 
   message += `*Auto-Tip:* ${settings.autoTip ? '✅ Enabled' : '❌ Disabled'}\n`;
   message += `*Speed:* ${speedInfo.emoji} ${speedInfo.name} (${speedInfo.multiplier})\n`;
@@ -145,13 +151,9 @@ export async function showChainGas(ctx: MyContext, chain: Chain) {
   message += '🏃 Fast - Higher priority for hot launches\n';
   message += '🚀 Turbo - Maximum priority, expensive\n\n';
 
-  if (chain === 'eth') {
-    message += '⚠️ _ETH gas can be high during congestion_';
-  } else if (chain === 'sol') {
-    message += '💡 _Solana priority fees are very cheap_';
-  }
+  message += '💡 _Solana priority fees are very cheap_';
 
-  const keyboard = gasChainKeyboard(chain, settings);
+  const keyboard = gasChainKeyboard('sol', settings);
 
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',
@@ -162,33 +164,45 @@ export async function showChainGas(ctx: MyContext, chain: Chain) {
 }
 
 /**
- * Toggle auto-tip for a chain
+ * Toggle auto-tip for Solana
  */
 export async function toggleAutoTip(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   const settings = await getUserGasSettingsAsync(user.id);
-  settings[chain].autoTip = !settings[chain].autoTip;
+  settings.sol.autoTip = !settings.sol.autoTip;
   await saveUserGasSettings(user.id, settings);
 
-  const status = settings[chain].autoTip ? 'enabled' : 'disabled';
+  const status = settings.sol.autoTip ? 'enabled' : 'disabled';
   await ctx.answerCallbackQuery({ text: `Auto-tip ${status}` });
 
-  await showChainGas(ctx, chain);
+  await showChainGas(ctx, 'sol');
 }
 
 /**
- * Show speed selection for a chain
+ * Show speed selection for Solana
  */
 export async function showSpeedSelection(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  const allSettings = await getUserGasSettingsAsync(user.id);
-  const settings = allSettings[chain];
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
 
-  const message = `🏃 *Priority Speed - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n` +
+  const allSettings = await getUserGasSettingsAsync(user.id);
+  const settings = allSettings.sol;
+
+  const message = `🏃 *Priority Speed - Solana* ${CHAIN_EMOJI.sol}\n\n` +
     `Current: ${SPEED_INFO[settings.tipSpeed].emoji} ${SPEED_INFO[settings.tipSpeed].name}\n\n` +
     `Select transaction priority:`;
 
@@ -197,10 +211,10 @@ export async function showSpeedSelection(ctx: MyContext, chain: Chain) {
   for (const [speed, info] of Object.entries(SPEED_INFO)) {
     const isActive = speed === settings.tipSpeed;
     const label = isActive ? `${info.emoji} ${info.name} ✓` : `${info.emoji} ${info.name}`;
-    keyboard.text(label, `gas_speed_set_${chain}_${speed}`).row();
+    keyboard.text(label, `gas_speed_set_sol_${speed}`).row();
   }
 
-  keyboard.text('← Back', `gas_chain_${chain}`);
+  keyboard.text('← Back', 'gas_chain_sol');
 
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',
@@ -211,60 +225,67 @@ export async function showSpeedSelection(ctx: MyContext, chain: Chain) {
 }
 
 /**
- * Set tip speed for a chain
+ * Set tip speed for Solana
  */
 export async function setTipSpeed(ctx: MyContext, chain: Chain, speed: TipSpeed) {
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   const settings = await getUserGasSettingsAsync(user.id);
-  settings[chain].tipSpeed = speed;
+  settings.sol.tipSpeed = speed;
   await saveUserGasSettings(user.id, settings);
 
   await ctx.answerCallbackQuery({ text: `Speed set to ${SPEED_INFO[speed].name}` });
 
-  await showChainGas(ctx, chain);
+  await showChainGas(ctx, 'sol');
 }
 
 /**
- * Show max tip selection for a chain
+ * Show max tip selection for Solana
  */
 export async function showMaxTipSelection(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  const allSettings = await getUserGasSettingsAsync(user.id);
-  const settings = allSettings[chain];
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
 
-  const message = `💰 *Max Tip - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n` +
+  const allSettings = await getUserGasSettingsAsync(user.id);
+  const settings = allSettings.sol;
+
+  const message = `💰 *Max Tip - Solana* ${CHAIN_EMOJI.sol}\n\n` +
     `Current: $${settings.maxTipUSD} USD\n\n` +
     `Set maximum tip per transaction:\n\n` +
     `_This protects against overpaying during congestion_`;
 
-  // Different limits based on chain
-  const limits = chain === 'eth'
-    ? ['5', '10', '20', '50']
-    : chain === 'sol'
-    ? ['1', '2', '5', '10']
-    : ['2', '5', '10', '20'];
+  const limits = ['1', '2', '5', '10'];
 
   const keyboard = new InlineKeyboard();
 
   for (let i = 0; i < limits.length; i += 2) {
     keyboard.text(
       settings.maxTipUSD === parseFloat(limits[i]) ? `$${limits[i]} ✓` : `$${limits[i]}`,
-      `gas_max_set_${chain}_${limits[i]}`
+      `gas_max_set_sol_${limits[i]}`
     );
     if (i + 1 < limits.length) {
       keyboard.text(
         settings.maxTipUSD === parseFloat(limits[i + 1]) ? `$${limits[i + 1]} ✓` : `$${limits[i + 1]}`,
-        `gas_max_set_${chain}_${limits[i + 1]}`
+        `gas_max_set_sol_${limits[i + 1]}`
       );
     }
     keyboard.row();
   }
 
-  keyboard.text('← Back', `gas_chain_${chain}`);
+  keyboard.text('← Back', 'gas_chain_sol');
 
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',
@@ -275,22 +296,28 @@ export async function showMaxTipSelection(ctx: MyContext, chain: Chain) {
 }
 
 /**
- * Set max tip for a chain
+ * Set max tip for Solana
  */
 export async function setMaxTip(ctx: MyContext, chain: Chain, maxUSD: number) {
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only
+  if (chain !== 'sol') {
+    await ctx.answerCallbackQuery({ text: 'This build is Solana-only', show_alert: true });
+    return;
+  }
+
   const settings = await getUserGasSettingsAsync(user.id);
-  settings[chain].maxTipUSD = maxUSD;
+  settings.sol.maxTipUSD = maxUSD;
 
   await ctx.answerCallbackQuery({ text: `Max tip set to $${maxUSD}` });
 
-  await showChainGas(ctx, chain);
+  await showChainGas(ctx, 'sol');
 }
 
 /**
- * Build keyboard for chain gas settings
+ * Build keyboard for Solana gas settings
  */
 function gasChainKeyboard(chain: Chain, settings: GasSettings): InlineKeyboard {
   const speedInfo = SPEED_INFO[settings.tipSpeed];

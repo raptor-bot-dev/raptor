@@ -321,14 +321,14 @@ async function handleSessionFlow(ctx: MyContext, text: string): Promise<boolean>
 
 /**
  * Detect if text is a wallet address or contract address
- * For a trading bot, we assume addresses are token contracts by default
+ * Solana-only build - only detect Solana addresses
  */
 function detectAddress(text: string): {
-  type: 'solana_wallet' | 'solana_token' | 'evm_wallet' | 'evm_token';
+  type: 'solana_wallet' | 'solana_token';
   address: string;
   chain: Chain;
 } | null {
-  // Check Solana address
+  // Check Solana address only (Solana-only build)
   if (SOLANA_ADDRESS_REGEX.test(text)) {
     // For trading bot, assume all pasted addresses are token CAs
     // Users can send via wallet menu if they need to
@@ -339,26 +339,17 @@ function detectAddress(text: string): {
     };
   }
 
-  // Check EVM address
-  if (EVM_ADDRESS_REGEX.test(text)) {
-    // For EVM, assume it's a token CA for trading
-    return {
-      type: 'evm_token',
-      address: text,
-      chain: 'eth', // Default to ETH, will be selectable
-    };
-  }
-
   return null;
 }
 
 /**
  * Handle detected address input
+ * Solana-only build - only handle Solana addresses
  */
 async function handleAddressInput(
   ctx: MyContext,
   addressInfo: {
-    type: 'solana_wallet' | 'solana_token' | 'evm_wallet' | 'evm_token';
+    type: 'solana_wallet' | 'solana_token';
     address: string;
     chain: Chain;
   }
@@ -382,126 +373,10 @@ async function handleAddressInput(
   if (addressInfo.type === 'solana_token') {
     // Show token info + buy options
     await showTokenCard(ctx, addressInfo.address, 'sol');
-  } else if (addressInfo.type === 'evm_token') {
-    // For EVM tokens, try to auto-detect chain first
-    await handleEvmTokenWithAutoDetect(ctx, addressInfo.address);
   } else if (addressInfo.type === 'solana_wallet') {
     // Show send options for Solana (rarely used now)
     await showSendOptions(ctx, addressInfo.address, 'sol');
-  } else if (addressInfo.type === 'evm_wallet') {
-    // For EVM wallets, show chain selection for sending
-    await showEvmChainSelection(ctx, addressInfo.address);
   }
-}
-
-/**
- * Auto-detect chain for EVM token - uses DexScreener + RPC fallback
- * Never asks user to select chain if we can detect it
- */
-async function handleEvmTokenWithAutoDetect(ctx: MyContext, address: string) {
-  try {
-    const { dexscreener, chainDetector } = await import('@raptor/shared');
-
-    // Step 1: Try DexScreener first (fast, has price data)
-    const { data, chains } = await dexscreener.getTokenByAddress(address);
-
-    if (data && chains.length === 1) {
-      // Single chain found on DexScreener - show token card immediately
-      await showTokenCard(ctx, address, chains[0]);
-      return;
-    }
-
-    if (data && chains.length > 1) {
-      // Multiple chains on DexScreener - show selection
-      await showEvmChainSelectionForTradeWithDetected(ctx, address, chains);
-      return;
-    }
-
-    // Step 2: Not on DexScreener - check on-chain via RPC
-    const detection = await chainDetector.detectChain(address);
-
-    if (detection.chains.length === 1 && detection.confidence !== 'low') {
-      // Found on exactly one chain - show token card
-      await showTokenCard(ctx, address, detection.chains[0]);
-      return;
-    }
-
-    if (detection.chains.length > 1 && detection.addressType === 'token') {
-      // Contract exists on multiple chains - ask user
-      await showEvmChainSelectionForTradeWithDetected(ctx, address, detection.chains);
-      return;
-    }
-
-    if (detection.addressType === 'wallet' || detection.confidence === 'low') {
-      // Wallet address or can't detect - default to ETH for new tokens
-      // Most new token launches are on ETH/Base, try ETH first
-      await showTokenCard(ctx, address, 'eth');
-      return;
-    }
-
-    // Fallback: show chain selection only if really needed
-    await showEvmChainSelectionForTrade(ctx, address);
-  } catch (error) {
-    console.error('[Messages] Token lookup error:', error);
-    // On error, default to ETH (most common for new tokens)
-    await showTokenCard(ctx, address, 'eth');
-  }
-}
-
-/**
- * Show EVM chain selection with detected chains highlighted
- */
-async function showEvmChainSelectionForTradeWithDetected(
-  ctx: MyContext,
-  address: string,
-  detectedChains: Chain[]
-) {
-  const bscDetected = detectedChains.includes('bsc');
-  const baseDetected = detectedChains.includes('base');
-  const ethDetected = detectedChains.includes('eth');
-
-  const message = `${LINE}
-📊 *TOKEN FOUND ON ${detectedChains.length} CHAINS*
-${LINE}
-
-Contract address:
-\`${address.slice(0, 10)}...${address.slice(-8)}\`
-
-✅ Found on: ${detectedChains.map(c => c.toUpperCase()).join(', ')}
-
-Select chain to view token info:
-
-${LINE}`;
-
-  const keyboard = new InlineKeyboard();
-
-  // Show detected chains first with checkmark
-  if (bscDetected) {
-    keyboard.text(`✅ ${CHAIN_EMOJI.bsc} BSC`, `trade_chain_bsc_${address}`);
-  } else {
-    keyboard.text(`${CHAIN_EMOJI.bsc} BSC`, `trade_chain_bsc_${address}`);
-  }
-
-  if (baseDetected) {
-    keyboard.text(`✅ ${CHAIN_EMOJI.base} Base`, `trade_chain_base_${address}`);
-  } else {
-    keyboard.text(`${CHAIN_EMOJI.base} Base`, `trade_chain_base_${address}`);
-  }
-
-  keyboard.row();
-
-  if (ethDetected) {
-    keyboard.text(`✅ ${CHAIN_EMOJI.eth} Ethereum`, `trade_chain_eth_${address}`);
-  } else {
-    keyboard.text(`${CHAIN_EMOJI.eth} Ethereum`, `trade_chain_eth_${address}`);
-  }
-
-  keyboard.row().text('❌ Cancel', 'back_to_menu');
-
-  await ctx.reply(message, {
-    parse_mode: 'Markdown',
-    reply_markup: keyboard,
-  });
 }
 
 /**
@@ -523,73 +398,16 @@ async function showSendOptions(ctx: MyContext, toAddress: string, chain: Chain) 
 }
 
 /**
- * Show EVM chain selection when EVM address detected
- */
-async function showEvmChainSelection(ctx: MyContext, address: string) {
-  const message = `${LINE}
-🔗 *SELECT CHAIN*
-${LINE}
-
-Address detected:
-\`${address.slice(0, 10)}...${address.slice(-8)}\`
-
-Which chain is this for?
-
-${LINE}`;
-
-  const keyboard = new InlineKeyboard()
-    .text(`${CHAIN_EMOJI.bsc} BSC`, `address_chain_bsc_${address}`)
-    .text(`${CHAIN_EMOJI.base} Base`, `address_chain_base_${address}`)
-    .row()
-    .text(`${CHAIN_EMOJI.eth} Ethereum`, `address_chain_eth_${address}`)
-    .row()
-    .text('❌ Cancel', 'back_to_menu');
-
-  await ctx.reply(message, {
-    parse_mode: 'Markdown',
-    reply_markup: keyboard,
-  });
-}
-
-/**
- * Show EVM chain selection for trading (token CA detected)
- */
-async function showEvmChainSelectionForTrade(ctx: MyContext, address: string) {
-  const message = `${LINE}
-📊 *TOKEN DETECTED*
-${LINE}
-
-Contract address:
-\`${address.slice(0, 10)}...${address.slice(-8)}\`
-
-Select the chain to view token info:
-
-${LINE}`;
-
-  const keyboard = new InlineKeyboard()
-    .text(`${CHAIN_EMOJI.bsc} BSC`, `trade_chain_bsc_${address}`)
-    .text(`${CHAIN_EMOJI.base} Base`, `trade_chain_base_${address}`)
-    .row()
-    .text(`${CHAIN_EMOJI.eth} Ethereum`, `trade_chain_eth_${address}`)
-    .row()
-    .text('❌ Cancel', 'back_to_menu');
-
-  await ctx.reply(message, {
-    parse_mode: 'Markdown',
-    reply_markup: keyboard,
-  });
-}
-
-/**
  * Show token card with buy options - comprehensive data from all sources
  * Uses fast DexScreener first, then launchpad APIs as fallback
  */
-async function showTokenCard(ctx: MyContext, tokenAddress: string, chain: Chain) {
-  const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+async function showTokenCard(ctx: MyContext, tokenAddress: string, _chain: Chain) {
+  // Solana-only build
+  const symbol = 'SOL';
 
   let message: string;
 
-  if (chain === 'sol') {
+  // Solana-only path {
     // Fast path: Try DexScreener first (2s timeout), then launchpad detector
     const { dexscreener, launchpadDetector, tokenData, goplus } = await import('@raptor/shared');
 
@@ -752,121 +570,25 @@ Proceed with extreme caution.
 \`${tokenAddress}\``;
     }
   }
-  } else {
-    // EVM chains - use existing logic with GoPlus
-    const { tokenData, goplus } = await import('@raptor/shared');
 
-    const [tokenInfo, security] = await Promise.all([
-      tokenData.getTokenInfo(tokenAddress, chain).catch(() => null),
-      goplus.getTokenSecurity(tokenAddress, chain).catch(() => null),
-    ]);
-
-    if (tokenInfo) {
-      const priceStr = tokenData.formatPrice(tokenInfo.priceUsd);
-      const mcapStr = tokenData.formatLargeNumber(tokenInfo.marketCap);
-      const liqStr = tokenData.formatLargeNumber(tokenInfo.liquidity);
-      const volStr = tokenData.formatLargeNumber(tokenInfo.volume24h);
-      const changeStr = tokenData.formatPercentage(tokenInfo.priceChange24h);
-      const changeEmoji = (tokenInfo.priceChange24h ?? 0) >= 0 ? '🟢' : '🔴';
-
-      const securityBadge = security
-        ? goplus.getRiskBadge(security)
-        : tokenData.getSecurityBadge(tokenInfo.riskScore);
-
-      let securitySection = '';
-      if (security) {
-        securitySection = `\n*Security:* ${securityBadge.emoji} ${securityBadge.label}`;
-        if (security.buyTax > 0 || security.sellTax > 0) {
-          securitySection += `\n💸 Tax: ${security.buyTax.toFixed(1)}% buy / ${security.sellTax.toFixed(1)}% sell`;
-        }
-        if (security.isHoneypot) {
-          securitySection += '\n🚨 HONEYPOT DETECTED';
-        }
-        if (security.risks.length > 0) {
-          securitySection += `\n${security.risks.slice(0, 2).join('\n')}`;
-        }
-      }
-
-      const dexLink = `https://dexscreener.com/${chain}/${tokenAddress}`;
-      const dextoolsLink = `https://www.dextools.io/app/en/${chain === 'bsc' ? 'bnb' : chain}/pair-explorer/${tokenAddress}`;
-
-      message = `${LINE}
-${CHAIN_EMOJI[chain]} *${tokenInfo.symbol}* — ${CHAIN_NAME[chain]}
-${LINE}
-
-*${tokenInfo.name}*
-
-💰 *Price:* ${priceStr}
-${changeEmoji} *24h:* ${changeStr}
-
-📊 *MCap:* ${mcapStr}
-💧 *Liq:* ${liqStr}
-📈 *Vol:* ${volStr}
-${tokenInfo.holders ? `👥 *Holders:* ${tokenInfo.holders.toLocaleString()}` : ''}
-${securitySection}
-
-${LINE}
-🔗 [DexScreener](${dexLink}) • [DexTools](${dextoolsLink})
-${LINE}
-\`${tokenAddress}\``;
-    } else {
-      message = `${LINE}
-${CHAIN_EMOJI[chain]} *TOKEN* — ${CHAIN_NAME[chain]}
-${LINE}
-
-⚠️ *New/Unlisted Token*
-
-Data not yet available on DexScreener.
-Proceed with extreme caution.
-
-${LINE}
-\`${tokenAddress}\``;
-    }
-  }
-
-  // Build keyboard with buy options - smaller amounts for all chains
+  // Build keyboard with buy options - Solana-only
   // v3.2: Added → Sell button
-  const keyboard = new InlineKeyboard();
-
-  if (chain === 'sol') {
-    keyboard
-      .text('🛒 0.1 SOL', `buy_sol_${tokenAddress}_0.1`)
-      .text('🛒 0.25 SOL', `buy_sol_${tokenAddress}_0.25`)
-      .text('🛒 0.5 SOL', `buy_sol_${tokenAddress}_0.5`)
-      .row()
-      .text('🛒 1 SOL', `buy_sol_${tokenAddress}_1`)
-      .text('🛒 2 SOL', `buy_sol_${tokenAddress}_2`)
-      .text('✏️ X SOL', `buy_sol_${tokenAddress}_custom`);
-  } else if (chain === 'bsc') {
-    keyboard
-      .text('🛒 0.01 BNB', `buy_bsc_${tokenAddress}_0.01`)
-      .text('🛒 0.05 BNB', `buy_bsc_${tokenAddress}_0.05`)
-      .text('🛒 0.1 BNB', `buy_bsc_${tokenAddress}_0.1`)
-      .row()
-      .text('🛒 0.25 BNB', `buy_bsc_${tokenAddress}_0.25`)
-      .text('🛒 0.5 BNB', `buy_bsc_${tokenAddress}_0.5`)
-      .text('✏️ X BNB', `buy_bsc_${tokenAddress}_custom`);
-  } else {
-    // ETH and Base
-    keyboard
-      .text(`🛒 0.005 ${symbol}`, `buy_${chain}_${tokenAddress}_0.005`)
-      .text(`🛒 0.01 ${symbol}`, `buy_${chain}_${tokenAddress}_0.01`)
-      .text(`🛒 0.025 ${symbol}`, `buy_${chain}_${tokenAddress}_0.025`)
-      .row()
-      .text(`🛒 0.05 ${symbol}`, `buy_${chain}_${tokenAddress}_0.05`)
-      .text(`🛒 0.1 ${symbol}`, `buy_${chain}_${tokenAddress}_0.1`)
-      .text(`✏️ X ${symbol}`, `buy_${chain}_${tokenAddress}_custom`);
-  }
-
-  keyboard
+  const keyboard = new InlineKeyboard()
+    .text('🛒 0.1 SOL', `buy_sol_${tokenAddress}_0.1`)
+    .text('🛒 0.25 SOL', `buy_sol_${tokenAddress}_0.25`)
+    .text('🛒 0.5 SOL', `buy_sol_${tokenAddress}_0.5`)
+    .row()
+    .text('🛒 1 SOL', `buy_sol_${tokenAddress}_1`)
+    .text('🛒 2 SOL', `buy_sol_${tokenAddress}_2`)
+    .text('✏️ X SOL', `buy_sol_${tokenAddress}_custom`)
     .row()
     .text('💰 → Sell', `open_sell_direct:${tokenAddress}`)
-    .text('🔍 Full Scan', `analyze_${chain}_${tokenAddress}`)
+    .text('🔍 Full Scan', `analyze_sol_${tokenAddress}`)
     .row()
-    .text('⚙️ Slippage', `buy_slippage:${chain}_${tokenAddress}`)
-    .text('⚡ Priority', `buy_priority:${chain}_${tokenAddress}`)
+    .text('⚙️ Slippage', `buy_slippage:sol_${tokenAddress}`)
+    .text('⚡ Priority', `buy_priority:sol_${tokenAddress}`)
     .row()
-    .text('🔄 Refresh', `refresh_${chain}_${tokenAddress}`)
+    .text('🔄 Refresh', `refresh_sol_${tokenAddress}`)
     .text('« Back', 'back_to_menu');
 
   await ctx.reply(message, {
@@ -1113,15 +835,12 @@ async function handleWalletImport(ctx: MyContext, privateKey: string) {
   }
 
   try {
-    const { importSolanaKeypair, importEvmKeypair, createWallet } = await import(
+    const { importSolanaKeypair, createWallet } = await import(
       '@raptor/shared'
     );
 
-    // Import keypair based on chain type
-    const isSolana = chain === 'sol';
-    const keypair = isSolana
-      ? importSolanaKeypair(privateKey.trim(), user.id)
-      : importEvmKeypair(privateKey.trim(), user.id);
+    // Solana-only build
+    const keypair = importSolanaKeypair(privateKey.trim(), user.id);
 
     // Create wallet in database
     const wallet = await createWallet({
@@ -1164,8 +883,7 @@ ${LINE}`,
     await ctx.reply(
       `❌ *Import Failed*\n\n` +
         `Invalid private key format for ${CHAIN_NAME[chain]}.\n\n` +
-        `Please make sure you're using the correct format:\n` +
-        (chain === 'sol' ? '• Base58 format for Solana' : '• Hex format for EVM chains'),
+        `Please make sure you're using Base58 format for Solana.`,
       {
         parse_mode: 'Markdown',
         reply_markup: new InlineKeyboard().text('« Back to Wallets', 'wallets'),

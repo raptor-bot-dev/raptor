@@ -106,13 +106,10 @@ export function isAutoExecuteEnabled(): boolean {
 
 /**
  * Get the default chain for new strategies
+ * v4.0: Solana-only build - always returns 'sol'
  */
-export function getDefaultChain(): 'sol' | 'eth' | 'base' | 'bsc' {
-  const chain = process.env.DEFAULT_CHAIN || 'sol';
-  if (!['sol', 'eth', 'base', 'bsc'].includes(chain)) {
-    return 'sol';
-  }
-  return chain as 'sol' | 'eth' | 'base' | 'bsc';
+export function getDefaultChain(): 'sol' {
+  return 'sol';
 }
 
 /**

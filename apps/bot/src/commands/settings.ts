@@ -32,7 +32,7 @@ interface UserSettingsData {
 const defaultSettings: UserSettingsData = {
   strategy: 'STANDARD',
   maxPositionPercent: 10,
-  chainsEnabled: ['sol', 'bsc', 'base'],
+  chainsEnabled: ['sol'],
   notifications: {
     enabled: true,
     onEntry: true,
@@ -156,17 +156,17 @@ export async function showChainsEnabled(ctx: MyContext) {
   let message = `⛓️ *Chains Enabled*\n\n`;
   message += `Select which chains to trade on:\n\n`;
 
-  for (const chain of ['sol', 'bsc', 'base', 'eth'] as Chain[]) {
+  for (const chain of ['sol'] as Chain[]) {
     const enabled = settings.chainsEnabled.includes(chain);
     const status = enabled ? '✅' : '❌';
     message += `${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}: ${status}\n`;
   }
 
-  message += '\n_Disabled chains are ignored for auto-hunt_';
+  message += '\n_Solana-only build_';
 
   const keyboard = new InlineKeyboard();
 
-  for (const chain of ['sol', 'bsc', 'base', 'eth'] as Chain[]) {
+  for (const chain of ['sol'] as Chain[]) {
     const enabled = settings.chainsEnabled.includes(chain);
     const label = enabled ? `✅ ${CHAIN_NAME[chain]}` : `❌ ${CHAIN_NAME[chain]}`;
     keyboard.text(label, `chain_toggle_${chain}`).row();

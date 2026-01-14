@@ -28,8 +28,9 @@ export async function withdrawCommand(ctx: MyContext) {
 
   for (const balance of balances) {
     if (parseFloat(balance.current_value) > 0) {
-      const token = balance.chain === 'bsc' ? 'BNB' : 'ETH';
-      const emoji = balance.chain === 'bsc' ? '🟡' : '🔵';
+      // Solana-only build
+      const token = 'SOL';
+      const emoji = '🟢';
       keyboard
         .text(
           `${emoji} ${parseFloat(balance.current_value).toFixed(4)} ${token}`,

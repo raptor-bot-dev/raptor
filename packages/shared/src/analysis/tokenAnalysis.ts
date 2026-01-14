@@ -1,14 +1,14 @@
 /**
- * Token Analysis Service for RAPTOR v2.2
+ * Token Analysis Service for RAPTOR v4.0
+ * Solana-only build
  *
  * Provides full token analysis callable from bot and executor.
  * Uses RPC calls to fetch token data and run the scorer.
  */
 
-import type { Chain, EVMChain } from '../types.js';
-import { getChainConfig } from '../chains.js';
+import type { Chain } from '../types.js';
 import { SOLANA_CONFIG } from '../constants.js';
-import { checkEVMHardStops, checkSolanaHardStops } from '../analyzer/hardStops.js';
+import { checkSolanaHardStops } from '../analyzer/hardStops.js';
 
 // Category scores (0-5 each, total max 35)
 export interface CategoryScores {
@@ -52,17 +52,13 @@ export interface TokenAnalysisResult {
  */
 export async function analyzeToken(
   tokenAddress: string,
-  chain: Chain
+  _chain: Chain
 ): Promise<TokenAnalysisResult> {
-  console.log(`[TokenAnalysis] Analyzing ${tokenAddress} on ${chain}`);
+  console.log(`[TokenAnalysis] Analyzing ${tokenAddress} on Solana`);
   const startTime = Date.now();
 
   try {
-    if (chain === 'sol') {
-      return await analyzeSolanaToken(tokenAddress);
-    } else {
-      return await analyzeEVMToken(tokenAddress, chain as EVMChain);
-    }
+    return await analyzeSolanaToken(tokenAddress);
   } catch (error) {
     console.error(`[TokenAnalysis] Error:`, error);
     return createFailedResult('Analysis failed');
@@ -128,78 +124,6 @@ async function analyzeSolanaToken(tokenAddress: string): Promise<TokenAnalysisRe
 }
 
 /**
- * Analyze EVM token
- */
-async function analyzeEVMToken(
-  tokenAddress: string,
-  chain: EVMChain
-): Promise<TokenAnalysisResult> {
-  const config = getChainConfig(chain);
-
-  try {
-    // Fetch token info and run honeypot check in parallel
-    const [tokenInfo, honeypotCheck] = await Promise.all([
-      fetchEVMTokenInfo(config.rpcUrl, tokenAddress),
-      checkEVMHoneypot(config.rpcUrl, tokenAddress, chain),
-    ]);
-
-    // Check hard stops
-    const hardStops = checkEVMHardStops({
-      isHoneypot: honeypotCheck.isHoneypot,
-      canPauseTransfers: false,
-      hasBlacklist: false,
-      isProxy: false,
-      isOpenSource: true,
-      canChangeBalance: false,
-      hasSelfDestruct: false,
-      hasHiddenOwner: false,
-      hasExternalCall: false,
-      hasTradingCooldown: false,
-    });
-
-    // Calculate category scores
-    const categories: CategoryScores = {
-      sellability: calculateSellabilityScore(honeypotCheck),
-      supplyIntegrity: 4, // Default - EVM tokens typically don't have mint authority
-      liquidityControl: calculateLiquidityScore(honeypotCheck.liquidity, chain),
-      distribution: 3, // Default - would need holder analysis
-      deployerProvenance: 3, // Default - would need deployer check
-      postLaunchControls: honeypotCheck.isRenounced ? 5 : 3,
-      executionRisk: calculateExecutionRiskScore(chain),
-    };
-
-    const total = Object.values(categories).reduce((a, b) => a + b, 0);
-    const decision = getDecision(total);
-    const reasons = buildEVMReasons(honeypotCheck);
-
-    // Format liquidity
-    const liquidityNative = Number(honeypotCheck.liquidity) / 1e18;
-    const nativeSymbol = chain === 'bsc' ? 'BNB' : 'ETH';
-
-    return {
-      total,
-      decision,
-      categories,
-      hardStops: {
-        triggered: hardStops.triggered,
-        reasons: hardStops.reasons,
-      },
-      reasons,
-      tokenInfo: {
-        name: tokenInfo.name,
-        symbol: tokenInfo.symbol,
-        liquidity: `${liquidityNative.toFixed(2)} ${nativeSymbol}`,
-        holders: 0, // Would need indexer
-        age: 'Unknown',
-      },
-    };
-  } catch (error) {
-    console.error('[TokenAnalysis] EVM analysis failed:', error);
-    return createFailedResult('EVM analysis failed');
-  }
-}
-
-/**
  * Fetch Solana mint info
  */
 async function fetchSolanaMintInfo(
@@ -248,184 +172,6 @@ async function fetchSolanaMintInfo(
 }
 
 /**
- * Fetch EVM token basic info
- */
-async function fetchEVMTokenInfo(
-  rpcUrl: string,
-  tokenAddress: string
-): Promise<{ name: string; symbol: string }> {
-  // Use eth_call to get name and symbol
-  const nameData = '0x06fdde03'; // name()
-  const symbolData = '0x95d89b41'; // symbol()
-
-  try {
-    const [nameResult, symbolResult] = await Promise.all([
-      ethCall(rpcUrl, tokenAddress, nameData),
-      ethCall(rpcUrl, tokenAddress, symbolData),
-    ]);
-
-    return {
-      name: decodeString(nameResult) || 'Unknown',
-      symbol: decodeString(symbolResult) || '???',
-    };
-  } catch {
-    return { name: 'Unknown', symbol: '???' };
-  }
-}
-
-/**
- * Check EVM token for honeypot characteristics
- */
-async function checkEVMHoneypot(
-  rpcUrl: string,
-  tokenAddress: string,
-  chain: EVMChain
-): Promise<{
-  isHoneypot: boolean;
-  buyTax: number;
-  sellTax: number;
-  liquidity: bigint;
-  isRenounced: boolean;
-}> {
-  const config = getChainConfig(chain);
-  const routerAddress = config.dexes[0]?.router;
-  const wrappedNative = config.wrappedNative;
-
-  if (!routerAddress) {
-    return { isHoneypot: true, buyTax: 0, sellTax: 0, liquidity: 0n, isRenounced: false };
-  }
-
-  try {
-    // Check if we can get a quote (basic liquidity check)
-    const amountsOutData = encodeGetAmountsOut(
-      BigInt(1e17), // 0.1 native
-      [wrappedNative, tokenAddress]
-    );
-
-    const quoteResult = await ethCall(rpcUrl, routerAddress, amountsOutData);
-
-    if (!quoteResult || quoteResult === '0x') {
-      return { isHoneypot: true, buyTax: 0, sellTax: 0, liquidity: 0n, isRenounced: false };
-    }
-
-    // Check ownership
-    const ownerData = '0x8da5cb5b'; // owner()
-    let isRenounced = false;
-    try {
-      const ownerResult = await ethCall(rpcUrl, tokenAddress, ownerData);
-      const owner = '0x' + ownerResult.slice(-40);
-      isRenounced = owner === '0x0000000000000000000000000000000000000000' ||
-                    owner === '0x000000000000000000000000000000000000dead';
-    } catch {
-      isRenounced = true; // No owner function = likely renounced
-    }
-
-    return {
-      isHoneypot: false,
-      buyTax: 0, // Would need simulation for accurate tax
-      sellTax: 0,
-      liquidity: BigInt(5e18), // Placeholder
-      isRenounced,
-    };
-  } catch (error) {
-    console.error('[TokenAnalysis] Honeypot check error:', error);
-    return { isHoneypot: true, buyTax: 0, sellTax: 0, liquidity: 0n, isRenounced: false };
-  }
-}
-
-/**
- * Make eth_call
- */
-async function ethCall(rpcUrl: string, to: string, data: string): Promise<string> {
-  const response = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'eth_call',
-      params: [{ to, data }, 'latest'],
-    }),
-  });
-
-  interface RpcResponse {
-    result?: string;
-    error?: { message: string };
-  }
-
-  const result = (await response.json()) as RpcResponse;
-  if (result.error) {
-    throw new Error(result.error.message);
-  }
-  return result.result || '0x';
-}
-
-/**
- * Encode getAmountsOut call
- */
-function encodeGetAmountsOut(amountIn: bigint, path: string[]): string {
-  // getAmountsOut(uint256,address[])
-  const selector = '0xd06ca61f';
-  const amountHex = amountIn.toString(16).padStart(64, '0');
-  const pathOffset = '0000000000000000000000000000000000000000000000000000000000000040';
-  const pathLength = path.length.toString(16).padStart(64, '0');
-  const pathAddresses = path.map(addr => addr.slice(2).padStart(64, '0')).join('');
-
-  return selector + amountHex + pathOffset + pathLength + pathAddresses;
-}
-
-/**
- * Decode string from ABI-encoded result
- */
-function decodeString(hex: string): string {
-  try {
-    if (!hex || hex === '0x' || hex.length < 130) return '';
-    // Skip offset (32 bytes) and length (32 bytes), then decode
-    const length = parseInt(hex.slice(66, 130), 16);
-    const strHex = hex.slice(130, 130 + length * 2);
-    return Buffer.from(strHex, 'hex').toString('utf8').replace(/\0/g, '');
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Calculate sellability score based on honeypot check
- */
-function calculateSellabilityScore(check: { isHoneypot: boolean; buyTax: number; sellTax: number }): number {
-  if (check.isHoneypot) return 0;
-  let score = 5;
-  if (check.sellTax > 10) score -= 3;
-  else if (check.sellTax > 5) score -= 2;
-  else if (check.sellTax > 2) score -= 1;
-  return Math.max(0, score);
-}
-
-/**
- * Calculate liquidity score
- */
-function calculateLiquidityScore(liquidity: bigint, chain: Chain): number {
-  const liquidityNative = Number(liquidity) / 1e18;
-  const minLiquidity = chain === 'eth' ? 2 : chain === 'bsc' ? 3 : 1;
-
-  if (liquidityNative >= minLiquidity * 5) return 5;
-  if (liquidityNative >= minLiquidity * 2) return 4;
-  if (liquidityNative >= minLiquidity) return 3;
-  if (liquidityNative >= minLiquidity / 2) return 2;
-  return 1;
-}
-
-/**
- * Calculate execution risk score based on chain
- */
-function calculateExecutionRiskScore(chain: Chain): number {
-  // ETH has highest gas costs
-  if (chain === 'eth') return 2;
-  // BSC and Base are cheaper
-  return 4;
-}
-
-/**
  * Get decision from total score
  */
 function getDecision(total: number): ScoreDecision {
@@ -446,22 +192,6 @@ function buildReasons(
   if (mintInfo.freezeAuthority) reasons.push('Freeze authority active');
   if (mintInfo.mintAuthority) reasons.push('Mint authority active');
   if (categories.liquidityControl < 3) reasons.push('Low liquidity');
-  return reasons;
-}
-
-/**
- * Build reasons list for EVM
- */
-function buildEVMReasons(check: {
-  isHoneypot: boolean;
-  buyTax: number;
-  sellTax: number;
-  isRenounced: boolean;
-}): string[] {
-  const reasons: string[] = [];
-  if (check.isHoneypot) reasons.push('Potential honeypot');
-  if (check.sellTax > 5) reasons.push(`High sell tax: ${check.sellTax}%`);
-  if (!check.isRenounced) reasons.push('Ownership not renounced');
   return reasons;
 }
 

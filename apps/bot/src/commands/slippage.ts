@@ -19,9 +19,6 @@ interface SlippageSettings {
 
 const defaultSlippageSettings: Record<Chain, SlippageSettings> = {
   sol: { auto: true, slippageBps: 1500 },   // 15% default for memecoin volatility
-  bsc: { auto: true, slippageBps: 1200 },   // 12%
-  base: { auto: true, slippageBps: 1000 },  // 10%
-  eth: { auto: true, slippageBps: 500 },    // 5% (less volatile typically)
 };
 
 // In-memory slippage settings (would be in database)
@@ -53,7 +50,7 @@ export async function slippageCommand(ctx: MyContext) {
   let message = '🎚️ *Slippage Settings*\n\n';
   message += 'Configure slippage tolerance per chain:\n\n';
 
-  for (const chain of ['sol', 'bsc', 'base', 'eth'] as Chain[]) {
+  for (const chain of ['sol'] as Chain[]) {
     const s = settings[chain];
     const mode = s.auto ? '🔄 Auto' : bpsToPercent(s.slippageBps);
     message += `${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}: ${mode}\n`;
@@ -81,7 +78,7 @@ export async function showSlippage(ctx: MyContext) {
   let message = '🎚️ *Slippage Settings*\n\n';
   message += 'Configure slippage tolerance per chain:\n\n';
 
-  for (const chain of ['sol', 'bsc', 'base', 'eth'] as Chain[]) {
+  for (const chain of ['sol'] as Chain[]) {
     const s = settings[chain];
     const mode = s.auto ? '🔄 Auto' : bpsToPercent(s.slippageBps);
     message += `${CHAIN_EMOJI[chain]} ${CHAIN_NAME[chain]}: ${mode}\n`;
@@ -118,16 +115,8 @@ export async function showChainSlippage(ctx: MyContext, chain: Chain) {
   message += 'quote and execution.\n\n';
 
   message += '*Recommendations:*\n';
-  if (chain === 'sol') {
-    message += '• Fresh launches: 15-25%\n';
-    message += '• Established tokens: 5-10%\n';
-  } else if (chain === 'eth') {
-    message += '• Most tokens: 3-5%\n';
-    message += '• Volatile tokens: 10-15%\n';
-  } else {
-    message += '• Fresh launches: 10-20%\n';
-    message += '• Established tokens: 5-10%\n';
-  }
+  message += '• Fresh launches: 15-25%\n';
+  message += '• Established tokens: 5-10%\n';
 
   message += '\n_Auto mode adjusts based on token volatility_';
 

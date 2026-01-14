@@ -15,8 +15,7 @@
     "@raptor/executor": "workspace:*",
     "@solana/web3.js": "^1.95.0",
     "grammy": "^1.21.0",
-    "@grammyjs/runner": "^2.0.3",
-    "ethers": "^6.11.0"
+    "@grammyjs/runner": "^2.0.3"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

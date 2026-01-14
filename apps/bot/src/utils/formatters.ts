@@ -36,23 +36,16 @@ export const STATUS = {
   PREMIUM: '🟣',
 } as const;
 
-/** Chain-specific colors */
+/** Chain-specific colors (Solana-only build) */
 export const CHAIN_STATUS: Record<Chain, string> = {
   sol: '🟢',
-  bsc: '🟡',
-  base: '🔵',
-  eth: '🟣',
 };
 
 /**
- * v3.4 (F1): Chain icons for wallet display
- * Using distinct symbols for each chain
+ * v3.4 (F1): Chain icons for wallet display - Solana-only
  */
 export const CHAIN_WALLET_ICON: Record<Chain, string> = {
   sol: '◎',  // Solana symbol
-  bsc: '⬡',  // Hexagon for BNB
-  base: '🔷', // Blue diamond for Base
-  eth: '⟠',  // Ethereum symbol
 };
 
 /**
@@ -1004,7 +997,8 @@ Select chains to enable for trading.
 
 `;
 
-  const allChains: Chain[] = ['sol', 'bsc', 'base', 'eth'];
+  // Solana-only build
+  const allChains: Chain[] = ['sol'];
 
   for (const chain of allChains) {
     const isEnabled = enabledChains.includes(chain);

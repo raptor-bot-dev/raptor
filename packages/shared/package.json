@@ -21,10 +21,6 @@
       "import": "./dist/supabase.js",
       "types": "./dist/supabase.d.ts"
     },
-    "./chains": {
-      "import": "./dist/chains.js",
-      "types": "./dist/chains.d.ts"
-    },
     "./logger": {
       "import": "./dist/logger.js",
       "types": "./dist/logger.d.ts"
@@ -39,7 +35,6 @@
     "@solana/web3.js": "^1.95.0",
     "@supabase/supabase-js": "^2.39.0",
     "bs58": "^6.0.0",
-    "ethers": "^6.9.0",
     "winston": "^3.11.0"
   },
   "devDependencies": {

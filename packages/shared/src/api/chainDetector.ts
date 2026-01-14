@@ -1,30 +1,21 @@
 /**
- * Chain Auto-Detection Service for RAPTOR
+ * Chain Detection Service for RAPTOR
+ * v4.0: Solana-only build
  *
- * Detects which blockchain a token/address belongs to:
- * - Uses DexScreener API for quick detection
- * - Falls back to parallel RPC calls if needed
- * - Caches results for performance
+ * Validates Solana addresses and provides chain detection interface
  */
 
 import type { Chain } from '../types.js';
-import * as dexscreener from './dexscreener.js';
 
 // Cache for chain detection results
 const cache = new Map<string, { chains: Chain[]; expiry: number }>();
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
-// Address format patterns
+// Solana address format pattern
 const SOLANA_ADDRESS_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-const EVM_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
-// RPC endpoints for fallback detection
-const RPC_ENDPOINTS: Record<Chain, string> = {
-  sol: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-  bsc: process.env.BSC_RPC_URL || 'https://bsc-dataseed1.binance.org',
-  base: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
-  eth: process.env.ETH_RPC_URL || 'https://eth.llamarpc.com',
-};
+// RPC endpoint for Solana
+const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
 export interface ChainDetectionResult {
   chains: Chain[];
@@ -34,7 +25,8 @@ export interface ChainDetectionResult {
 }
 
 /**
- * Detect which chains an address exists on
+ * Detect which chain an address exists on
+ * v4.0: Solana-only, returns 'sol' for valid addresses
  */
 export async function detectChain(address: string): Promise<ChainDetectionResult> {
   // Check cache first
@@ -50,11 +42,8 @@ export async function detectChain(address: string): Promise<ChainDetectionResult
     };
   }
 
-  // Determine address type from format
-  const isSolana = SOLANA_ADDRESS_REGEX.test(address);
-  const isEvm = EVM_ADDRESS_REGEX.test(address);
-
-  if (!isSolana && !isEvm) {
+  // Check if valid Solana address
+  if (!SOLANA_ADDRESS_REGEX.test(address)) {
     return {
       chains: [],
       primaryChain: null,
@@ -63,109 +52,24 @@ export async function detectChain(address: string): Promise<ChainDetectionResult
     };
   }
 
-  // For Solana addresses, it's definitely on Solana
-  if (isSolana) {
-    const chains: Chain[] = ['sol'];
-    cache.set(cacheKey, { chains, expiry: Date.now() + CACHE_TTL });
-    return {
-      chains,
-      primaryChain: 'sol',
-      confidence: 'high',
-      addressType: 'token',
-    };
-  }
+  // Valid Solana address
+  const chains: Chain[] = ['sol'];
+  cache.set(cacheKey, { chains, expiry: Date.now() + CACHE_TTL });
 
-  // For EVM addresses, check DexScreener first
-  const dexChains = await dexscreener.detectTokenChains(address);
-
-  if (dexChains.length > 0) {
-    cache.set(cacheKey, { chains: dexChains, expiry: Date.now() + CACHE_TTL });
-    return {
-      chains: dexChains,
-      primaryChain: dexChains[0],
-      confidence: 'high',
-      addressType: 'token',
-    };
-  }
-
-  // Fallback: parallel RPC calls to check if contract exists
-  const evmChains: Chain[] = ['eth', 'bsc', 'base'];
-  const detectedChains = await detectViaRpc(address, evmChains);
-
-  if (detectedChains.length > 0) {
-    cache.set(cacheKey, { chains: detectedChains, expiry: Date.now() + CACHE_TTL });
-    return {
-      chains: detectedChains,
-      primaryChain: detectedChains[0],
-      confidence: 'medium',
-      addressType: detectedChains.length > 0 ? 'token' : 'wallet',
-    };
-  }
-
-  // No contract found - might be a wallet address
   return {
-    chains: evmChains, // Wallet addresses work on all EVM chains
-    primaryChain: 'eth', // Default to ETH
-    confidence: 'low',
-    addressType: 'wallet',
+    chains,
+    primaryChain: 'sol',
+    confidence: 'high',
+    addressType: 'token',
   };
 }
 
 /**
- * Detect chains via RPC calls (checks if contract code exists)
+ * Check if Solana account exists
  */
-async function detectViaRpc(address: string, chains: Chain[]): Promise<Chain[]> {
-  const results = await Promise.all(
-    chains.map(async (chain) => {
-      const hasContract = await checkContractExists(address, chain);
-      return hasContract ? chain : null;
-    })
-  );
-
-  return results.filter((c): c is Chain => c !== null);
-}
-
-/**
- * Check if a contract exists on a specific chain
- */
-async function checkContractExists(address: string, chain: Chain): Promise<boolean> {
-  if (chain === 'sol') {
-    return checkSolanaAccount(address);
-  }
-  return checkEvmContract(address, chain);
-}
-
-/**
- * Check if EVM address has contract code
- */
-async function checkEvmContract(address: string, chain: Chain): Promise<boolean> {
+export async function checkSolanaAccount(address: string): Promise<boolean> {
   try {
-    const response = await fetch(RPC_ENDPOINTS[chain], {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'eth_getCode',
-        params: [address, 'latest'],
-      }),
-      signal: AbortSignal.timeout(3000),
-    });
-
-    const json = await response.json() as { result?: string };
-    // Contract has code if result is not empty (0x or 0x0)
-    return !!json.result && json.result !== '0x' && json.result !== '0x0';
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Check if Solana account exists and is a token mint
- */
-async function checkSolanaAccount(address: string): Promise<boolean> {
-  try {
-    const response = await fetch(RPC_ENDPOINTS.sol, {
+    const response = await fetch(SOLANA_RPC, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -186,18 +90,19 @@ async function checkSolanaAccount(address: string): Promise<boolean> {
 
 /**
  * Get the address format type
+ * v4.0: Only 'solana' or 'unknown'
  */
-export function getAddressFormat(address: string): 'solana' | 'evm' | 'unknown' {
+export function getAddressFormat(address: string): 'solana' | 'unknown' {
   if (SOLANA_ADDRESS_REGEX.test(address)) return 'solana';
-  if (EVM_ADDRESS_REGEX.test(address)) return 'evm';
   return 'unknown';
 }
 
 /**
  * Validate address format
+ * v4.0: Only validates Solana addresses
  */
 export function isValidAddress(address: string): boolean {
-  return SOLANA_ADDRESS_REGEX.test(address) || EVM_ADDRESS_REGEX.test(address);
+  return SOLANA_ADDRESS_REGEX.test(address);
 }
 
 /**

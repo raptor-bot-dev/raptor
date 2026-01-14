@@ -89,7 +89,7 @@ export async function getTokenInfo(
   // Combine data from all sources
   const tokenInfo: TokenInfo = {
     address,
-    chain: detectedChain || 'eth',
+    chain: detectedChain || 'sol',
     name: dexResult?.name || birdeyeData?.name || 'Unknown',
     symbol: dexResult?.symbol || birdeyeData?.symbol || '???',
     decimals: birdeyeData?.decimals,

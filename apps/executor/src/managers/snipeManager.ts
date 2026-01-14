@@ -127,10 +127,9 @@ export class SnipeManager {
     tokenAddress: string;
     amount: string;
   }): { valid: boolean; error?: string } {
-    // Check chain
-    const validChains: Chain[] = ['bsc', 'base', 'eth', 'sol'];
-    if (!validChains.includes(params.chain)) {
-      return { valid: false, error: 'Invalid chain' };
+    // Check chain - Solana-only build
+    if (params.chain !== 'sol') {
+      return { valid: false, error: 'Only Solana is supported' };
     }
 
     // Check amount
@@ -139,32 +138,18 @@ export class SnipeManager {
       return { valid: false, error: 'Invalid amount' };
     }
 
-    // Check minimum amounts by chain
-    const minAmounts: Record<Chain, number> = {
-      bsc: 0.05, // 0.05 BNB
-      base: 0.01, // 0.01 ETH
-      eth: 0.05, // 0.05 ETH (higher gas)
-      sol: 0.1, // 0.1 SOL
-    };
-
-    if (amount < minAmounts[params.chain]) {
+    // Check minimum amount
+    const minAmount = 0.1; // 0.1 SOL
+    if (amount < minAmount) {
       return {
         valid: false,
-        error: `Minimum amount is ${minAmounts[params.chain]} ${params.chain === 'sol' ? 'SOL' : params.chain === 'bsc' ? 'BNB' : 'ETH'}`,
+        error: `Minimum amount is ${minAmount} SOL`,
       };
     }
 
-    // Validate token address format
-    if (params.chain === 'sol') {
-      // Solana address validation (base58, 32-44 chars)
-      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(params.tokenAddress)) {
-        return { valid: false, error: 'Invalid Solana token address' };
-      }
-    } else {
-      // EVM address validation
-      if (!/^0x[a-fA-F0-9]{40}$/.test(params.tokenAddress)) {
-        return { valid: false, error: 'Invalid EVM token address' };
-      }
+    // Validate Solana token address format (base58, 32-44 chars)
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(params.tokenAddress)) {
+      return { valid: false, error: 'Invalid Solana token address' };
     }
 
     return { valid: true };

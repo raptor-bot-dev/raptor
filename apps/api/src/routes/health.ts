@@ -8,11 +8,8 @@ import {
   createRpcCheck,
   supabase,
   SOLANA_CONFIG,
-  BSC_CONFIG,
-  BASE_CONFIG,
 } from '@raptor/shared';
 import { Connection } from '@solana/web3.js';
-import { ethers } from 'ethers';
 
 // Create health checker for API
 const healthChecker = new HealthChecker('1.0.0');
@@ -67,44 +64,6 @@ healthChecker.addCheck(
         ),
       ]);
       return slot as number;
-    } catch {
-      return null;
-    }
-  })
-);
-
-// Add BSC RPC check
-healthChecker.addCheck(
-  'bsc-rpc',
-  createRpcCheck('bsc', async () => {
-    try {
-      const provider = new ethers.JsonRpcProvider(BSC_CONFIG.rpcUrl);
-      const blockNumber = await Promise.race([
-        provider.getBlockNumber(),
-        new Promise<null>((_, reject) =>
-          setTimeout(() => reject(new Error('Timeout')), 5000)
-        ),
-      ]);
-      return blockNumber as number;
-    } catch {
-      return null;
-    }
-  })
-);
-
-// Add Base RPC check
-healthChecker.addCheck(
-  'base-rpc',
-  createRpcCheck('base', async () => {
-    try {
-      const provider = new ethers.JsonRpcProvider(BASE_CONFIG.rpcUrl);
-      const blockNumber = await Promise.race([
-        provider.getBlockNumber(),
-        new Promise<null>((_, reject) =>
-          setTimeout(() => reject(new Error('Timeout')), 5000)
-        ),
-      ]);
-      return blockNumber as number;
     } catch {
       return null;
     }

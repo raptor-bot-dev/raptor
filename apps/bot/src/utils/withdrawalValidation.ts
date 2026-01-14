@@ -1,5 +1,6 @@
 /**
- * Withdrawal Validation for RAPTOR v2.3.1
+ * Withdrawal Validation for RAPTOR v4.0
+ * Solana-only build
  *
  * SECURITY: H-007 - Comprehensive withdrawal validation
  * - Amount bounds checking
@@ -8,19 +9,15 @@
  * - Rate limiting for withdrawals
  */
 
-import { ethers } from 'ethers';
 import { PublicKey } from '@solana/web3.js';
 import type { Chain } from '@raptor/shared';
 
 /**
- * Minimum withdrawal amounts per chain (in native token)
+ * Minimum withdrawal amounts (in SOL)
  * Prevents dust withdrawals that cost more in gas than value
  */
 const MIN_WITHDRAWAL: Record<Chain, number> = {
   sol: 0.001,  // ~$0.15 at $150/SOL
-  bsc: 0.001,  // ~$0.60 at $600/BNB
-  base: 0.0001, // ~$0.30 at $3000/ETH
-  eth: 0.0001,  // ~$0.30 at $3000/ETH
 };
 
 /**
@@ -28,9 +25,6 @@ const MIN_WITHDRAWAL: Record<Chain, number> = {
  */
 const MAX_WITHDRAWAL: Record<Chain, number> = {
   sol: 1000,
-  bsc: 100,
-  base: 10,
-  eth: 10,
 };
 
 /**
@@ -53,6 +47,11 @@ export function validateWithdrawal(
   toAddress: string,
   availableBalance: number
 ): WithdrawalValidation {
+  // Solana-only build
+  if (chain !== 'sol') {
+    return { valid: false, error: 'This build is Solana-only' };
+  }
+
   const warnings: string[] = [];
 
   // Parse and validate amount
@@ -67,20 +66,20 @@ export function validateWithdrawal(
   }
 
   // Check minimum
-  const minAmount = MIN_WITHDRAWAL[chain];
+  const minAmount = MIN_WITHDRAWAL.sol;
   if (parsedAmount < minAmount) {
     return {
       valid: false,
-      error: `Minimum withdrawal is ${minAmount} ${getChainSymbol(chain)}`,
+      error: `Minimum withdrawal is ${minAmount} SOL`,
     };
   }
 
   // Check maximum
-  const maxAmount = MAX_WITHDRAWAL[chain];
+  const maxAmount = MAX_WITHDRAWAL.sol;
   if (parsedAmount > maxAmount) {
     return {
       valid: false,
-      error: `Maximum withdrawal per transaction is ${maxAmount} ${getChainSymbol(chain)}. Please split into multiple withdrawals.`,
+      error: `Maximum withdrawal per transaction is ${maxAmount} SOL. Please split into multiple withdrawals.`,
     };
   }
 
@@ -88,7 +87,7 @@ export function validateWithdrawal(
   if (parsedAmount > availableBalance) {
     return {
       valid: false,
-      error: `Insufficient balance. Available: ${availableBalance.toFixed(6)} ${getChainSymbol(chain)}`,
+      error: `Insufficient balance. Available: ${availableBalance.toFixed(6)} SOL`,
     };
   }
 
@@ -98,24 +97,21 @@ export function validateWithdrawal(
   }
 
   // Validate address
-  const addressValidation = validateAddress(chain, toAddress);
+  const addressValidation = validateAddress('sol', toAddress);
   if (!addressValidation.valid) {
     return { valid: false, error: addressValidation.error };
   }
-
-  // Check for self-transfer (waste of gas)
-  // This would need the user's address passed in for full check
 
   return {
     valid: true,
     warnings: warnings.length > 0 ? warnings : undefined,
     sanitizedAmount: parsedAmount.toFixed(9), // Standardize precision
-    sanitizedAddress: addressValidation.checksumAddress || toAddress,
+    sanitizedAddress: toAddress,
   };
 }
 
 /**
- * Validate address format for chain
+ * Validate address format for Solana
  */
 export function validateAddress(
   chain: Chain,
@@ -126,12 +122,7 @@ export function validateAddress(
   }
 
   const trimmed = address.trim();
-
-  if (chain === 'sol') {
-    return validateSolanaAddress(trimmed);
-  } else {
-    return validateEvmAddress(trimmed);
-  }
+  return validateSolanaAddress(trimmed);
 }
 
 /**
@@ -161,65 +152,14 @@ function validateSolanaAddress(
 }
 
 /**
- * Validate EVM address with checksum
- */
-function validateEvmAddress(
-  address: string
-): { valid: boolean; error?: string; checksumAddress?: string } {
-  // Check basic format
-  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-    return { valid: false, error: 'Invalid EVM address format' };
-  }
-
-  // Check for zero address
-  if (address === '0x0000000000000000000000000000000000000000') {
-    return { valid: false, error: 'Cannot withdraw to zero address' };
-  }
-
-  // Checksum validation
-  try {
-    const checksumAddress = ethers.getAddress(address);
-    return { valid: true, checksumAddress };
-  } catch {
-    return { valid: false, error: 'Invalid EVM address checksum' };
-  }
-}
-
-/**
- * Get native token symbol for chain
- */
-function getChainSymbol(chain: Chain): string {
-  switch (chain) {
-    case 'sol': return 'SOL';
-    case 'bsc': return 'BNB';
-    default: return 'ETH';
-  }
-}
-
-/**
- * Check if address is a known contract (potential scam)
- * This would query the blockchain in production
+ * Check if address is a known contract (Solana doesn't have same distinction)
  */
 export async function isContractAddress(
-  chain: Chain,
-  address: string,
-  provider?: ethers.JsonRpcProvider
+  _chain: Chain,
+  _address: string
 ): Promise<boolean> {
-  if (chain === 'sol') {
-    // Solana doesn't have the same contract distinction
-    return false;
-  }
-
-  if (!provider) {
-    return false; // Can't check without provider
-  }
-
-  try {
-    const code = await provider.getCode(address);
-    return code !== '0x'; // Has code = is contract
-  } catch {
-    return false;
-  }
+  // Solana doesn't have the same contract distinction as EVM
+  return false;
 }
 
 /**

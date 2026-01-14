@@ -110,10 +110,10 @@ export function formatTradeMonitorMessage(
     entry_market_cap_usd,
   } = monitor;
 
-  // Chain info
+  // Chain info (Solana-only)
   const chain = monitor.chain || 'sol';
-  const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : chain === 'base' ? 'ETH' : 'ETH';
-  const nativeSymbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
+  const chainName = 'SOL';
+  const nativeSymbol = 'SOL';
 
   // v3.5: Calculate MCap-based change %
   let changePercent = 0;
@@ -178,29 +178,12 @@ export function formatTradeMonitorMessage(
   message += `Current: ${formatUsd(market_cap_usd)} | Value: ${formatNative(current_value_sol)}\n`;
   message += `Change: ${changeSign}${changePercent.toFixed(2)}%\n\n`;
 
-  // v3.5: Chain-specific links
-  const chainPath = chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bsc' : chain === 'base' ? 'base' : 'ethereum';
-  const dexUrl = `https://dexscreener.com/${chainPath}/${mint}`;
-  const dextoolsPath = chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bnb' : chain === 'base' ? 'base' : 'ether';
-  const dextoolsUrl = `https://www.dextools.io/app/en/${dextoolsPath}/pair-explorer/${mint}`;
-  const birdeyeUrl = `https://birdeye.so/token/${mint}?chain=${chainPath}`;
-
-  // Chain-specific explorer
-  let explorerUrl: string;
-  let explorerName: string;
-  if (chain === 'sol') {
-    explorerUrl = `https://solscan.io/token/${mint}`;
-    explorerName = 'Solscan';
-  } else if (chain === 'eth') {
-    explorerUrl = `https://etherscan.io/token/${mint}`;
-    explorerName = 'Etherscan';
-  } else if (chain === 'base') {
-    explorerUrl = `https://basescan.org/token/${mint}`;
-    explorerName = 'Basescan';
-  } else {
-    explorerUrl = `https://bscscan.com/token/${mint}`;
-    explorerName = 'BscScan';
-  }
+  // Solana links
+  const dexUrl = `https://dexscreener.com/solana/${mint}`;
+  const dextoolsUrl = `https://www.dextools.io/app/en/solana/pair-explorer/${mint}`;
+  const birdeyeUrl = `https://birdeye.so/token/${mint}?chain=solana`;
+  const explorerUrl = `https://solscan.io/token/${mint}`;
+  const explorerName = 'Solscan';
 
   message += `🔗 [DexScreener](${dexUrl}) • [Birdeye](${birdeyeUrl}) • [Dextools](${dextoolsUrl}) • [${explorerName}](${explorerUrl})\n\n`;
 
@@ -231,7 +214,7 @@ export function buildTradeMonitorKeyboard(mint: string, monitorId: number, chain
  * Build Sell Panel keyboard
  * v3.2: Added 10% option and improved layout
  * v3.4: Added refresh button and chain support for correct navigation
- * v3.5: Chain-aware callbacks, GWEI button for EVM
+ * Solana-only build
  */
 export function buildSellPanelKeyboard(
   mint: string,
@@ -239,7 +222,6 @@ export function buildSellPanelKeyboard(
   chain: Chain = 'sol'
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  const isEvm = chain !== 'sol';
 
   if (hasBalance) {
     keyboard
@@ -256,10 +238,9 @@ export function buildSellPanelKeyboard(
   }
 
   keyboard
-    // v3.5: Include chain in callback data
+    // Solana-only: Include chain in callback data
     .text('⚙️ Slippage', `sell_slippage:${chain}_${mint}`)
-    // v3.5: GWEI for EVM, Priority for SOL
-    .text(isEvm ? '⛽ GWEI' : '⚡ Priority', `sell_priority:${chain}_${mint}`)
+    .text('⚡ Priority', `sell_priority:${chain}_${mint}`)
     // v3.4: Added refresh button with chain
     .text('🔄 Refresh', `refresh_sell:${chain}_${mint}`)
     .row()
@@ -325,7 +306,7 @@ export interface SellPanelTokenInfo {
  * Format the Sell Panel message
  * v3.2: Added USD pricing
  * v3.4: Added token info (name, mcap, liquidity, links) like buy panel
- * v3.5: Chain-aware with GWEI for EVM, chain-specific explorers
+ * Solana-only build
  */
 export function formatSellPanelMessage(
   tokenSymbol: string,
@@ -334,14 +315,13 @@ export function formatSellPanelMessage(
   estimatedValueSol: number | null,
   currentPriceSol: number | null,
   slippageBps: number = 500,
-  gasOrPriority: number | string = 100000, // v3.5: Can be GWEI (number) for EVM or SOL (number) for Solana
+  gasOrPriority: number | string = 100000, // Priority fee in lamports for Solana
   solPriceUsd: number = 180,
   chain: Chain = 'sol',
   tokenInfo?: SellPanelTokenInfo,
-  securityInfo?: { honeypot?: boolean; blacklist?: boolean } // v3.5: Security for EVM
+  _securityInfo?: { honeypot?: boolean; blacklist?: boolean } // Unused in Solana-only build
 ): string {
-  const isEvm = chain !== 'sol';
-  const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BSC' : chain === 'base' ? 'BASE' : 'ETH';
+  const chainName = 'SOL';
 
   // v3.4 FIX: Handle small token values properly
   const formatTokens = (n: number | null) => {
@@ -398,7 +378,7 @@ export function formatSellPanelMessage(
     message += `_Wallet has no tokens for this address_\n\n`;
   } else {
     message += `Tokens: ${formatTokens(tokensHeld)}\n`;
-    const nativeSymbol = chain === 'sol' ? 'SOL' : 'ETH';
+    const nativeSymbol = 'SOL';
     message += `Est. Value: ${estimatedValueSol !== null ? estimatedValueSol.toFixed(4) : '—'} ${nativeSymbol}`;
     if (estimatedValueSol !== null) {
       message += ` (${formatSolToUsd(estimatedValueSol)})`;
@@ -411,50 +391,19 @@ export function formatSellPanelMessage(
     message += `\n`;
   }
 
-  // v3.5: Settings section with GWEI for EVM
+  // Settings section
   message += `*Settings*\n`;
   message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   message += `Slippage: ${(slippageBps / 100).toFixed(1)}%\n`;
-  if (isEvm) {
-    message += `Gas: ${gasOrPriority} GWEI\n\n`;
-  } else {
-    const priorityVal = typeof gasOrPriority === 'number' ? (gasOrPriority / 1_000_000).toFixed(4) : gasOrPriority;
-    message += `Priority: ${priorityVal} SOL\n\n`;
-  }
+  const priorityVal = typeof gasOrPriority === 'number' ? (gasOrPriority / 1_000_000).toFixed(4) : gasOrPriority;
+  message += `Priority: ${priorityVal} SOL\n\n`;
 
-  // v3.5: Security section for EVM chains
-  if (isEvm && securityInfo) {
-    message += `*Security*\n`;
-    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    const honeypotStatus = securityInfo.honeypot === undefined ? '⚠️ Unknown' : (securityInfo.honeypot ? '❌ Yes' : '✅ No');
-    const blacklistStatus = securityInfo.blacklist === undefined ? '⚠️ Unknown' : (securityInfo.blacklist ? '❌ Yes' : '✅ No');
-    message += `Honeypot: ${honeypotStatus}\n`;
-    message += `Blacklist: ${blacklistStatus}\n\n`;
-  }
-
-  // v3.5: Chain-specific links
-  const chainPath = chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bsc' : chain === 'base' ? 'base' : 'ethereum';
-  const dexUrl = `https://dexscreener.com/${chainPath}/${mint}`;
-  const dextoolsPath = chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bnb' : chain === 'base' ? 'base' : 'ether';
-  const dextoolsUrl = `https://www.dextools.io/app/en/${dextoolsPath}/pair-explorer/${mint}`;
-  const birdeyeUrl = `https://birdeye.so/token/${mint}?chain=${chainPath}`;
-
-  // v3.5: Chain-specific explorer
-  let explorerUrl: string;
-  let explorerName: string;
-  if (chain === 'sol') {
-    explorerUrl = `https://solscan.io/token/${mint}`;
-    explorerName = 'Solscan';
-  } else if (chain === 'eth') {
-    explorerUrl = `https://etherscan.io/token/${mint}`;
-    explorerName = 'Etherscan';
-  } else if (chain === 'base') {
-    explorerUrl = `https://basescan.org/token/${mint}`;
-    explorerName = 'Basescan';
-  } else {
-    explorerUrl = `https://bscscan.com/token/${mint}`;
-    explorerName = 'BscScan';
-  }
+  // Solana links
+  const dexUrl = `https://dexscreener.com/solana/${mint}`;
+  const dextoolsUrl = `https://www.dextools.io/app/en/solana/pair-explorer/${mint}`;
+  const birdeyeUrl = `https://birdeye.so/token/${mint}?chain=solana`;
+  const explorerUrl = `https://solscan.io/token/${mint}`;
+  const explorerName = 'Solscan';
 
   message += `🔗 [DexScreener](${dexUrl}) • [Dextools](${dextoolsUrl}) • [Birdeye](${birdeyeUrl}) • [${explorerName}](${explorerUrl})\n\n`;
 
@@ -786,7 +735,7 @@ export async function handleManualRefresh(
  * Handle opening sell panel
  * v3.2 FIX: Sets current_view to 'SELL' to prevent refresh loop overwrites
  * v3.4: Added token info fetching (name, mcap, liquidity, links)
- * v3.5: Uses chain_settings for slippage/gas, GWEI for EVM, optional chain param
+ * Solana-only build
  */
 export async function openSellPanel(
   api: Api<RawApi>,
@@ -797,7 +746,7 @@ export async function openSellPanel(
   executor: SolanaExecutor,
   slippageBps?: number,
   priorityFee?: number,
-  chainOverride?: Chain // v3.5: Optional chain override when monitor doesn't exist
+  chainOverride?: Chain // Optional chain override when monitor doesn't exist
 ): Promise<void> {
   try {
     // v3.2 FIX: Set view state to SELL FIRST
@@ -806,18 +755,14 @@ export async function openSellPanel(
 
     // Get monitor for token info
     const monitor = await getUserMonitor(userId, mint);
-    // v3.5: Use chainOverride if provided, else from monitor, else default to sol
-    const chain = chainOverride ?? monitor?.chain ?? 'sol';
-    const isEvm = chain !== 'sol';
+    const chain: Chain = 'sol';
 
-    // v3.5: Use chain_settings for per-chain slippage/gas
+    // Use chain_settings for slippage/priority
     const { getOrCreateChainSettings } = await import('@raptor/shared');
     const chainSettings = await getOrCreateChainSettings(userId, chain);
     const effectiveSlippage = slippageBps ?? chainSettings.sell_slippage_bps ?? 500;
-    // v3.5: Use gas_gwei for EVM, priority_sol for Solana
-    const gasOrPriority = isEvm
-      ? (chainSettings.gas_gwei ?? 'Auto')
-      : (priorityFee ?? Math.round((chainSettings.priority_sol ?? 0.0001) * 1_000_000));
+    // Priority fee in lamports
+    const gasOrPriority = priorityFee ?? Math.round((chainSettings.priority_sol ?? 0.0001) * 1_000_000);
 
     // Fetch current balance - MUST use user's wallet
     let tokensHeld: number | null = null;
@@ -825,8 +770,6 @@ export async function openSellPanel(
     let currentPriceSol: number | null = null;
     // v3.4: Token info for enhanced sell panel
     let tokenInfo: SellPanelTokenInfo = {};
-    // v3.5: Security info for EVM chains
-    let securityInfo: { honeypot?: boolean; blacklist?: boolean } | undefined;
 
     try {
       // Get user's active wallet
@@ -873,24 +816,8 @@ export async function openSellPanel(
         console.warn('[TradeMonitor] DexScreener fetch failed:', dexErr);
       }
 
-      // v3.5: Fetch security info for EVM chains
-      if (isEvm) {
-        try {
-          const { goplus } = await import('@raptor/shared');
-          const security = await goplus.getTokenSecurity(mint, chain);
-          if (security) {
-            securityInfo = {
-              honeypot: security.isHoneypot,
-              blacklist: security.isBlacklisted,
-            };
-          }
-        } catch {
-          // Security fetch failed, leave undefined
-        }
-      }
-
-      // Fallback to Jupiter for price if DexScreener didn't have it (SOL only)
-      if (currentPriceSol === null && !isEvm) {
+      // Fallback to Jupiter for price if DexScreener didn't have it
+      if (currentPriceSol === null) {
         try {
           const quote = await executor.jupiter.getQuote(
             mint,
@@ -929,8 +856,7 @@ export async function openSellPanel(
       gasOrPriority,
       180, // Native price USD (TODO: fetch dynamically)
       chain,
-      tokenInfo,
-      securityInfo
+      tokenInfo
     );
     const keyboard = buildSellPanelKeyboard(mint, hasBalance, chain);
 
@@ -988,7 +914,7 @@ export async function closeMonitorAfterSell(
  * Open sell panel as a NEW message (not editing existing)
  * v3.2: Used when opening sell directly from token card
  * v3.4: Added token info, refresh button, chain support
- * v3.5: Uses chain_settings for slippage/gas, GWEI for EVM
+ * Solana-only build
  */
 export async function openSellPanelNew(
   api: Api<RawApi>,
@@ -998,19 +924,17 @@ export async function openSellPanelNew(
   executor: SolanaExecutor,
   slippageBps?: number,
   priorityFee?: number,
-  chain: Chain = 'sol'
+  _chain: Chain = 'sol'
 ): Promise<void> {
   try {
-    const isEvm = chain !== 'sol';
+    const chain: Chain = 'sol';
 
-    // v3.5: Use chain_settings for per-chain slippage/gas
+    // Use chain_settings for slippage/priority
     const { getOrCreateChainSettings } = await import('@raptor/shared');
     const chainSettings = await getOrCreateChainSettings(userId, chain);
     const effectiveSlippage = slippageBps ?? chainSettings.sell_slippage_bps ?? 500;
-    // v3.5: Use gas_gwei for EVM, priority_sol for Solana
-    const gasOrPriority = isEvm
-      ? (chainSettings.gas_gwei ?? 'Auto')
-      : (priorityFee ?? Math.round((chainSettings.priority_sol ?? 0.0001) * 1_000_000));
+    // Priority fee in lamports
+    const gasOrPriority = priorityFee ?? Math.round((chainSettings.priority_sol ?? 0.0001) * 1_000_000);
 
     // Fetch current balance from user's wallet
     let tokensHeld: number | null = null;
@@ -1019,8 +943,6 @@ export async function openSellPanelNew(
     let tokenSymbol = 'TOKEN';
     // v3.4: Token info for enhanced sell panel
     let tokenInfo: SellPanelTokenInfo = {};
-    // v3.5: Security info for EVM chains
-    let securityInfo: { honeypot?: boolean; blacklist?: boolean } | undefined;
 
     try {
       // Try to get token symbol from cache/API
@@ -1077,24 +999,8 @@ export async function openSellPanelNew(
         console.warn('[TradeMonitor] DexScreener fetch failed:', dexErr);
       }
 
-      // v3.5: Fetch security info for EVM chains
-      if (isEvm) {
-        try {
-          const { goplus } = await import('@raptor/shared');
-          const security = await goplus.getTokenSecurity(mint, chain);
-          if (security) {
-            securityInfo = {
-              honeypot: security.isHoneypot,
-              blacklist: security.isBlacklisted,
-            };
-          }
-        } catch {
-          // Security fetch failed, leave undefined
-        }
-      }
-
-      // Fallback to Jupiter for price if DexScreener didn't have it (SOL only)
-      if (currentPriceSol === null && !isEvm) {
+      // Fallback to Jupiter for price if DexScreener didn't have it
+      if (currentPriceSol === null) {
         try {
           const quote = await executor.jupiter.getQuote(
             mint,
@@ -1132,8 +1038,7 @@ export async function openSellPanelNew(
       gasOrPriority,
       180, // Native price USD (TODO: fetch dynamically)
       chain,
-      tokenInfo,
-      securityInfo
+      tokenInfo
     );
 
     // v3.5: Use buildSellPanelKeyboard which now includes chain in callbacks

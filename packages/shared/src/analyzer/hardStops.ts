@@ -1,16 +1,9 @@
 /**
- * Hard Stops Module for RAPTOR v2.2
+ * Hard Stops Module for RAPTOR v4.0
+ * Solana-only build
  *
  * Absolute blockers that prevent trading regardless of score.
  * If ANY hard stop triggers, the token is UNSAFE.
- *
- * EVM Hard Stops:
- * - honeypot: Can't sell
- * - transfer_pausable: Owner can pause transfers
- * - blacklist: Owner can blacklist addresses
- * - proxy+not_open_source: Upgradeable without verified source
- * - owner_change_balance: Owner can modify balances
- * - selfdestruct: Contract can be destroyed
  *
  * Solana Hard Stops:
  * - freeze_authority: Can freeze token accounts
@@ -20,18 +13,6 @@
 
 import type { Chain } from '../types.js';
 
-// Hard stop types for EVM chains
-export type EVMHardStop =
-  | 'honeypot'
-  | 'transfer_pausable'
-  | 'blacklist'
-  | 'proxy_not_open_source'
-  | 'owner_change_balance'
-  | 'selfdestruct'
-  | 'hidden_owner'
-  | 'external_call'
-  | 'trading_cooldown';
-
 // Hard stop types for Solana
 export type SolanaHardStop =
   | 'freeze_authority'
@@ -39,22 +20,10 @@ export type SolanaHardStop =
   | 'permanent_delegate'
   | 'close_authority';
 
-export type HardStop = EVMHardStop | SolanaHardStop;
+export type HardStop = SolanaHardStop;
 
 // Human-readable descriptions for hard stops
 export const HARD_STOP_DESCRIPTIONS: Record<HardStop, string> = {
-  // EVM
-  honeypot: 'Cannot sell tokens - honeypot detected',
-  transfer_pausable: 'Owner can pause all transfers',
-  blacklist: 'Owner can blacklist addresses from trading',
-  proxy_not_open_source: 'Upgradeable contract without verified source code',
-  owner_change_balance: 'Owner can modify token balances',
-  selfdestruct: 'Contract can be destroyed, taking funds with it',
-  hidden_owner: 'Hidden owner with elevated privileges',
-  external_call: 'Dangerous external calls detected',
-  trading_cooldown: 'Trading cooldown restricts selling',
-
-  // Solana
   freeze_authority: 'Can freeze your token account',
   mint_authority: 'Can mint unlimited tokens, diluting value',
   permanent_delegate: 'Third party can transfer your tokens',
@@ -66,19 +35,10 @@ export type HardStopSeverity = 'CRITICAL' | 'HIGH';
 
 export const HARD_STOP_SEVERITY: Record<HardStop, HardStopSeverity> = {
   // Critical - immediate danger of losing funds
-  honeypot: 'CRITICAL',
-  selfdestruct: 'CRITICAL',
-  owner_change_balance: 'CRITICAL',
   freeze_authority: 'CRITICAL',
   permanent_delegate: 'CRITICAL',
 
   // High - significant risk
-  transfer_pausable: 'HIGH',
-  blacklist: 'HIGH',
-  proxy_not_open_source: 'HIGH',
-  hidden_owner: 'HIGH',
-  external_call: 'HIGH',
-  trading_cooldown: 'HIGH',
   mint_authority: 'HIGH',
   close_authority: 'HIGH',
 };
@@ -114,88 +74,11 @@ export interface HardStopResult {
   chain: Chain;
 }
 
-export interface EVMContractInfo {
-  isHoneypot: boolean;
-  canPauseTransfers: boolean;
-  hasBlacklist: boolean;
-  isProxy: boolean;
-  isOpenSource: boolean;
-  canChangeBalance: boolean;
-  hasSelfDestruct: boolean;
-  hasHiddenOwner: boolean;
-  hasExternalCall: boolean;
-  hasTradingCooldown: boolean;
-}
-
 export interface SolanaTokenInfo {
   hasFreezeAuthority: boolean;
   hasMintAuthority: boolean;
   hasPermanentDelegate: boolean;
   hasCloseAuthority: boolean;
-}
-
-/**
- * Check EVM hard stops
- */
-export function checkEVMHardStops(info: EVMContractInfo): HardStopResult {
-  const stops: EVMHardStop[] = [];
-  const reasons: string[] = [];
-
-  if (info.isHoneypot) {
-    stops.push('honeypot');
-    reasons.push(HARD_STOP_DESCRIPTIONS.honeypot);
-  }
-
-  if (info.canPauseTransfers) {
-    stops.push('transfer_pausable');
-    reasons.push(HARD_STOP_DESCRIPTIONS.transfer_pausable);
-  }
-
-  if (info.hasBlacklist) {
-    stops.push('blacklist');
-    reasons.push(HARD_STOP_DESCRIPTIONS.blacklist);
-  }
-
-  if (info.isProxy && !info.isOpenSource) {
-    stops.push('proxy_not_open_source');
-    reasons.push(HARD_STOP_DESCRIPTIONS.proxy_not_open_source);
-  }
-
-  if (info.canChangeBalance) {
-    stops.push('owner_change_balance');
-    reasons.push(HARD_STOP_DESCRIPTIONS.owner_change_balance);
-  }
-
-  if (info.hasSelfDestruct) {
-    stops.push('selfdestruct');
-    reasons.push(HARD_STOP_DESCRIPTIONS.selfdestruct);
-  }
-
-  if (info.hasHiddenOwner) {
-    stops.push('hidden_owner');
-    reasons.push(HARD_STOP_DESCRIPTIONS.hidden_owner);
-  }
-
-  if (info.hasExternalCall) {
-    stops.push('external_call');
-    reasons.push(HARD_STOP_DESCRIPTIONS.external_call);
-  }
-
-  if (info.hasTradingCooldown) {
-    stops.push('trading_cooldown');
-    reasons.push(HARD_STOP_DESCRIPTIONS.trading_cooldown);
-  }
-
-  // Determine highest severity
-  const severity = determineSeverity(stops);
-
-  return {
-    triggered: stops.length > 0,
-    stops,
-    reasons,
-    severity,
-    chain: 'bsc', // Will be set by caller
-  };
 }
 
 /**
@@ -238,40 +121,22 @@ export function checkSolanaHardStops(info: SolanaTokenInfo): HardStopResult {
 }
 
 /**
- * Check hard stops for any chain
+ * Check hard stops for Solana
  */
 export function checkHardStops(
-  chain: Chain,
-  evmInfo?: EVMContractInfo,
+  _chain: Chain,
   solanaInfo?: SolanaTokenInfo
 ): HardStopResult {
-  if (chain === 'sol') {
-    if (!solanaInfo) {
-      return {
-        triggered: false,
-        stops: [],
-        reasons: [],
-        severity: null,
-        chain: 'sol',
-      };
-    }
-    return checkSolanaHardStops(solanaInfo);
-  }
-
-  // EVM chains
-  if (!evmInfo) {
+  if (!solanaInfo) {
     return {
       triggered: false,
       stops: [],
       reasons: [],
       severity: null,
-      chain,
+      chain: 'sol',
     };
   }
-
-  const result = checkEVMHardStops(evmInfo);
-  result.chain = chain;
-  return result;
+  return checkSolanaHardStops(solanaInfo);
 }
 
 /**
@@ -298,21 +163,8 @@ export function hasHardStop(result: HardStopResult, stop: HardStop): boolean {
 }
 
 /**
- * Get all hard stops for a chain type
+ * Get all hard stops for Solana
  */
-export function getHardStopsForChain(chain: Chain): HardStop[] {
-  if (chain === 'sol') {
-    return ['freeze_authority', 'mint_authority', 'permanent_delegate', 'close_authority'];
-  }
-  return [
-    'honeypot',
-    'transfer_pausable',
-    'blacklist',
-    'proxy_not_open_source',
-    'owner_change_balance',
-    'selfdestruct',
-    'hidden_owner',
-    'external_call',
-    'trading_cooldown',
-  ];
+export function getHardStopsForChain(_chain: Chain): HardStop[] {
+  return ['freeze_authority', 'mint_authority', 'permanent_delegate', 'close_authority'];
 }

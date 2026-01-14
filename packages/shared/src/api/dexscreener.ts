@@ -13,19 +13,14 @@ import type { Chain } from '../types.js';
 const DEXSCREENER_API = 'https://api.dexscreener.com/latest';
 
 // Map DexScreener chain IDs to our chain types
+// v4.0: Solana-only build
 const CHAIN_MAP: Record<string, Chain> = {
   solana: 'sol',
-  bsc: 'bsc',
-  base: 'base',
-  ethereum: 'eth',
 };
 
 // Reverse map for lookups
 const CHAIN_TO_DEXSCREENER: Record<Chain, string> = {
   sol: 'solana',
-  bsc: 'bsc',
-  base: 'base',
-  eth: 'ethereum',
 };
 
 // DexScreener pair response types
@@ -299,7 +294,7 @@ export async function detectTokenChains(address: string): Promise<Chain[]> {
 function normalizePairData(pair: DexScreenerPair): DexScreenerTokenData {
   return {
     address: pair.baseToken.address,
-    chain: CHAIN_MAP[pair.chainId] || 'eth',
+    chain: CHAIN_MAP[pair.chainId] || 'sol',
     name: pair.baseToken.name,
     symbol: pair.baseToken.symbol,
     priceUsd: parseFloat(pair.priceUsd) || 0,
