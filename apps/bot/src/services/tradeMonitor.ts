@@ -93,6 +93,7 @@ function getCachedPrice(mint: string): number | null {
  * Format the Trade Monitor message
  * v3.2: Added USD pricing throughout
  * v3.4: Added embedded chart links (E5)
+ * v3.5: New compact layout with MCap-based position tracking
  */
 export function formatTradeMonitorMessage(
   monitor: TradeMonitor,
@@ -104,135 +105,107 @@ export function formatTradeMonitorMessage(
     mint,
     route_label,
     entry_amount_sol,
-    entry_tokens,
-    entry_price_sol,
-    current_price_sol,
-    current_tokens,
     current_value_sol,
-    pnl_sol,
-    pnl_percent,
     market_cap_usd,
-    liquidity_usd,
-    entry_market_cap_usd,  // v3.4.1: Entry market cap
+    entry_market_cap_usd,
   } = monitor;
 
-  // v3.4.1: Calculate MCap-based PnL if we have both entry and current MCap
-  const mcapPnlPercent = entry_market_cap_usd && market_cap_usd
-    ? ((market_cap_usd - entry_market_cap_usd) / entry_market_cap_usd) * 100
-    : null;
+  // Chain info
+  const chain = monitor.chain || 'sol';
+  const chainName = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : chain === 'base' ? 'ETH' : 'ETH';
+  const nativeSymbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
 
-  // Use MCap PnL if available, otherwise fall back to SOL-based PnL
-  const displayPnlPercent = mcapPnlPercent !== null ? mcapPnlPercent : (pnl_percent || 0);
+  // v3.5: Calculate MCap-based change %
+  let changePercent = 0;
+  if (entry_market_cap_usd && market_cap_usd && entry_market_cap_usd > 0) {
+    changePercent = ((market_cap_usd - entry_market_cap_usd) / entry_market_cap_usd) * 100;
+  } else if (entry_amount_sol && current_value_sol && entry_amount_sol > 0) {
+    // Fallback to value-based change
+    changePercent = ((current_value_sol - entry_amount_sol) / entry_amount_sol) * 100;
+  }
+  const changeSign = changePercent >= 0 ? '+' : '';
 
-  // PnL emoji
-  const pnlEmoji = displayPnlPercent >= 0 ? '🟢' : '🔴';
-  const pnlSign = displayPnlPercent >= 0 ? '+' : '';
-
-  // Format numbers
-  const formatSol = (n: number | null) => (n !== null ? n.toFixed(4) : '—');
-  // v3.4 FIX: Handle small token values properly (avoid showing 0.00 for small amounts)
-  const formatTokens = (n: number | null) => {
-    if (n === null) return '—';
-    if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(2) + 'B';
-    if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
-    if (n >= 1_000) return (n / 1_000).toFixed(2) + 'K';
-    if (n < 0.01 && n > 0) return n.toFixed(6);
-    return n.toFixed(2);
-  };
-  const formatUsd = (n: number | null) => {
-    if (n === null) return '—';
+  // Format helpers
+  const formatUsd = (n: number | null | undefined): string => {
+    if (n === null || n === undefined) return '—';
     if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(2) + 'M';
     if (n >= 1_000) return '$' + (n / 1_000).toFixed(2) + 'K';
     return '$' + n.toFixed(2);
   };
-  // v3.4 FIX: Avoid scientific notation for very small prices
-  const formatPrice = (n: number | null) => {
-    if (n === null) return '—';
-    if (n === 0) return '0';
-    if (n < 0.000000001) return '<0.000000001';
-    if (n < 0.000001) return n.toFixed(12);
-    if (n < 0.001) return n.toFixed(9);
-    return n.toFixed(6);
-  };
-  const solToUsd = (sol: number | null) => {
-    if (sol === null) return '—';
-    return formatUsd(sol * solPriceUsd);
+
+  const formatNative = (n: number | null | undefined): string => {
+    if (n === null || n === undefined) return '—';
+    return n.toFixed(4) + ' ' + nativeSymbol;
   };
 
-  // Calculate USD values
-  const entryValueUsd = entry_amount_sol !== null ? entry_amount_sol * solPriceUsd : null;
-  const currentValueUsd = current_value_sol !== null ? current_value_sol * solPriceUsd : null;
-  const pnlUsd = pnl_sol !== null ? pnl_sol * solPriceUsd : null;
-
-  // v3.4.1: Show full CA for tap-to-copy
-
-  // v3.4.2 FIX: Calculate position age (timer) with null check for NaN bug
+  // v3.5: Calculate position age (timer)
   let timerStr = '—';
   if (monitor.created_at) {
     const openedAt = new Date(monitor.created_at);
     if (!isNaN(openedAt.getTime())) {
       const now = new Date();
       const ageMs = now.getTime() - openedAt.getTime();
-      const hours = Math.floor(ageMs / (1000 * 60 * 60));
+      const days = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((ageMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
       const minutes = Math.floor((ageMs % (1000 * 60 * 60)) / (1000 * 60));
-      timerStr = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+
+      if (days > 0) {
+        timerStr = `${days}d ${hours}h`;
+      } else if (hours > 0) {
+        timerStr = `${hours}h ${minutes}m`;
+      } else {
+        timerStr = `${minutes}m`;
+      }
     }
   }
 
-  // v3.4.1: Add line under heading
+  // Build message with new layout
   let message = `📊 *TRADE MONITOR*\n`;
   message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-  message += `*${token_symbol || 'Unknown'}* ${token_name ? `(${token_name})` : ''}\n`;
-  message += `\`${mint}\`\n`;  // v3.4.1: Full CA for tap-to-copy
-  message += `Route: ${route_label || 'Unknown'} • ⏱️ Open: ${timerStr}\n\n`;
 
-  message += `━━━━ *Position* ━━━━\n`;
-  message += `Entry: ${formatSol(entry_amount_sol)} SOL (${solToUsd(entry_amount_sol)})\n`;
-  message += `Tokens: ${formatTokens(current_tokens ?? entry_tokens)}\n`;
-  message += `Value: ${formatSol(current_value_sol)} SOL (${solToUsd(current_value_sol)})\n\n`;
+  // Token name | Chain
+  const displayName = token_name || token_symbol || 'Unknown';
+  message += `*${displayName}* | ${chainName}\n`;
+  message += `\`${mint}\`\n\n`;
 
-  // v3.4.2: Removed Price section - using Market Cap as primary indicator
+  // Route and Timer on separate lines
+  message += `🛸 Route: ${route_label || 'Unknown'}\n`;
+  message += `⏱️ Open: ${timerStr}\n\n`;
 
-  // v3.4.1: Show Market Cap section prominently with entry MCap
-  if (entry_market_cap_usd || market_cap_usd) {
-    message += `━━━━ *Market Cap* ━━━━\n`;
-    if (entry_market_cap_usd) message += `Entry: ${formatUsd(entry_market_cap_usd)}\n`;
-    if (market_cap_usd) message += `Current: ${formatUsd(market_cap_usd)}\n`;
-    if (mcapPnlPercent !== null) {
-      message += `Change: ${pnlSign}${mcapPnlPercent.toFixed(2)}%\n`;
-    }
-    message += '\n';
-  }
+  // Position section
+  message += `*Position*\n`;
+  message += `Entry: ${formatUsd(entry_market_cap_usd)} | Value: ${formatNative(entry_amount_sol)}\n`;
+  message += `Current: ${formatUsd(market_cap_usd)} | Value: ${formatNative(current_value_sol)}\n`;
+  message += `Change: ${changeSign}${changePercent.toFixed(2)}%\n\n`;
 
-  message += `━━━━ *P&L* ━━━━\n`;
-  // v3.4.2: Show only % and USD (removed SOL display)
-  message += `${pnlEmoji} ${pnlSign}${displayPnlPercent.toFixed(2)}%\n`;
-  if (pnlUsd !== null) {
-    message += `${pnlSign}${formatUsd(Math.abs(pnlUsd))} USD\n`;
-  }
-  message += '\n';
-
-  if (liquidity_usd) {
-    message += `💧 *Liquidity:* ${formatUsd(liquidity_usd)}\n\n`;
-  }
-
-  // v3.4: Add embedded chart links (E5)
-  const chain = monitor.chain || 'sol';
+  // v3.5: Chain-specific links
   const chainPath = chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bsc' : chain === 'base' ? 'base' : 'ethereum';
   const dexUrl = `https://dexscreener.com/${chainPath}/${mint}`;
-  const birdeyeUrl = chain === 'sol' ? `https://birdeye.so/token/${mint}` : null;
-  const solscanUrl = chain === 'sol' ? `https://solscan.io/token/${mint}` : null;
+  const dextoolsPath = chain === 'sol' ? 'solana' : chain === 'bsc' ? 'bnb' : chain === 'base' ? 'base' : 'ether';
+  const dextoolsUrl = `https://www.dextools.io/app/en/${dextoolsPath}/pair-explorer/${mint}`;
+  const birdeyeUrl = `https://birdeye.so/token/${mint}?chain=${chainPath}`;
 
-  let links = `🔗 [DexScreener](${dexUrl})`;
-  if (birdeyeUrl) links += ` • [Birdeye](${birdeyeUrl})`;
-  if (solscanUrl) links += ` • [Solscan](${solscanUrl})`;
-  message += links + `\n\n`;
+  // Chain-specific explorer
+  let explorerUrl: string;
+  let explorerName: string;
+  if (chain === 'sol') {
+    explorerUrl = `https://solscan.io/token/${mint}`;
+    explorerName = 'Solscan';
+  } else if (chain === 'eth') {
+    explorerUrl = `https://etherscan.io/token/${mint}`;
+    explorerName = 'Etherscan';
+  } else if (chain === 'base') {
+    explorerUrl = `https://basescan.org/token/${mint}`;
+    explorerName = 'Basescan';
+  } else {
+    explorerUrl = `https://bscscan.com/token/${mint}`;
+    explorerName = 'BscScan';
+  }
 
-  // Last updated timestamp
-  const lastRefresh = new Date(monitor.last_refreshed_at);
-  const currentTime = new Date();
-  const ageSeconds = Math.floor((currentTime.getTime() - lastRefresh.getTime()) / 1000);
-  message += `_Updated ${ageSeconds}s ago_`;
+  message += `🔗 [DexScreener](${dexUrl}) • [Birdeye](${birdeyeUrl}) • [Dextools](${dextoolsUrl}) • [${explorerName}](${explorerUrl})\n\n`;
+
+  // Auto refresh status
+  message += `AUTO Refresh ON`;
 
   return message;
 }
