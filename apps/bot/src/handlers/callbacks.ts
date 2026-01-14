@@ -642,35 +642,28 @@ Tap "Show Keys" to reveal your private keys.`;
     }
 
     // ============================================
-    // v3.3 FIX (Issue 2): MANUAL SETTINGS HANDLERS
+    // v3.5: CHAIN-SPECIFIC MANUAL SETTINGS
     // ============================================
 
-    // Main manual settings menu
+    // Main manual settings menu - now shows chain selection
     if (data === 'settings_manual') {
-      const { getOrCreateManualSettings } = await import('@raptor/shared');
-      const settings = await getOrCreateManualSettings(user.id);
-
-      const slippagePercent = (settings.default_slippage_bps / 100).toFixed(1);
-      const prioritySol = settings.default_priority_sol;
-      const buyAmounts = settings.quick_buy_amounts as number[];
-
-      // v3.4 FIX: Standard line format (35 chars, below heading only)
       const message =
         `⚙️ *MANUAL SETTINGS*\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `*Default Slippage:* ${slippagePercent}%\n` +
-        `*Default Priority:* ${prioritySol} SOL\n` +
-        `*Quick Buy Amounts:* ${buyAmounts.join(', ')} SOL\n\n` +
-        `_These settings apply to manual buy/sell trades._`;
+        `Configure trading settings per chain:\n` +
+        `• Buy/Sell Slippage\n` +
+        `• Gas (EVM) / Priority (SOL)\n` +
+        `• Anti-MEV Protection\n\n` +
+        `_Select a chain to configure:_`;
 
       const keyboard = new InlineKeyboard()
-        .text(`Slippage: ${slippagePercent}%`, 'manual_slippage_menu')
+        .text('☀️ Solana', 'chain_settings:sol')
+        .text('Ξ Ethereum', 'chain_settings:eth')
         .row()
-        .text(`Priority: ${prioritySol} SOL`, 'manual_priority_menu')
+        .text('🔵 Base', 'chain_settings:base')
+        .text('🟡 BSC', 'chain_settings:bsc')
         .row()
-        .text('Quick Buy Amounts', 'manual_buyamts_menu')
-        .row()
-        .text('Back', 'menu');
+        .text('« Back', 'menu');
 
       await ctx.editMessageText(message, {
         parse_mode: 'Markdown',
@@ -678,6 +671,592 @@ Tap "Show Keys" to reveal your private keys.`;
       });
       return;
     }
+
+    // Chain-specific settings panel
+    if (data.startsWith('chain_settings:')) {
+      const chain = data.replace('chain_settings:', '');
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, chain);
+
+      const chainNames: Record<string, string> = {
+        sol: 'SOLANA',
+        eth: 'ETHEREUM',
+        base: 'BASE',
+        bsc: 'BSC',
+      };
+      const chainEmoji: Record<string, string> = {
+        sol: '☀️',
+        eth: 'Ξ',
+        base: '🔵',
+        bsc: '🟡',
+      };
+      const mevProvider: Record<string, string> = {
+        sol: 'Jito',
+        eth: 'Flashbots',
+        base: 'Flashbots',
+        bsc: 'bloXroute',
+      };
+
+      const buySlip = (settings.buy_slippage_bps / 100).toFixed(1);
+      const sellSlip = (settings.sell_slippage_bps / 100).toFixed(1);
+      const mevStatus = settings.anti_mev_enabled ? '✅ Enabled' : '❌ Disabled';
+
+      let gasLine = '';
+      if (chain === 'sol') {
+        gasLine = `*Priority Fee:* ${settings.priority_sol} SOL`;
+      } else {
+        gasLine = `*Gas Price:* ${settings.gas_gwei} gwei`;
+      }
+
+      const message =
+        `${chainEmoji[chain]} *${chainNames[chain]} SETTINGS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Slippage*\n` +
+        `Buy: ${buySlip}%\n` +
+        `Sell: ${sellSlip}%\n\n` +
+        `${gasLine}\n\n` +
+        `*Anti-MEV (${mevProvider[chain]})*\n` +
+        `${mevStatus}`;
+
+      const keyboard = new InlineKeyboard()
+        .text(`Buy Slip: ${buySlip}%`, `chain_buy_slip:${chain}`)
+        .text(`Sell Slip: ${sellSlip}%`, `chain_sell_slip:${chain}`)
+        .row();
+
+      if (chain === 'sol') {
+        keyboard.text(`Priority: ${settings.priority_sol} SOL`, `chain_priority:${chain}`);
+      } else {
+        keyboard.text(`Gas: ${settings.gas_gwei} gwei`, `chain_gas:${chain}`);
+      }
+      keyboard.row();
+
+      keyboard
+        .text(settings.anti_mev_enabled ? '✅ Anti-MEV' : '❌ Anti-MEV', `chain_mev_toggle:${chain}`)
+        .row()
+        .text('🔄 Reset to Defaults', `chain_reset:${chain}`)
+        .row()
+        .text('« Back', 'settings_manual');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Buy slippage selection for chain
+    if (data.startsWith('chain_buy_slip:')) {
+      const chain = data.replace('chain_buy_slip:', '');
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, chain);
+      const currentBps = settings.buy_slippage_bps;
+
+      const message =
+        `*BUY SLIPPAGE - ${chain.toUpperCase()}*\n\n` +
+        `Current: ${(currentBps / 100).toFixed(1)}%\n\n` +
+        `_Higher = more likely to execute_\n` +
+        `_Lower = better price or fail_`;
+
+      const keyboard = new InlineKeyboard()
+        .text(currentBps === 100 ? '> 1%' : '1%', `set_chain_buy_slip:${chain}_100`)
+        .text(currentBps === 300 ? '> 3%' : '3%', `set_chain_buy_slip:${chain}_300`)
+        .text(currentBps === 500 ? '> 5%' : '5%', `set_chain_buy_slip:${chain}_500`)
+        .row()
+        .text(currentBps === 1000 ? '> 10%' : '10%', `set_chain_buy_slip:${chain}_1000`)
+        .text(currentBps === 1500 ? '> 15%' : '15%', `set_chain_buy_slip:${chain}_1500`)
+        .text(currentBps === 2000 ? '> 20%' : '20%', `set_chain_buy_slip:${chain}_2000`)
+        .row()
+        .text('Custom', `chain_buy_slip_custom:${chain}`)
+        .row()
+        .text('« Back', `chain_settings:${chain}`);
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Set buy slippage value
+    if (data.startsWith('set_chain_buy_slip:')) {
+      const parts = data.replace('set_chain_buy_slip:', '').split('_');
+      const chain = parts[0];
+      const bps = parseInt(parts[1]);
+
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: user.id, chain, buySlippageBps: bps });
+
+      await ctx.answerCallbackQuery({ text: `✓ Buy slippage set to ${(bps / 100).toFixed(1)}%` });
+
+      // Return to chain settings panel
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, chain);
+
+      const chainNames: Record<string, string> = { sol: 'SOLANA', eth: 'ETHEREUM', base: 'BASE', bsc: 'BSC' };
+      const chainEmoji: Record<string, string> = { sol: '☀️', eth: 'Ξ', base: '🔵', bsc: '🟡' };
+      const mevProvider: Record<string, string> = { sol: 'Jito', eth: 'Flashbots', base: 'Flashbots', bsc: 'bloXroute' };
+
+      const buySlip = (settings.buy_slippage_bps / 100).toFixed(1);
+      const sellSlip = (settings.sell_slippage_bps / 100).toFixed(1);
+      const mevStatus = settings.anti_mev_enabled ? '✅ Enabled' : '❌ Disabled';
+      const gasLine = chain === 'sol' ? `*Priority Fee:* ${settings.priority_sol} SOL` : `*Gas Price:* ${settings.gas_gwei} gwei`;
+
+      const message =
+        `${chainEmoji[chain]} *${chainNames[chain]} SETTINGS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Slippage*\n` +
+        `Buy: ${buySlip}%\n` +
+        `Sell: ${sellSlip}%\n\n` +
+        `${gasLine}\n\n` +
+        `*Anti-MEV (${mevProvider[chain]})*\n` +
+        `${mevStatus}`;
+
+      const keyboard = new InlineKeyboard()
+        .text(`Buy Slip: ${buySlip}%`, `chain_buy_slip:${chain}`)
+        .text(`Sell Slip: ${sellSlip}%`, `chain_sell_slip:${chain}`)
+        .row();
+      if (chain === 'sol') {
+        keyboard.text(`Priority: ${settings.priority_sol} SOL`, `chain_priority:${chain}`);
+      } else {
+        keyboard.text(`Gas: ${settings.gas_gwei} gwei`, `chain_gas:${chain}`);
+      }
+      keyboard.row()
+        .text(settings.anti_mev_enabled ? '✅ Anti-MEV' : '❌ Anti-MEV', `chain_mev_toggle:${chain}`)
+        .row()
+        .text('🔄 Reset to Defaults', `chain_reset:${chain}`)
+        .row()
+        .text('« Back', 'settings_manual');
+
+      await ctx.editMessageText(message, { parse_mode: 'Markdown', reply_markup: keyboard });
+      return;
+    }
+
+    // Sell slippage selection for chain
+    if (data.startsWith('chain_sell_slip:')) {
+      const chain = data.replace('chain_sell_slip:', '');
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, chain);
+      const currentBps = settings.sell_slippage_bps;
+
+      const message =
+        `*SELL SLIPPAGE - ${chain.toUpperCase()}*\n\n` +
+        `Current: ${(currentBps / 100).toFixed(1)}%\n\n` +
+        `_Higher = more likely to execute_\n` +
+        `_Lower = better price or fail_`;
+
+      const keyboard = new InlineKeyboard()
+        .text(currentBps === 100 ? '> 1%' : '1%', `set_chain_sell_slip:${chain}_100`)
+        .text(currentBps === 300 ? '> 3%' : '3%', `set_chain_sell_slip:${chain}_300`)
+        .text(currentBps === 500 ? '> 5%' : '5%', `set_chain_sell_slip:${chain}_500`)
+        .row()
+        .text(currentBps === 1000 ? '> 10%' : '10%', `set_chain_sell_slip:${chain}_1000`)
+        .text(currentBps === 1500 ? '> 15%' : '15%', `set_chain_sell_slip:${chain}_1500`)
+        .text(currentBps === 2000 ? '> 20%' : '20%', `set_chain_sell_slip:${chain}_2000`)
+        .row()
+        .text('Custom', `chain_sell_slip_custom:${chain}`)
+        .row()
+        .text('« Back', `chain_settings:${chain}`);
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Set sell slippage value
+    if (data.startsWith('set_chain_sell_slip:')) {
+      const parts = data.replace('set_chain_sell_slip:', '').split('_');
+      const chain = parts[0];
+      const bps = parseInt(parts[1]);
+
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: user.id, chain, sellSlippageBps: bps });
+
+      await ctx.answerCallbackQuery({ text: `✓ Sell slippage set to ${(bps / 100).toFixed(1)}%` });
+
+      // Return to chain settings - redirect to chain_settings handler
+      // Simulate the callback by calling the handler logic
+      const newData = `chain_settings:${chain}`;
+      // Re-trigger chain settings panel
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, chain);
+
+      const chainNames: Record<string, string> = { sol: 'SOLANA', eth: 'ETHEREUM', base: 'BASE', bsc: 'BSC' };
+      const chainEmoji: Record<string, string> = { sol: '☀️', eth: 'Ξ', base: '🔵', bsc: '🟡' };
+      const mevProvider: Record<string, string> = { sol: 'Jito', eth: 'Flashbots', base: 'Flashbots', bsc: 'bloXroute' };
+
+      const buySlip = (settings.buy_slippage_bps / 100).toFixed(1);
+      const sellSlip = (settings.sell_slippage_bps / 100).toFixed(1);
+      const mevStatus = settings.anti_mev_enabled ? '✅ Enabled' : '❌ Disabled';
+      const gasLine = chain === 'sol' ? `*Priority Fee:* ${settings.priority_sol} SOL` : `*Gas Price:* ${settings.gas_gwei} gwei`;
+
+      const message =
+        `${chainEmoji[chain]} *${chainNames[chain]} SETTINGS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Slippage*\n` +
+        `Buy: ${buySlip}%\n` +
+        `Sell: ${sellSlip}%\n\n` +
+        `${gasLine}\n\n` +
+        `*Anti-MEV (${mevProvider[chain]})*\n` +
+        `${mevStatus}`;
+
+      const keyboard = new InlineKeyboard()
+        .text(`Buy Slip: ${buySlip}%`, `chain_buy_slip:${chain}`)
+        .text(`Sell Slip: ${sellSlip}%`, `chain_sell_slip:${chain}`)
+        .row();
+      if (chain === 'sol') {
+        keyboard.text(`Priority: ${settings.priority_sol} SOL`, `chain_priority:${chain}`);
+      } else {
+        keyboard.text(`Gas: ${settings.gas_gwei} gwei`, `chain_gas:${chain}`);
+      }
+      keyboard.row()
+        .text(settings.anti_mev_enabled ? '✅ Anti-MEV' : '❌ Anti-MEV', `chain_mev_toggle:${chain}`)
+        .row()
+        .text('🔄 Reset to Defaults', `chain_reset:${chain}`)
+        .row()
+        .text('« Back', 'settings_manual');
+
+      await ctx.editMessageText(message, { parse_mode: 'Markdown', reply_markup: keyboard });
+      return;
+    }
+
+    // Gas price selection (EVM chains)
+    if (data.startsWith('chain_gas:')) {
+      const chain = data.replace('chain_gas:', '');
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, chain);
+      const currentGwei = settings.gas_gwei || 0;
+
+      // Different presets per chain
+      const presets: Record<string, number[]> = {
+        eth: [20, 30, 50, 75, 100, 150],
+        base: [0.05, 0.1, 0.2, 0.5, 1, 2],
+        bsc: [3, 5, 7, 10, 15, 20],
+      };
+      const chainPresets = presets[chain] || [5, 10, 20, 30, 50, 100];
+
+      const message =
+        `*GAS PRICE - ${chain.toUpperCase()}*\n\n` +
+        `Current: ${currentGwei} gwei\n\n` +
+        `_Higher gas = faster execution_\n` +
+        `_Lower gas = cheaper but slower_`;
+
+      const keyboard = new InlineKeyboard();
+      for (let i = 0; i < chainPresets.length; i += 3) {
+        const row = chainPresets.slice(i, i + 3);
+        for (const gwei of row) {
+          keyboard.text(currentGwei === gwei ? `> ${gwei}` : `${gwei}`, `set_chain_gas:${chain}_${gwei}`);
+        }
+        keyboard.row();
+      }
+      keyboard
+        .text('Custom', `chain_gas_custom:${chain}`)
+        .row()
+        .text('« Back', `chain_settings:${chain}`);
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Set gas value
+    if (data.startsWith('set_chain_gas:')) {
+      const parts = data.replace('set_chain_gas:', '').split('_');
+      const chain = parts[0];
+      const gwei = parseFloat(parts[1]);
+
+      const { updateChainSettings, getOrCreateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: user.id, chain, gasGwei: gwei });
+
+      await ctx.answerCallbackQuery({ text: `✓ Gas price set to ${gwei} gwei` });
+
+      // Return to chain settings panel
+      const settings = await getOrCreateChainSettings(user.id, chain);
+
+      const chainNames: Record<string, string> = { sol: 'SOLANA', eth: 'ETHEREUM', base: 'BASE', bsc: 'BSC' };
+      const chainEmoji: Record<string, string> = { sol: '☀️', eth: 'Ξ', base: '🔵', bsc: '🟡' };
+      const mevProvider: Record<string, string> = { sol: 'Jito', eth: 'Flashbots', base: 'Flashbots', bsc: 'bloXroute' };
+
+      const buySlip = (settings.buy_slippage_bps / 100).toFixed(1);
+      const sellSlip = (settings.sell_slippage_bps / 100).toFixed(1);
+      const mevStatus = settings.anti_mev_enabled ? '✅ Enabled' : '❌ Disabled';
+      const gasLine = `*Gas Price:* ${settings.gas_gwei} gwei`;
+
+      const message =
+        `${chainEmoji[chain]} *${chainNames[chain]} SETTINGS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Slippage*\n` +
+        `Buy: ${buySlip}%\n` +
+        `Sell: ${sellSlip}%\n\n` +
+        `${gasLine}\n\n` +
+        `*Anti-MEV (${mevProvider[chain]})*\n` +
+        `${mevStatus}`;
+
+      const keyboard = new InlineKeyboard()
+        .text(`Buy Slip: ${buySlip}%`, `chain_buy_slip:${chain}`)
+        .text(`Sell Slip: ${sellSlip}%`, `chain_sell_slip:${chain}`)
+        .row()
+        .text(`Gas: ${settings.gas_gwei} gwei`, `chain_gas:${chain}`)
+        .row()
+        .text(settings.anti_mev_enabled ? '✅ Anti-MEV' : '❌ Anti-MEV', `chain_mev_toggle:${chain}`)
+        .row()
+        .text('🔄 Reset to Defaults', `chain_reset:${chain}`)
+        .row()
+        .text('« Back', 'settings_manual');
+
+      await ctx.editMessageText(message, { parse_mode: 'Markdown', reply_markup: keyboard });
+      return;
+    }
+
+    // Priority fee selection (Solana)
+    if (data.startsWith('chain_priority:')) {
+      const chain = data.replace('chain_priority:', '');
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, chain);
+      const currentPriority = settings.priority_sol || 0;
+
+      const presets = [0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01];
+
+      const message =
+        `*PRIORITY FEE - SOLANA*\n\n` +
+        `Current: ${currentPriority} SOL\n\n` +
+        `_Higher priority = faster execution_\n` +
+        `_Lower priority = cheaper_`;
+
+      const keyboard = new InlineKeyboard();
+      for (let i = 0; i < presets.length; i += 3) {
+        const row = presets.slice(i, i + 3);
+        for (const p of row) {
+          keyboard.text(currentPriority === p ? `> ${p}` : `${p}`, `set_chain_priority:${chain}_${p}`);
+        }
+        keyboard.row();
+      }
+      keyboard
+        .text('Custom', `chain_priority_custom:${chain}`)
+        .row()
+        .text('« Back', `chain_settings:${chain}`);
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    // Set priority value
+    if (data.startsWith('set_chain_priority:')) {
+      const parts = data.replace('set_chain_priority:', '').split('_');
+      const chain = parts[0];
+      const priority = parseFloat(parts[1]);
+
+      const { updateChainSettings, getOrCreateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: user.id, chain, prioritySol: priority });
+
+      await ctx.answerCallbackQuery({ text: `✓ Priority fee set to ${priority} SOL` });
+
+      // Return to chain settings panel
+      const settings = await getOrCreateChainSettings(user.id, chain);
+
+      const chainNames: Record<string, string> = { sol: 'SOLANA', eth: 'ETHEREUM', base: 'BASE', bsc: 'BSC' };
+      const chainEmoji: Record<string, string> = { sol: '☀️', eth: 'Ξ', base: '🔵', bsc: '🟡' };
+      const mevProvider: Record<string, string> = { sol: 'Jito', eth: 'Flashbots', base: 'Flashbots', bsc: 'bloXroute' };
+
+      const buySlip = (settings.buy_slippage_bps / 100).toFixed(1);
+      const sellSlip = (settings.sell_slippage_bps / 100).toFixed(1);
+      const mevStatus = settings.anti_mev_enabled ? '✅ Enabled' : '❌ Disabled';
+      const gasLine = `*Priority Fee:* ${settings.priority_sol} SOL`;
+
+      const message =
+        `${chainEmoji[chain]} *${chainNames[chain]} SETTINGS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Slippage*\n` +
+        `Buy: ${buySlip}%\n` +
+        `Sell: ${sellSlip}%\n\n` +
+        `${gasLine}\n\n` +
+        `*Anti-MEV (${mevProvider[chain]})*\n` +
+        `${mevStatus}`;
+
+      const keyboard = new InlineKeyboard()
+        .text(`Buy Slip: ${buySlip}%`, `chain_buy_slip:${chain}`)
+        .text(`Sell Slip: ${sellSlip}%`, `chain_sell_slip:${chain}`)
+        .row()
+        .text(`Priority: ${settings.priority_sol} SOL`, `chain_priority:${chain}`)
+        .row()
+        .text(settings.anti_mev_enabled ? '✅ Anti-MEV' : '❌ Anti-MEV', `chain_mev_toggle:${chain}`)
+        .row()
+        .text('🔄 Reset to Defaults', `chain_reset:${chain}`)
+        .row()
+        .text('« Back', 'settings_manual');
+
+      await ctx.editMessageText(message, { parse_mode: 'Markdown', reply_markup: keyboard });
+      return;
+    }
+
+    // Toggle anti-MEV
+    if (data.startsWith('chain_mev_toggle:')) {
+      const chain = data.replace('chain_mev_toggle:', '');
+      const { getOrCreateChainSettings, updateChainSettings } = await import('@raptor/shared');
+      const currentSettings = await getOrCreateChainSettings(user.id, chain);
+      const newValue = !currentSettings.anti_mev_enabled;
+
+      await updateChainSettings({ userId: user.id, chain, antiMevEnabled: newValue });
+
+      const mevProvider: Record<string, string> = { sol: 'Jito', eth: 'Flashbots', base: 'Flashbots', bsc: 'bloXroute' };
+      await ctx.answerCallbackQuery({
+        text: newValue ? `✓ Anti-MEV (${mevProvider[chain]}) enabled` : `✓ Anti-MEV disabled`,
+      });
+
+      // Return to chain settings panel
+      const settings = await getOrCreateChainSettings(user.id, chain);
+
+      const chainNames: Record<string, string> = { sol: 'SOLANA', eth: 'ETHEREUM', base: 'BASE', bsc: 'BSC' };
+      const chainEmoji: Record<string, string> = { sol: '☀️', eth: 'Ξ', base: '🔵', bsc: '🟡' };
+
+      const buySlip = (settings.buy_slippage_bps / 100).toFixed(1);
+      const sellSlip = (settings.sell_slippage_bps / 100).toFixed(1);
+      const mevStatus = settings.anti_mev_enabled ? '✅ Enabled' : '❌ Disabled';
+      const gasLine = chain === 'sol' ? `*Priority Fee:* ${settings.priority_sol} SOL` : `*Gas Price:* ${settings.gas_gwei} gwei`;
+
+      const message =
+        `${chainEmoji[chain]} *${chainNames[chain]} SETTINGS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Slippage*\n` +
+        `Buy: ${buySlip}%\n` +
+        `Sell: ${sellSlip}%\n\n` +
+        `${gasLine}\n\n` +
+        `*Anti-MEV (${mevProvider[chain]})*\n` +
+        `${mevStatus}`;
+
+      const keyboard = new InlineKeyboard()
+        .text(`Buy Slip: ${buySlip}%`, `chain_buy_slip:${chain}`)
+        .text(`Sell Slip: ${sellSlip}%`, `chain_sell_slip:${chain}`)
+        .row();
+      if (chain === 'sol') {
+        keyboard.text(`Priority: ${settings.priority_sol} SOL`, `chain_priority:${chain}`);
+      } else {
+        keyboard.text(`Gas: ${settings.gas_gwei} gwei`, `chain_gas:${chain}`);
+      }
+      keyboard.row()
+        .text(settings.anti_mev_enabled ? '✅ Anti-MEV' : '❌ Anti-MEV', `chain_mev_toggle:${chain}`)
+        .row()
+        .text('🔄 Reset to Defaults', `chain_reset:${chain}`)
+        .row()
+        .text('« Back', 'settings_manual');
+
+      await ctx.editMessageText(message, { parse_mode: 'Markdown', reply_markup: keyboard });
+      return;
+    }
+
+    // Reset chain settings to defaults
+    if (data.startsWith('chain_reset:')) {
+      const chain = data.replace('chain_reset:', '');
+      const { resetChainSettings, getOrCreateChainSettings } = await import('@raptor/shared');
+      await resetChainSettings(user.id, chain);
+
+      await ctx.answerCallbackQuery({ text: '✓ Settings reset to defaults' });
+
+      // Return to chain settings panel
+      const settings = await getOrCreateChainSettings(user.id, chain);
+
+      const chainNames: Record<string, string> = { sol: 'SOLANA', eth: 'ETHEREUM', base: 'BASE', bsc: 'BSC' };
+      const chainEmoji: Record<string, string> = { sol: '☀️', eth: 'Ξ', base: '🔵', bsc: '🟡' };
+      const mevProvider: Record<string, string> = { sol: 'Jito', eth: 'Flashbots', base: 'Flashbots', bsc: 'bloXroute' };
+
+      const buySlip = (settings.buy_slippage_bps / 100).toFixed(1);
+      const sellSlip = (settings.sell_slippage_bps / 100).toFixed(1);
+      const mevStatus = settings.anti_mev_enabled ? '✅ Enabled' : '❌ Disabled';
+      const gasLine = chain === 'sol' ? `*Priority Fee:* ${settings.priority_sol} SOL` : `*Gas Price:* ${settings.gas_gwei} gwei`;
+
+      const message =
+        `${chainEmoji[chain]} *${chainNames[chain]} SETTINGS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Slippage*\n` +
+        `Buy: ${buySlip}%\n` +
+        `Sell: ${sellSlip}%\n\n` +
+        `${gasLine}\n\n` +
+        `*Anti-MEV (${mevProvider[chain]})*\n` +
+        `${mevStatus}`;
+
+      const keyboard = new InlineKeyboard()
+        .text(`Buy Slip: ${buySlip}%`, `chain_buy_slip:${chain}`)
+        .text(`Sell Slip: ${sellSlip}%`, `chain_sell_slip:${chain}`)
+        .row();
+      if (chain === 'sol') {
+        keyboard.text(`Priority: ${settings.priority_sol} SOL`, `chain_priority:${chain}`);
+      } else {
+        keyboard.text(`Gas: ${settings.gas_gwei} gwei`, `chain_gas:${chain}`);
+      }
+      keyboard.row()
+        .text(settings.anti_mev_enabled ? '✅ Anti-MEV' : '❌ Anti-MEV', `chain_mev_toggle:${chain}`)
+        .row()
+        .text('🔄 Reset to Defaults', `chain_reset:${chain}`)
+        .row()
+        .text('« Back', 'settings_manual');
+
+      await ctx.editMessageText(message, { parse_mode: 'Markdown', reply_markup: keyboard });
+      return;
+    }
+
+    // Custom input handlers for chain settings
+    if (data.startsWith('chain_buy_slip_custom:')) {
+      const chain = data.replace('chain_buy_slip_custom:', '');
+      ctx.session.step = 'awaiting_chain_buy_slip';
+      ctx.session.chainSettingsTarget = chain;
+      await ctx.editMessageText(
+        `*CUSTOM BUY SLIPPAGE - ${chain.toUpperCase()}*\n\n` +
+          `Enter a slippage percentage (0.1 - 50):\n\n` +
+          `_Example: 7.5 for 7.5%_`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    if (data.startsWith('chain_sell_slip_custom:')) {
+      const chain = data.replace('chain_sell_slip_custom:', '');
+      ctx.session.step = 'awaiting_chain_sell_slip';
+      ctx.session.chainSettingsTarget = chain;
+      await ctx.editMessageText(
+        `*CUSTOM SELL SLIPPAGE - ${chain.toUpperCase()}*\n\n` +
+          `Enter a slippage percentage (0.1 - 50):\n\n` +
+          `_Example: 7.5 for 7.5%_`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    if (data.startsWith('chain_gas_custom:')) {
+      const chain = data.replace('chain_gas_custom:', '');
+      ctx.session.step = 'awaiting_chain_gas';
+      ctx.session.chainSettingsTarget = chain;
+      await ctx.editMessageText(
+        `*CUSTOM GAS PRICE - ${chain.toUpperCase()}*\n\n` +
+          `Enter gas price in gwei:\n\n` +
+          `_Example: 25 for 25 gwei_`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    if (data.startsWith('chain_priority_custom:')) {
+      const chain = data.replace('chain_priority_custom:', '');
+      ctx.session.step = 'awaiting_chain_priority';
+      ctx.session.chainSettingsTarget = chain;
+      await ctx.editMessageText(
+        `*CUSTOM PRIORITY FEE - SOLANA*\n\n` +
+          `Enter priority fee in SOL:\n\n` +
+          `_Example: 0.0002 for 0.0002 SOL_`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Legacy: Keep old manual settings handlers for backwards compatibility
+    // ============================================
+    // v3.3 FIX (Issue 2): MANUAL SETTINGS HANDLERS (LEGACY)
+    // ============================================
 
     // Slippage selection menu
     if (data === 'manual_slippage_menu') {

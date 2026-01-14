@@ -17,6 +17,9 @@ import { PrivateRpcClient, createPrivateRpcClient } from '../rpc/privateRpc.js';
 // v2.3.1 Security imports
 import {
   getSlippage,
+  getSlippageAsync,
+  isAntiMevEnabled,
+  getUserGasPrice,
   calculateMinOutput,
   reentrancyGuard,
   simulateTransaction,
@@ -188,9 +191,16 @@ export class ChainExecutor {
       // Get expected output using net amount
       const amountsOut = await this.router.getAmountsOut(netAmount, path);
 
-      // SECURITY: H-001 - Use configurable slippage
-      const slippage = getSlippage(chain, 'buy', tgId);
+      // SECURITY: H-001 - Use configurable slippage (v3.5: from chain_settings DB)
+      const slippage = await getSlippageAsync(chain, 'buy', tgId);
       const minOut = calculateMinOutput(amountsOut[1], slippage, 'buy');
+
+      // v3.5: Get user's gas price preference
+      const userGasGwei = await getUserGasPrice(tgId, chain);
+      const gasPrice = userGasGwei ? BigInt(Math.round(userGasGwei * 1e9)) : undefined;
+
+      // v3.5: Check if anti-MEV is enabled for this user/chain
+      const useAntiMev = await isAntiMevEnabled(tgId, chain);
 
       // SECURITY: Validate swap parameters
       const validation = validateSwapParams({
@@ -234,15 +244,18 @@ export class ChainExecutor {
       });
       const gasLimit = (gasEstimate * 120n) / 100n; // Add 20% buffer
 
-      // Execute swap via private RPC if enabled
+      // v3.5: Execute swap via private RPC if enabled AND user has anti-MEV enabled
       let receipt: TransactionReceipt;
-      if (this.privateRpc.isEnabled()) {
-        console.log(`[${this.config.name}] Executing buy via private RPC...`);
+      const shouldUsePrivateRpc = this.privateRpc.isEnabled() && useAntiMev;
+
+      if (shouldUsePrivateRpc) {
+        console.log(`[${this.config.name}] Executing buy via private RPC (anti-MEV enabled)...`);
         const result = await this.privateRpc.executeTransaction({
           to: this.config.dexes[0].router,
           data: swapData,
           value: netAmount,
           gasLimit,
+          gasPrice, // v3.5: User's custom gas price
         });
 
         if (!result.success || !result.txHash) {
@@ -259,13 +272,23 @@ export class ChainExecutor {
         if (!txReceipt) throw new Error('Transaction not confirmed');
         receipt = txReceipt;
       } else {
-        // Fallback to direct execution
+        // Direct execution (anti-MEV disabled or private RPC not available)
+        if (!useAntiMev) {
+          console.log(`[${this.config.name}] Executing buy via public mempool (anti-MEV disabled by user)...`);
+        }
+        const txOptions: { value: bigint; gasLimit: bigint; gasPrice?: bigint } = {
+          value: netAmount,
+          gasLimit,
+        };
+        if (gasPrice) {
+          txOptions.gasPrice = gasPrice; // v3.5: User's custom gas price
+        }
         const tx = await this.router.swapExactETHForTokens(
           minOut,
           path,
           this.wallet.address,
           deadline,
-          { value: netAmount, gasLimit }
+          txOptions
         );
         const txReceipt = await tx.wait();
         if (!txReceipt) throw new Error('Transaction failed');
@@ -362,17 +385,23 @@ export class ChainExecutor {
       const path = [token, this.config.wrappedNative];
       const deadline = Math.floor(Date.now() / 1000) + 300;
 
+      // v3.5: Get user's chain settings for slippage, gas, and anti-MEV
+      const userGasGwei = await getUserGasPrice(tgId, chain);
+      const gasPrice = userGasGwei ? BigInt(Math.round(userGasGwei * 1e9)) : undefined;
+      const useAntiMev = await isAntiMevEnabled(tgId, chain);
+
       // SECURITY: H-006 - Get expected output and calculate minOut with slippage
       // Never use 0 for minOut to prevent sandwich attacks
       let minOut: bigint;
+      let slippage: number;
       try {
         const amountsOut = await this.router.getAmountsOut(tokensHeld, path);
-        const slippage = getSlippage(chain, isEmergency ? 'emergencyExit' : 'sell', tgId);
+        slippage = await getSlippageAsync(chain, isEmergency ? 'emergencyExit' : 'sell', tgId);
         minOut = calculateMinOutput(amountsOut[1], slippage, isEmergency ? 'emergencyExit' : 'sell');
       } catch {
         // If we can't get quote, use emergency exit with high slippage
         console.warn(`[${this.config.name}] Could not get sell quote, using emergency slippage`);
-        const slippage = getSlippage(chain, 'emergencyExit', tgId);
+        slippage = await getSlippageAsync(chain, 'emergencyExit', tgId);
         // Estimate based on entry price (rough)
         const estimatedOut = BigInt(Math.floor(Number(tokensHeld) * parseFloat(entryPrice)));
         minOut = calculateMinOutput(estimatedOut, slippage, 'emergencyExit');
@@ -383,7 +412,7 @@ export class ChainExecutor {
         tokenAddress: token,
         amount: tokensHeld,
         minOutput: minOut,
-        slippage: getSlippage(chain, isEmergency ? 'emergencyExit' : 'sell', tgId),
+        slippage,
         operation: 'sell',
       });
       if (!validation.valid) {
@@ -419,14 +448,17 @@ export class ChainExecutor {
       });
       const gasLimit = (gasEstimate * 120n) / 100n; // Add 20% buffer
 
-      // Execute swap via private RPC if enabled
+      // v3.5: Execute swap via private RPC if enabled AND user has anti-MEV enabled
       let receipt: TransactionReceipt;
-      if (this.privateRpc.isEnabled()) {
-        console.log(`[${this.config.name}] Executing sell via private RPC...`);
+      const shouldUsePrivateRpc = this.privateRpc.isEnabled() && useAntiMev;
+
+      if (shouldUsePrivateRpc) {
+        console.log(`[${this.config.name}] Executing sell via private RPC (anti-MEV enabled)...`);
         const result = await this.privateRpc.executeTransaction({
           to: this.config.dexes[0].router,
           data: swapData,
           gasLimit,
+          gasPrice, // v3.5: User's custom gas price
         });
 
         if (!result.success || !result.txHash) {
@@ -443,14 +475,21 @@ export class ChainExecutor {
         if (!txReceipt) throw new Error('Transaction not confirmed');
         receipt = txReceipt;
       } else {
-        // Fallback to direct execution
+        // Direct execution (anti-MEV disabled or private RPC not available)
+        if (!useAntiMev) {
+          console.log(`[${this.config.name}] Executing sell via public mempool (anti-MEV disabled by user)...`);
+        }
+        const txOptions: { gasLimit: bigint; gasPrice?: bigint } = { gasLimit };
+        if (gasPrice) {
+          txOptions.gasPrice = gasPrice; // v3.5: User's custom gas price
+        }
         const tx = await this.router.swapExactTokensForETH(
           tokensHeld,
           minOut, // SECURITY: Use calculated minimum, never 0
           path,
           this.wallet.address,
           deadline,
-          { gasLimit }
+          txOptions
         );
         const txReceipt = await tx.wait();
         if (!txReceipt) throw new Error('Transaction failed');

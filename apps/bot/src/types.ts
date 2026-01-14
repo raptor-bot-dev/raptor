@@ -23,8 +23,13 @@ export interface SessionData {
     | 'awaiting_manual_priority'   // v3.3: Manual settings custom priority
     | 'awaiting_manual_buyamts'    // v3.3: Manual settings custom buy amounts
     | 'awaiting_custom_buy_amount' // v3.4: Custom buy amount input
+    | 'awaiting_chain_buy_slip'    // v3.5: Chain-specific buy slippage
+    | 'awaiting_chain_sell_slip'   // v3.5: Chain-specific sell slippage
+    | 'awaiting_chain_gas'         // v3.5: Chain-specific gas price
+    | 'awaiting_chain_priority'    // v3.5: Chain-specific priority fee
     | CustomStrategyStep
     | null;
+  chainSettingsTarget?: string;  // v3.5: Target chain for settings input
   pendingWithdrawal: {
     chain: Chain;
     walletIndex: number;

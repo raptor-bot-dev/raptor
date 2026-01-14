@@ -97,18 +97,15 @@ export async function executeSolanaBuy(
       walletAddress  // v3.3.2: validate derived pubkey matches stored address
     );
 
-    // L-2 FIX: Fetch user's manual settings for slippage
-    const manualSettings = await getOrCreateManualSettings(tgId);
-    const slippageBps = manualSettings.default_slippage_bps || 50; // Fallback to 0.5%
-
-    logger.info('Executing buy via executor', { netAmount, fee, slippageBps });
+    // v3.5: Pass tgId to executor to fetch chain-specific settings
+    logger.info('Executing buy via executor', { netAmount, fee, tgId });
 
     // 5. Execute via executor (handles routing automatically)
     const result = await solanaExecutor.executeBuyWithKeypair(
       tokenMint,
       solAmount,  // Pass GROSS amount (executor applies fee)
       keypair,
-      { slippageBps }  // L-2 FIX: Use user's slippage setting
+      { tgId }  // v3.5: Let executor fetch chain settings
     );
 
     if (!result.success) {
@@ -291,18 +288,15 @@ export async function executeSolanaSell(
       walletAddress  // v3.3.2: validate derived pubkey matches stored address
     );
 
-    // L-2 FIX: Fetch user's manual settings for slippage
-    const manualSettings = await getOrCreateManualSettings(tgId);
-    const slippageBps = manualSettings.default_slippage_bps || 500; // Fallback to 5% for sells
-
-    logger.info('Executing sell via executor', { tokenAmount, slippageBps });
+    // v3.5: Pass tgId to executor to fetch chain-specific settings
+    logger.info('Executing sell via executor', { tokenAmount, tgId });
 
     // 3. Execute via executor (handles routing automatically)
     const result = await solanaExecutor.executeSellWithKeypair(
       tokenMint,
       tokenAmount,
       keypair,
-      { slippageBps }  // L-2 FIX: Use user's slippage setting
+      { tgId }  // v3.5: Let executor fetch chain settings
     );
 
     if (!result.success) {

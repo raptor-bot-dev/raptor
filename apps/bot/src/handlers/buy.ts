@@ -322,14 +322,15 @@ export async function executeManualBuy(params: {
   });
 
   // Step 9: Execute via executor
-  logger.info('Executing buy via executor', { netAmount, fee, slippageBps });
+  // v3.5: Pass tgId to executor to fetch chain-specific settings (slippage, priority, anti-MEV)
+  logger.info('Executing buy via executor', { netAmount, fee, userId });
 
   try {
     const result = await solanaExecutor.executeBuyWithKeypair(
       tokenMint,
       amountSol, // Pass GROSS amount (executor applies fee)
       keypair,
-      { slippageBps }
+      { tgId: userId } // v3.5: Let executor fetch chain settings
     );
 
     if (!result.success) {

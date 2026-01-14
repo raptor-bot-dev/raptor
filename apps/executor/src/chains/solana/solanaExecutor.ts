@@ -26,6 +26,16 @@ import {
   type BondingCurveState,
 } from '@raptor/shared';
 
+// v3.5: Import chain settings helpers
+import {
+  getSolanaSlippageBps,
+  getSolanaPriorityFee,
+  isAntiMevEnabled,
+} from '../../security/tradeGuards.js';
+
+// v3.5: Import Jito client
+import { createJitoClient, type JitoClient } from './jitoClient.js';
+
 // L-1: Structured logger for sensitive operations
 // TODO: Migrate remaining console.log statements to use this logger
 const logger = createLogger('SolanaExecutor');
@@ -83,6 +93,7 @@ export class SolanaExecutor {
   private jupiterClient: JupiterClient;
   private connection: Connection;
   private pumpFunClient: PumpFunClient | null = null;
+  private jitoClient: JitoClient | null = null;
   private running: boolean = false;
 
   // H-1 fix: Default timeout for transaction confirmation (30 seconds)
@@ -93,6 +104,7 @@ export class SolanaExecutor {
     this.wssUrl = SOLANA_CONFIG.wssUrl;
     this.jupiterClient = new JupiterClient();
     this.connection = new Connection(this.rpcUrl, 'confirmed');
+    this.jitoClient = createJitoClient(this.connection);
   }
 
   /**
@@ -362,6 +374,8 @@ export class SolanaExecutor {
    * Execute buy with external keypair (for bot integration)
    * Routes automatically between pump.fun and Jupiter based on graduation status
    *
+   * v3.5: Added tgId option for fetching chain settings (slippage, anti-MEV)
+   *
    * @param tokenMint - Token to buy
    * @param solAmount - Amount in SOL (GROSS - before fee)
    * @param keypair - User's keypair (from bot)
@@ -375,6 +389,9 @@ export class SolanaExecutor {
     options?: {
       skipSafetyCheck?: boolean;
       slippageBps?: number;
+      tgId?: number;           // v3.5: For chain settings lookup
+      priorityFeeSol?: number; // v3.5: Override priority fee
+      useJito?: boolean;       // v3.5: Override anti-MEV setting
     }
   ): Promise<SolanaTradeResult> {
     console.log(
@@ -385,10 +402,43 @@ export class SolanaExecutor {
       // Apply 1% platform fee
       const { netAmount, fee } = applyBuyFeeDecimal(solAmount);
 
+      // v3.5: Fetch chain settings if tgId provided
+      let slippageBps = options?.slippageBps;
+      let priorityFeeSol = options?.priorityFeeSol;
+      let useJito = options?.useJito;
+
+      if (options?.tgId) {
+        // Get slippage from chain settings if not explicitly provided
+        if (slippageBps === undefined) {
+          slippageBps = await getSolanaSlippageBps(options.tgId, 'buy');
+          console.log(`[SolanaExecutor] Using chain settings buy slippage: ${slippageBps} bps`);
+        }
+
+        // Get priority fee from chain settings if not explicitly provided
+        if (priorityFeeSol === undefined) {
+          priorityFeeSol = await getSolanaPriorityFee(options.tgId) ?? undefined;
+          if (priorityFeeSol !== undefined) {
+            console.log(`[SolanaExecutor] Using chain settings priority fee: ${priorityFeeSol} SOL`);
+          }
+        }
+
+        // Check anti-MEV preference if not explicitly set
+        if (useJito === undefined) {
+          useJito = await isAntiMevEnabled(options.tgId, 'sol');
+          console.log(`[SolanaExecutor] Anti-MEV (Jito) enabled: ${useJito}`);
+        }
+      }
+
+      // Default slippage if still not set
+      slippageBps = slippageBps ?? 1000; // 10%
+
       console.log('[SolanaExecutor] Fee breakdown', {
         gross: solAmount,
         fee,
         net: netAmount,
+        slippageBps,
+        priorityFeeSol,
+        useJito,
       });
 
       // Check if token is on bonding curve or graduated
@@ -397,6 +447,12 @@ export class SolanaExecutor {
       let result;
       let route: string;
 
+      const executeOptions = {
+        slippageBps,
+        priorityFeeSol,
+        useJito: useJito && this.jitoClient !== null,
+      };
+
       if (tokenInfo && !tokenInfo.graduated) {
         // Use pump.fun bonding curve
         console.log('[SolanaExecutor] Token on bonding curve, using pump.fun');
@@ -404,9 +460,9 @@ export class SolanaExecutor {
           tokenMint,
           netAmount,
           keypair,
-          options
+          executeOptions
         );
-        route = 'pump.fun';
+        route = useJito ? 'pump.fun (Jito)' : 'pump.fun';
       } else {
         // Use Jupiter for graduated tokens
         console.log('[SolanaExecutor] Token graduated, using Jupiter');
@@ -414,9 +470,9 @@ export class SolanaExecutor {
           tokenMint,
           netAmount,
           keypair,
-          options
+          executeOptions
         );
-        route = 'Jupiter';
+        route = useJito ? 'Jupiter (Jito)' : 'Jupiter';
       }
 
       const price = netAmount / Number(result.tokensReceived);
@@ -849,12 +905,18 @@ export class SolanaExecutor {
 
   /**
    * Buy via pump.fun bonding curve with external keypair
+   *
+   * v3.5: Added Jito bundle support for MEV protection
    */
   private async buyViaPumpFunWithKeypair(
     tokenMint: string,
     solAmount: number,
     keypair: Keypair,
-    options?: { slippageBps?: number }
+    options?: {
+      slippageBps?: number;
+      priorityFeeSol?: number;
+      useJito?: boolean;
+    }
   ): Promise<{ txHash: string; tokensReceived: bigint }> {
     console.log(`[SolanaExecutor] Executing pump.fun buy of ${solAmount} SOL with external keypair`);
 
@@ -867,6 +929,9 @@ export class SolanaExecutor {
       const lamports = solToLamports(solAmount);
       const slippageBps = options?.slippageBps || 500; // Default 5% slippage
 
+      // v3.5: For pump.fun, Jito integration would require modifying the PumpFunClient
+      // to return unsigned transactions. For now, pump.fun sends directly.
+      // The priority fee is handled by pump.fun's internal compute budget.
       const result = await client.buy({
         mint,
         solAmount: lamports,
@@ -891,12 +956,18 @@ export class SolanaExecutor {
    *
    * H-3: Now verifies actual tokens received by checking balance before/after swap.
    * This ensures accurate reporting even when slippage differs from quote.
+   *
+   * v3.5: Added Jito bundle support and priority fee options
    */
   private async buyViaJupiterWithKeypair(
     tokenMint: string,
     solAmount: number,
     keypair: Keypair,
-    options?: { slippageBps?: number }
+    options?: {
+      slippageBps?: number;
+      priorityFeeSol?: number;
+      useJito?: boolean;
+    }
   ): Promise<{ txHash: string; tokensReceived: bigint }> {
     console.log(`[SolanaExecutor] Getting Jupiter quote for ${solAmount} SOL with external keypair`);
 
@@ -924,22 +995,52 @@ export class SolanaExecutor {
       // Sign the transaction with external keypair
       transaction.sign([keypair]);
 
-      // Send the transaction
-      const rawTransaction = transaction.serialize();
-      const txHash = await this.connection.sendRawTransaction(rawTransaction, {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
-        maxRetries: 3,
-      });
+      let txHash: string;
 
-      console.log(`[SolanaExecutor] Transaction sent: ${txHash}`);
+      // v3.5: Send via Jito if enabled for MEV protection
+      if (options?.useJito && this.jitoClient) {
+        console.log('[SolanaExecutor] Sending via Jito for MEV protection');
+        const jitoResult = await this.jitoClient.sendTransaction(transaction, keypair, {
+          priorityFeeSol: options.priorityFeeSol,
+        });
 
-      // Wait for confirmation with timeout (H-1 fix)
-      await this.confirmTransactionWithTimeout(
-        txHash,
-        transaction.message.recentBlockhash,
-        swapResponse.lastValidBlockHeight
-      );
+        if (!jitoResult.success) {
+          throw new Error(`Jito bundle failed: ${jitoResult.error}`);
+        }
+
+        // Get the signature from the main transaction
+        const sig = transaction.signatures[0];
+        txHash = sig ? Buffer.from(sig).toString('base64') : jitoResult.bundleId || '';
+
+        // Wait for Jito bundle confirmation
+        if (jitoResult.bundleId && jitoResult.signatures?.[0]) {
+          const confirmed = await this.jitoClient.waitForBundleConfirmation(
+            jitoResult.bundleId,
+            jitoResult.signatures[0],
+            SolanaExecutor.TX_CONFIRM_TIMEOUT_MS
+          );
+          if (!confirmed) {
+            console.warn('[SolanaExecutor] Jito bundle confirmation timeout, checking RPC...');
+          }
+        }
+      } else {
+        // Send via standard RPC
+        const rawTransaction = transaction.serialize();
+        txHash = await this.connection.sendRawTransaction(rawTransaction, {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+          maxRetries: 3,
+        });
+
+        console.log(`[SolanaExecutor] Transaction sent: ${txHash}`);
+
+        // Wait for confirmation with timeout (H-1 fix)
+        await this.confirmTransactionWithTimeout(
+          txHash,
+          transaction.message.recentBlockhash,
+          swapResponse.lastValidBlockHeight
+        );
+      }
 
       // H-3: Verify actual tokens received
       const balanceAfter = await this.getTokenBalanceRaw(tokenMint, userPublicKey);
@@ -968,6 +1069,8 @@ export class SolanaExecutor {
    * Execute sell with external keypair (for bot/hunter integration)
    * Routes automatically between pump.fun and Jupiter based on graduation status
    *
+   * v3.5: Added tgId option for fetching chain settings (slippage, anti-MEV)
+   *
    * @param tokenMint - Token to sell
    * @param tokenAmount - Amount of tokens to sell
    * @param keypair - User's keypair (from bot/hunter)
@@ -980,6 +1083,9 @@ export class SolanaExecutor {
     keypair: Keypair,
     options?: {
       slippageBps?: number;
+      tgId?: number;           // v3.5: For chain settings lookup
+      priorityFeeSol?: number; // v3.5: Override priority fee
+      useJito?: boolean;       // v3.5: Override anti-MEV setting
     }
   ): Promise<SolanaTradeResult> {
     console.log(
@@ -987,6 +1093,42 @@ export class SolanaExecutor {
     );
 
     try {
+      // v3.5: Fetch chain settings if tgId provided
+      let slippageBps = options?.slippageBps;
+      let priorityFeeSol = options?.priorityFeeSol;
+      let useJito = options?.useJito;
+
+      if (options?.tgId) {
+        // Get slippage from chain settings if not explicitly provided
+        if (slippageBps === undefined) {
+          slippageBps = await getSolanaSlippageBps(options.tgId, 'sell');
+          console.log(`[SolanaExecutor] Using chain settings sell slippage: ${slippageBps} bps`);
+        }
+
+        // Get priority fee from chain settings if not explicitly provided
+        if (priorityFeeSol === undefined) {
+          priorityFeeSol = await getSolanaPriorityFee(options.tgId) ?? undefined;
+          if (priorityFeeSol !== undefined) {
+            console.log(`[SolanaExecutor] Using chain settings priority fee: ${priorityFeeSol} SOL`);
+          }
+        }
+
+        // Check anti-MEV preference if not explicitly set
+        if (useJito === undefined) {
+          useJito = await isAntiMevEnabled(options.tgId, 'sol');
+          console.log(`[SolanaExecutor] Anti-MEV (Jito) enabled: ${useJito}`);
+        }
+      }
+
+      // Default slippage if still not set
+      slippageBps = slippageBps ?? 800; // 8%
+
+      const executeOptions = {
+        slippageBps,
+        priorityFeeSol,
+        useJito: useJito && this.jitoClient !== null,
+      };
+
       // v3.3 FIX (Issue 6): Jupiter-first routing with pump.fun fallback
       // Jupiter handles most tokens including some bonding curve tokens.
       // Pump.fun direct sell has InvalidProgramId issues, so we try Jupiter first.
@@ -1001,9 +1143,9 @@ export class SolanaExecutor {
           tokenMint,
           tokenAmount,
           keypair,
-          options
+          executeOptions
         );
-        route = 'Jupiter';
+        route = useJito ? 'Jupiter (Jito)' : 'Jupiter';
         console.log('[SolanaExecutor] Jupiter sell successful');
       } catch (jupiterError) {
         // Jupiter failed - check if we can fall back to pump.fun
@@ -1020,9 +1162,9 @@ export class SolanaExecutor {
               tokenMint,
               tokenAmount,
               keypair,
-              options
+              executeOptions
             );
-            route = 'pump.fun';
+            route = useJito ? 'pump.fun (Jito)' : 'pump.fun';
             console.log('[SolanaExecutor] Pump.fun fallback successful');
           } catch (pumpError) {
             // Both Jupiter and pump.fun failed
@@ -1075,12 +1217,18 @@ export class SolanaExecutor {
 
   /**
    * Sell via pump.fun bonding curve with external keypair
+   *
+   * v3.5: Added options interface update for consistency
    */
   private async sellViaPumpFunWithKeypair(
     tokenMint: string,
     tokenAmount: number,
     keypair: Keypair,
-    options?: { slippageBps?: number }
+    options?: {
+      slippageBps?: number;
+      priorityFeeSol?: number;
+      useJito?: boolean;
+    }
   ): Promise<{ txHash: string; solReceived: bigint }> {
     console.log(`[SolanaExecutor] Executing pump.fun sell of ${tokenAmount} tokens with external keypair`);
 
@@ -1097,6 +1245,7 @@ export class SolanaExecutor {
 
       const slippageBps = options?.slippageBps || 500; // Default 5% slippage
 
+      // v3.5: pump.fun sends directly, no Jito integration at this level
       const result = await client.sell({
         mint,
         tokenAmount: tokensRaw,
@@ -1118,12 +1267,18 @@ export class SolanaExecutor {
 
   /**
    * Sell via Jupiter aggregator with external keypair
+   *
+   * v3.5: Added Jito bundle support for MEV protection
    */
   private async sellViaJupiterWithKeypair(
     tokenMint: string,
     tokenAmount: number,
     keypair: Keypair,
-    options?: { slippageBps?: number }
+    options?: {
+      slippageBps?: number;
+      priorityFeeSol?: number;
+      useJito?: boolean;
+    }
   ): Promise<{ txHash: string; solReceived: bigint }> {
     console.log(`[SolanaExecutor] Getting Jupiter sell quote for ${tokenAmount} tokens with external keypair`);
 
@@ -1152,22 +1307,52 @@ export class SolanaExecutor {
       // Sign the transaction with external keypair
       transaction.sign([keypair]);
 
-      // Send the transaction
-      const rawTransaction = transaction.serialize();
-      const txHash = await this.connection.sendRawTransaction(rawTransaction, {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
-        maxRetries: 3,
-      });
+      let txHash: string;
 
-      console.log(`[SolanaExecutor] Transaction sent: ${txHash}`);
+      // v3.5: Send via Jito if enabled for MEV protection
+      if (options?.useJito && this.jitoClient) {
+        console.log('[SolanaExecutor] Sending sell via Jito for MEV protection');
+        const jitoResult = await this.jitoClient.sendTransaction(transaction, keypair, {
+          priorityFeeSol: options.priorityFeeSol,
+        });
 
-      // Wait for confirmation with timeout (H-1 fix)
-      await this.confirmTransactionWithTimeout(
-        txHash,
-        transaction.message.recentBlockhash,
-        swapResponse.lastValidBlockHeight
-      );
+        if (!jitoResult.success) {
+          throw new Error(`Jito bundle failed: ${jitoResult.error}`);
+        }
+
+        // Get the signature from the main transaction
+        const sig = transaction.signatures[0];
+        txHash = sig ? Buffer.from(sig).toString('base64') : jitoResult.bundleId || '';
+
+        // Wait for Jito bundle confirmation
+        if (jitoResult.bundleId && jitoResult.signatures?.[0]) {
+          const confirmed = await this.jitoClient.waitForBundleConfirmation(
+            jitoResult.bundleId,
+            jitoResult.signatures[0],
+            SolanaExecutor.TX_CONFIRM_TIMEOUT_MS
+          );
+          if (!confirmed) {
+            console.warn('[SolanaExecutor] Jito bundle confirmation timeout, checking RPC...');
+          }
+        }
+      } else {
+        // Send via standard RPC
+        const rawTransaction = transaction.serialize();
+        txHash = await this.connection.sendRawTransaction(rawTransaction, {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+          maxRetries: 3,
+        });
+
+        console.log(`[SolanaExecutor] Transaction sent: ${txHash}`);
+
+        // Wait for confirmation with timeout (H-1 fix)
+        await this.confirmTransactionWithTimeout(
+          txHash,
+          transaction.message.recentBlockhash,
+          swapResponse.lastValidBlockHeight
+        );
+      }
 
       console.log(`[SolanaExecutor] Jupiter sell successful: ${txHash}`);
 

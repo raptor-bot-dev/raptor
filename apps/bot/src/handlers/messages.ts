@@ -150,6 +150,99 @@ async function handleSessionFlow(ctx: MyContext, text: string): Promise<boolean>
       return true;
     }
 
+    // v3.5: Handle chain-specific settings custom inputs
+    case 'awaiting_chain_buy_slip': {
+      const chain = ctx.session.chainSettingsTarget;
+      if (!chain) {
+        ctx.session.step = null;
+        await ctx.reply('Session expired. Please try again from the settings menu.');
+        return true;
+      }
+
+      const value = parseFloat(text);
+      if (isNaN(value) || value < 0.1 || value > 50) {
+        await ctx.reply('Invalid slippage. Enter a number between 0.1 and 50:');
+        return true;
+      }
+
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: ctx.from!.id, chain, buySlippageBps: Math.round(value * 100) });
+
+      ctx.session.step = null;
+      ctx.session.chainSettingsTarget = undefined;
+      await ctx.reply(`${chain.toUpperCase()} buy slippage set to ${value}%\n\nUse /menu to continue.`);
+      return true;
+    }
+
+    case 'awaiting_chain_sell_slip': {
+      const chain = ctx.session.chainSettingsTarget;
+      if (!chain) {
+        ctx.session.step = null;
+        await ctx.reply('Session expired. Please try again from the settings menu.');
+        return true;
+      }
+
+      const value = parseFloat(text);
+      if (isNaN(value) || value < 0.1 || value > 50) {
+        await ctx.reply('Invalid slippage. Enter a number between 0.1 and 50:');
+        return true;
+      }
+
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: ctx.from!.id, chain, sellSlippageBps: Math.round(value * 100) });
+
+      ctx.session.step = null;
+      ctx.session.chainSettingsTarget = undefined;
+      await ctx.reply(`${chain.toUpperCase()} sell slippage set to ${value}%\n\nUse /menu to continue.`);
+      return true;
+    }
+
+    case 'awaiting_chain_gas': {
+      const chain = ctx.session.chainSettingsTarget;
+      if (!chain) {
+        ctx.session.step = null;
+        await ctx.reply('Session expired. Please try again from the settings menu.');
+        return true;
+      }
+
+      const value = parseFloat(text);
+      if (isNaN(value) || value <= 0 || value > 500) {
+        await ctx.reply('Invalid gas price. Enter a positive number (gwei):');
+        return true;
+      }
+
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: ctx.from!.id, chain, gasGwei: value });
+
+      ctx.session.step = null;
+      ctx.session.chainSettingsTarget = undefined;
+      await ctx.reply(`${chain.toUpperCase()} gas price set to ${value} gwei\n\nUse /menu to continue.`);
+      return true;
+    }
+
+    case 'awaiting_chain_priority': {
+      const chain = ctx.session.chainSettingsTarget;
+      if (!chain) {
+        ctx.session.step = null;
+        await ctx.reply('Session expired. Please try again from the settings menu.');
+        return true;
+      }
+
+      const value = parseFloat(text);
+      if (isNaN(value) || value < 0.00001 || value > 0.1) {
+        await ctx.reply('Invalid priority fee. Enter a number between 0.00001 and 0.1 SOL:');
+        return true;
+      }
+
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({ userId: ctx.from!.id, chain, prioritySol: value });
+
+      ctx.session.step = null;
+      ctx.session.chainSettingsTarget = undefined;
+      await ctx.reply(`Solana priority fee set to ${value} SOL\n\nUse /menu to continue.`);
+      return true;
+    }
+
     // v3.4: Handle custom buy amount input
     case 'awaiting_custom_buy_amount': {
       const pendingBuy = ctx.session.pendingBuy;

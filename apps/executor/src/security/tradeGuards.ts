@@ -9,6 +9,7 @@
  */
 
 import { ethers } from 'ethers';
+import { getOrCreateChainSettings, type ChainSettings } from '@raptor/shared';
 
 /**
  * Slippage configuration per chain and operation type
@@ -27,18 +28,46 @@ const DEFAULT_SLIPPAGE: Record<string, SlippageConfig> = {
   sol: { buy: 10, sell: 8, emergencyExit: 50 },
 };
 
-// User-configured slippage overrides
+// User-configured slippage overrides (in-memory cache)
 const userSlippage = new Map<number, Partial<SlippageConfig>>();
 
+// v3.5: Cache for chain settings to avoid repeated DB calls
+const chainSettingsCache = new Map<string, { settings: ChainSettings; timestamp: number }>();
+const CACHE_TTL_MS = 30000; // 30 second cache
+
 /**
- * Get slippage for a specific operation
+ * v3.5: Get chain settings from DB with caching
+ */
+export async function getChainSettingsForUser(
+  tgId: number,
+  chain: string
+): Promise<ChainSettings | null> {
+  const cacheKey = `${tgId}:${chain}`;
+  const cached = chainSettingsCache.get(cacheKey);
+
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.settings;
+  }
+
+  try {
+    const settings = await getOrCreateChainSettings(tgId, chain);
+    chainSettingsCache.set(cacheKey, { settings, timestamp: Date.now() });
+    return settings;
+  } catch (error) {
+    console.warn(`[TradeGuards] Failed to fetch chain settings for user ${tgId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Get slippage for a specific operation (sync version - uses cache/defaults)
  */
 export function getSlippage(
   chain: string,
   operation: 'buy' | 'sell' | 'emergencyExit',
   tgId?: number
 ): number {
-  // Check user override first
+  // Check user override first (from in-memory map)
   if (tgId) {
     const override = userSlippage.get(tgId);
     if (override?.[operation] !== undefined) {
@@ -52,7 +81,87 @@ export function getSlippage(
 }
 
 /**
- * Set user-specific slippage
+ * v3.5: Get slippage from chain_settings DB (async version)
+ * Falls back to defaults if DB fetch fails
+ */
+export async function getSlippageAsync(
+  chain: string,
+  operation: 'buy' | 'sell' | 'emergencyExit',
+  tgId?: number
+): Promise<number> {
+  // If no user ID, use defaults
+  if (!tgId) {
+    const chainConfig = DEFAULT_SLIPPAGE[chain] || DEFAULT_SLIPPAGE.bsc;
+    return chainConfig[operation];
+  }
+
+  // Try to get chain settings from DB
+  const settings = await getChainSettingsForUser(tgId, chain);
+
+  if (settings) {
+    // Convert basis points to percentage
+    if (operation === 'buy') {
+      return settings.buy_slippage_bps / 100;
+    } else if (operation === 'sell') {
+      return settings.sell_slippage_bps / 100;
+    }
+    // emergencyExit uses a fixed high value
+    return 50;
+  }
+
+  // Fall back to chain defaults
+  const chainConfig = DEFAULT_SLIPPAGE[chain] || DEFAULT_SLIPPAGE.bsc;
+  return chainConfig[operation];
+}
+
+/**
+ * v3.5: Check if anti-MEV is enabled for user on chain
+ */
+export async function isAntiMevEnabled(tgId: number, chain: string): Promise<boolean> {
+  const settings = await getChainSettingsForUser(tgId, chain);
+  return settings?.anti_mev_enabled ?? true; // Default to enabled
+}
+
+/**
+ * v3.5: Get gas price for user on chain (gwei)
+ * Returns null to use network default
+ */
+export async function getUserGasPrice(tgId: number, chain: string): Promise<number | null> {
+  const settings = await getChainSettingsForUser(tgId, chain);
+  return settings?.gas_gwei ?? null;
+}
+
+/**
+ * v3.5: Get Solana priority fee for user (SOL)
+ * Returns null to use network default
+ */
+export async function getSolanaPriorityFee(tgId: number): Promise<number | null> {
+  const settings = await getChainSettingsForUser(tgId, 'sol');
+  return settings?.priority_sol ?? null;
+}
+
+/**
+ * v3.5: Get slippage in basis points for Solana
+ * Returns buy or sell slippage based on operation
+ */
+export async function getSolanaSlippageBps(
+  tgId: number,
+  operation: 'buy' | 'sell'
+): Promise<number> {
+  const settings = await getChainSettingsForUser(tgId, 'sol');
+
+  if (settings) {
+    return operation === 'buy'
+      ? settings.buy_slippage_bps
+      : settings.sell_slippage_bps;
+  }
+
+  // Default: 10% buy, 8% sell
+  return operation === 'buy' ? 1000 : 800;
+}
+
+/**
+ * Set user-specific slippage (in-memory override)
  */
 export function setUserSlippage(
   tgId: number,
@@ -60,6 +169,22 @@ export function setUserSlippage(
 ): void {
   const existing = userSlippage.get(tgId) || {};
   userSlippage.set(tgId, { ...existing, ...config });
+}
+
+/**
+ * v3.5: Clear cached chain settings for user (call after settings update)
+ */
+export function clearChainSettingsCache(tgId: number, chain?: string): void {
+  if (chain) {
+    chainSettingsCache.delete(`${tgId}:${chain}`);
+  } else {
+    // Clear all chains for user
+    for (const key of chainSettingsCache.keys()) {
+      if (key.startsWith(`${tgId}:`)) {
+        chainSettingsCache.delete(key);
+      }
+    }
+  }
 }
 
 /**

@@ -14,3 +14,6 @@ export { PumpFunClient } from './pumpFun.js';
 
 // Re-export Jupiter client for price queries
 export { JupiterClient, jupiter } from './jupiter.js';
+
+// v3.5: Export Jito client for anti-MEV
+export { JitoClient, createJitoClient } from './jitoClient.js';

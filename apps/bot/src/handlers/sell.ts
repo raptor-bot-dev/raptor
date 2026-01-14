@@ -341,14 +341,15 @@ export async function executeManualSell(params: {
   });
 
   // Step 6: Execute sell via executor
-  logger.info('Executing sell via executor', { tokensToSell, slippageBps });
+  // v3.5: Pass tgId to executor to fetch chain-specific settings (slippage, priority, anti-MEV)
+  logger.info('Executing sell via executor', { tokensToSell, userId });
 
   try {
     const result = await solanaExecutor.executeSellWithKeypair(
       position.token_mint,
       tokensToSell,
       keypair,
-      { slippageBps } // L-2 FIX: Use user's slippage setting
+      { tgId: userId } // v3.5: Let executor fetch chain settings
     );
 
     if (!result.success) {

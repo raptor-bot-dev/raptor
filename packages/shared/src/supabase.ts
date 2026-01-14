@@ -2374,3 +2374,79 @@ export async function updateManualSettings(params: {
   if (error) throw error;
   return data as ManualSettings;
 }
+
+// ============================================================================
+// Chain Settings (v3.5 - per-chain configuration for slippage, gas, anti-MEV)
+// ============================================================================
+
+export interface ChainSettings {
+  id: number;
+  user_id: number;
+  chain: string;
+  buy_slippage_bps: number;
+  sell_slippage_bps: number;
+  gas_gwei: number | null;      // EVM only (null for SOL)
+  priority_sol: number | null;  // SOL only (null for EVM)
+  anti_mev_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Get or create chain settings for user
+ * Returns settings with chain-specific defaults if not exists
+ */
+export async function getOrCreateChainSettings(
+  userId: number,
+  chain: string
+): Promise<ChainSettings> {
+  const { data, error } = await supabase.rpc('get_or_create_chain_settings', {
+    p_user_id: userId,
+    p_chain: chain,
+  });
+
+  if (error) throw error;
+  return data as ChainSettings;
+}
+
+/**
+ * Update chain settings (only updates non-null parameters)
+ */
+export async function updateChainSettings(params: {
+  userId: number;
+  chain: string;
+  buySlippageBps?: number;
+  sellSlippageBps?: number;
+  gasGwei?: number;
+  prioritySol?: number;
+  antiMevEnabled?: boolean;
+}): Promise<ChainSettings> {
+  const { data, error } = await supabase.rpc('update_chain_settings', {
+    p_user_id: params.userId,
+    p_chain: params.chain,
+    p_buy_slippage_bps: params.buySlippageBps ?? null,
+    p_sell_slippage_bps: params.sellSlippageBps ?? null,
+    p_gas_gwei: params.gasGwei ?? null,
+    p_priority_sol: params.prioritySol ?? null,
+    p_anti_mev_enabled: params.antiMevEnabled ?? null,
+  });
+
+  if (error) throw error;
+  return data as ChainSettings;
+}
+
+/**
+ * Reset chain settings to defaults
+ */
+export async function resetChainSettings(
+  userId: number,
+  chain: string
+): Promise<ChainSettings> {
+  const { data, error } = await supabase.rpc('reset_chain_settings', {
+    p_user_id: userId,
+    p_chain: chain,
+  });
+
+  if (error) throw error;
+  return data as ChainSettings;
+}
