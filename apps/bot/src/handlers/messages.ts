@@ -243,6 +243,80 @@ async function handleSessionFlow(ctx: MyContext, text: string): Promise<boolean>
       return true;
     }
 
+    // v4.3: Handle manual custom buy slippage
+    case 'awaiting_manual_buy_slip': {
+      const value = parseFloat(text);
+      if (isNaN(value) || value < 1 || value > 100) {
+        await ctx.reply('Invalid slippage. Enter a number between 1 and 100:');
+        return true;
+      }
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({
+        userId: ctx.from!.id,
+        chain: 'sol',
+        buySlippageBps: Math.round(value * 100)
+      });
+      ctx.session.step = null;
+      await ctx.reply(`Buy slippage set to ${value}%\n\nUse /menu to continue.`);
+      return true;
+    }
+
+    // v4.3: Handle manual custom sell slippage
+    case 'awaiting_manual_sell_slip': {
+      const value = parseFloat(text);
+      if (isNaN(value) || value < 1 || value > 100) {
+        await ctx.reply('Invalid slippage. Enter a number between 1 and 100:');
+        return true;
+      }
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({
+        userId: ctx.from!.id,
+        chain: 'sol',
+        sellSlippageBps: Math.round(value * 100)
+      });
+      ctx.session.step = null;
+      await ctx.reply(`Sell slippage set to ${value}%\n\nUse /menu to continue.`);
+      return true;
+    }
+
+    // v4.3: Handle manual custom buy tip
+    case 'awaiting_manual_buy_tip': {
+      const value = parseFloat(text);
+      if (isNaN(value) || value < 0.00001 || value > 0.1) {
+        await ctx.reply('Invalid tip. Enter a number between 0.00001 and 0.1 SOL:');
+        return true;
+      }
+      const { updateChainSettings } = await import('@raptor/shared');
+      await updateChainSettings({
+        userId: ctx.from!.id,
+        chain: 'sol',
+        prioritySol: value
+      });
+      ctx.session.step = null;
+      await ctx.reply(`Buy tip set to ${value} SOL\n\nUse /menu to continue.`);
+      return true;
+    }
+
+    // v4.3: Handle manual custom sell tip
+    case 'awaiting_manual_sell_tip': {
+      const value = parseFloat(text);
+      if (isNaN(value) || value < 0.00001 || value > 0.1) {
+        await ctx.reply('Invalid tip. Enter a number between 0.00001 and 0.1 SOL:');
+        return true;
+      }
+      const { updateChainSettings } = await import('@raptor/shared');
+      // Note: Currently uses same priority_sol field for both buy/sell
+      // TODO: Use sell_priority_sol when database field is added
+      await updateChainSettings({
+        userId: ctx.from!.id,
+        chain: 'sol',
+        prioritySol: value
+      });
+      ctx.session.step = null;
+      await ctx.reply(`Sell tip set to ${value} SOL\n\nUse /menu to continue.`);
+      return true;
+    }
+
     // v3.4: Handle custom buy amount input
     case 'awaiting_custom_buy_amount': {
       const pendingBuy = ctx.session.pendingBuy;

@@ -134,7 +134,389 @@ function settingsKeyboard(settings: ChainSettingsData): InlineKeyboard {
     .text('← Back', 'back_to_menu');
 }
 
-// Keep these exports for backward compatibility but they're no longer used in main settings
+// ============================================
+// v4.3: MANUAL SLIPPAGE SETTINGS
+// ============================================
+
+/**
+ * Show manual slippage settings panel (v4.3)
+ */
+export async function showManualSlippage(ctx: MyContext) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    const settings = await getOrCreateChainSettings(user.id, 'sol');
+    const buySlip = settings.buy_slippage_bps / 100;
+    const sellSlip = settings.sell_slippage_bps / 100;
+
+    const message = `🎚️ *SLIPPAGE SETTINGS*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Buy Slippage:* ${buySlip}%
+*Sell Slippage:* ${sellSlip}%
+
+_Higher slippage = more likely to fill_`;
+
+    const keyboard = new InlineKeyboard()
+      .text(`📈 Buy: ${buySlip}%`, 'manual_slip_buy')
+      .text(`📉 Sell: ${sellSlip}%`, 'manual_slip_sell')
+      .row()
+      .text('← Back', 'settings');
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('[Settings] Error loading slippage:', error);
+    await ctx.answerCallbackQuery({ text: 'Error loading settings' });
+  }
+}
+
+/**
+ * Show buy slippage selection (v4.3)
+ */
+export async function showBuySlippageSelection(ctx: MyContext) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    const settings = await getOrCreateChainSettings(user.id, 'sol');
+    const currentBps = settings.buy_slippage_bps;
+    const currentPercent = currentBps / 100;
+
+    const message = `🎚️ *SET BUY SLIPPAGE*
+
+Current: *${currentPercent}%*
+
+Select slippage tolerance:`;
+
+    const presets = [500, 1000, 2500, 5000, 10000]; // 5%, 10%, 25%, 50%, 100%
+    const keyboard = new InlineKeyboard();
+
+    // First row: 5%, 10%, 25%
+    for (const bps of presets.slice(0, 3)) {
+      const pct = bps / 100;
+      const check = currentBps === bps ? ' ✓' : '';
+      keyboard.text(`${pct}%${check}`, `manual_slip_set_buy_${bps}`);
+    }
+    keyboard.row();
+
+    // Second row: 50%, 100%, Custom
+    for (const bps of presets.slice(3)) {
+      const pct = bps / 100;
+      const check = currentBps === bps ? ' ✓' : '';
+      keyboard.text(`${pct}%${check}`, `manual_slip_set_buy_${bps}`);
+    }
+    keyboard.text('✏️ Custom', 'manual_slip_custom_buy');
+    keyboard.row();
+
+    keyboard.text('← Back', 'settings_slippage');
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('[Settings] Error:', error);
+    await ctx.answerCallbackQuery({ text: 'Error loading settings' });
+  }
+}
+
+/**
+ * Show sell slippage selection (v4.3)
+ */
+export async function showSellSlippageSelection(ctx: MyContext) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    const settings = await getOrCreateChainSettings(user.id, 'sol');
+    const currentBps = settings.sell_slippage_bps;
+    const currentPercent = currentBps / 100;
+
+    const message = `🎚️ *SET SELL SLIPPAGE*
+
+Current: *${currentPercent}%*
+
+Select slippage tolerance:`;
+
+    const presets = [500, 1000, 2500, 5000, 10000]; // 5%, 10%, 25%, 50%, 100%
+    const keyboard = new InlineKeyboard();
+
+    // First row: 5%, 10%, 25%
+    for (const bps of presets.slice(0, 3)) {
+      const pct = bps / 100;
+      const check = currentBps === bps ? ' ✓' : '';
+      keyboard.text(`${pct}%${check}`, `manual_slip_set_sell_${bps}`);
+    }
+    keyboard.row();
+
+    // Second row: 50%, 100%, Custom
+    for (const bps of presets.slice(3)) {
+      const pct = bps / 100;
+      const check = currentBps === bps ? ' ✓' : '';
+      keyboard.text(`${pct}%${check}`, `manual_slip_set_sell_${bps}`);
+    }
+    keyboard.text('✏️ Custom', 'manual_slip_custom_sell');
+    keyboard.row();
+
+    keyboard.text('← Back', 'settings_slippage');
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('[Settings] Error:', error);
+    await ctx.answerCallbackQuery({ text: 'Error loading settings' });
+  }
+}
+
+/**
+ * Set buy slippage (v4.3)
+ */
+export async function setBuySlippage(ctx: MyContext, bps: number) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    await updateChainSettings({
+      userId: user.id,
+      chain: 'sol',
+      buySlippageBps: bps,
+    });
+
+    await ctx.answerCallbackQuery({ text: `Buy slippage set to ${bps / 100}%` });
+    await showBuySlippageSelection(ctx);
+  } catch (error) {
+    console.error('[Settings] Error setting buy slippage:', error);
+    await ctx.answerCallbackQuery({ text: 'Error updating setting' });
+  }
+}
+
+/**
+ * Set sell slippage (v4.3)
+ */
+export async function setSellSlippage(ctx: MyContext, bps: number) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    await updateChainSettings({
+      userId: user.id,
+      chain: 'sol',
+      sellSlippageBps: bps,
+    });
+
+    await ctx.answerCallbackQuery({ text: `Sell slippage set to ${bps / 100}%` });
+    await showSellSlippageSelection(ctx);
+  } catch (error) {
+    console.error('[Settings] Error setting sell slippage:', error);
+    await ctx.answerCallbackQuery({ text: 'Error updating setting' });
+  }
+}
+
+// ============================================
+// v4.3: MANUAL PRIORITY TIP SETTINGS
+// ============================================
+
+/**
+ * Show manual priority tip settings panel (v4.3)
+ */
+export async function showManualPriority(ctx: MyContext) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    const settings = await getOrCreateChainSettings(user.id, 'sol');
+    // Note: Currently using same priority_sol for both buy and sell
+    // TODO: Add sell_priority_sol field to database for separate values
+    const tip = settings.priority_sol || 0.001;
+
+    const message = `⚡ *PRIORITY TIP SETTINGS*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Buy Tip:* ${tip} SOL
+*Sell Tip:* ${tip} SOL
+
+_Higher tip = faster transaction_`;
+
+    const keyboard = new InlineKeyboard()
+      .text(`💰 Buy Tip: ${tip}`, 'manual_tip_buy')
+      .text(`💰 Sell Tip: ${tip}`, 'manual_tip_sell')
+      .row()
+      .text('← Back', 'settings');
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('[Settings] Error loading priority:', error);
+    await ctx.answerCallbackQuery({ text: 'Error loading settings' });
+  }
+}
+
+/**
+ * Show buy tip selection (v4.3)
+ */
+export async function showBuyTipSelection(ctx: MyContext) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    const settings = await getOrCreateChainSettings(user.id, 'sol');
+    const currentTip = settings.priority_sol || 0.001;
+
+    const message = `⚡ *SET BUY TIP*
+
+Current: *${currentTip} SOL*
+
+Select priority tip:`;
+
+    const presets = [0.0001, 0.0005, 0.001, 0.005, 0.01];
+    const keyboard = new InlineKeyboard();
+
+    // First row: 0.0001, 0.0005, 0.001
+    for (const tip of presets.slice(0, 3)) {
+      const check = currentTip === tip ? ' ✓' : '';
+      keyboard.text(`${tip}${check}`, `manual_tip_set_buy_${tip}`);
+    }
+    keyboard.row();
+
+    // Second row: 0.005, 0.01, Custom
+    for (const tip of presets.slice(3)) {
+      const check = currentTip === tip ? ' ✓' : '';
+      keyboard.text(`${tip}${check}`, `manual_tip_set_buy_${tip}`);
+    }
+    keyboard.text('✏️ Custom', 'manual_tip_custom_buy');
+    keyboard.row();
+
+    keyboard.text('← Back', 'settings_gas');
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('[Settings] Error:', error);
+    await ctx.answerCallbackQuery({ text: 'Error loading settings' });
+  }
+}
+
+/**
+ * Show sell tip selection (v4.3)
+ */
+export async function showSellTipSelection(ctx: MyContext) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    const settings = await getOrCreateChainSettings(user.id, 'sol');
+    // Note: Currently using same priority_sol for both buy and sell
+    const currentTip = settings.priority_sol || 0.001;
+
+    const message = `⚡ *SET SELL TIP*
+
+Current: *${currentTip} SOL*
+
+Select priority tip:`;
+
+    const presets = [0.0001, 0.0005, 0.001, 0.005, 0.01];
+    const keyboard = new InlineKeyboard();
+
+    // First row: 0.0001, 0.0005, 0.001
+    for (const tip of presets.slice(0, 3)) {
+      const check = currentTip === tip ? ' ✓' : '';
+      keyboard.text(`${tip}${check}`, `manual_tip_set_sell_${tip}`);
+    }
+    keyboard.row();
+
+    // Second row: 0.005, 0.01, Custom
+    for (const tip of presets.slice(3)) {
+      const check = currentTip === tip ? ' ✓' : '';
+      keyboard.text(`${tip}${check}`, `manual_tip_set_sell_${tip}`);
+    }
+    keyboard.text('✏️ Custom', 'manual_tip_custom_sell');
+    keyboard.row();
+
+    keyboard.text('← Back', 'settings_gas');
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('[Settings] Error:', error);
+    await ctx.answerCallbackQuery({ text: 'Error loading settings' });
+  }
+}
+
+/**
+ * Set buy tip (v4.3)
+ * Note: Currently both buy and sell use the same priority_sol field
+ */
+export async function setBuyTip(ctx: MyContext, sol: number) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    await updateChainSettings({
+      userId: user.id,
+      chain: 'sol',
+      prioritySol: sol,
+    });
+
+    await ctx.answerCallbackQuery({ text: `Buy tip set to ${sol} SOL` });
+    await showBuyTipSelection(ctx);
+  } catch (error) {
+    console.error('[Settings] Error setting buy tip:', error);
+    await ctx.answerCallbackQuery({ text: 'Error updating setting' });
+  }
+}
+
+/**
+ * Set sell tip (v4.3)
+ * Note: Currently both buy and sell use the same priority_sol field
+ */
+export async function setSellTip(ctx: MyContext, sol: number) {
+  const user = ctx.from;
+  if (!user) return;
+
+  try {
+    // TODO: Use separate sell_priority_sol when database field is added
+    await updateChainSettings({
+      userId: user.id,
+      chain: 'sol',
+      prioritySol: sol,
+    });
+
+    await ctx.answerCallbackQuery({ text: `Sell tip set to ${sol} SOL` });
+    await showSellTipSelection(ctx);
+  } catch (error) {
+    console.error('[Settings] Error setting sell tip:', error);
+    await ctx.answerCallbackQuery({ text: 'Error updating setting' });
+  }
+}
+
+// ============================================
+// LEGACY EXPORTS (backward compatibility)
+// ============================================
+
 export async function showPositionSize(ctx: MyContext) {
   await ctx.answerCallbackQuery({ text: 'Position settings moved to Hunt' });
 }

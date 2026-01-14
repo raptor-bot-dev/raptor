@@ -91,7 +91,17 @@ import {
   toggleChainEnabled,
   showNotifications,
   toggleNotification,
-  toggleAntiMev,  // v4.2: Anti-MEV toggle
+  toggleAntiMev,           // v4.2: Anti-MEV toggle
+  showManualSlippage,      // v4.3: Direct slippage panel
+  showManualPriority,      // v4.3: Direct priority panel
+  showBuySlippageSelection,
+  showSellSlippageSelection,
+  setBuySlippage,
+  setSellSlippage,
+  showBuyTipSelection,
+  showSellTipSelection,
+  setBuyTip,
+  setSellTip,
 } from '../commands/settings.js';
 
 // Strategy imports (v2.3 - full custom strategy support)
@@ -834,13 +844,117 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
+    // v4.3: Direct routing to priority panel (no intermediate "Solana" step)
     if (data === 'settings_gas') {
-      await showGas(ctx);
+      await showManualPriority(ctx);
       return;
     }
 
+    // v4.3: Direct routing to slippage panel (no intermediate "Solana" step)
     if (data === 'settings_slippage') {
-      await showSlippage(ctx);
+      await showManualSlippage(ctx);
+      return;
+    }
+
+    // v4.3: Manual slippage handlers
+    if (data === 'manual_slip_buy') {
+      await showBuySlippageSelection(ctx);
+      return;
+    }
+
+    if (data === 'manual_slip_sell') {
+      await showSellSlippageSelection(ctx);
+      return;
+    }
+
+    if (data.startsWith('manual_slip_set_buy_')) {
+      const bps = parseInt(data.replace('manual_slip_set_buy_', ''));
+      if (!isNaN(bps)) {
+        await setBuySlippage(ctx, bps);
+      }
+      return;
+    }
+
+    if (data.startsWith('manual_slip_set_sell_')) {
+      const bps = parseInt(data.replace('manual_slip_set_sell_', ''));
+      if (!isNaN(bps)) {
+        await setSellSlippage(ctx, bps);
+      }
+      return;
+    }
+
+    if (data === 'manual_slip_custom_buy') {
+      ctx.session.step = 'awaiting_manual_buy_slip';
+      await ctx.editMessageText(
+        '🎚️ *CUSTOM BUY SLIPPAGE*\n\n' +
+        'Enter slippage percentage (e.g., 15 for 15%):\n\n' +
+        '_Valid range: 1-100%_',
+        { parse_mode: 'Markdown' }
+      );
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    if (data === 'manual_slip_custom_sell') {
+      ctx.session.step = 'awaiting_manual_sell_slip';
+      await ctx.editMessageText(
+        '🎚️ *CUSTOM SELL SLIPPAGE*\n\n' +
+        'Enter slippage percentage (e.g., 15 for 15%):\n\n' +
+        '_Valid range: 1-100%_',
+        { parse_mode: 'Markdown' }
+      );
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    // v4.3: Manual priority tip handlers
+    if (data === 'manual_tip_buy') {
+      await showBuyTipSelection(ctx);
+      return;
+    }
+
+    if (data === 'manual_tip_sell') {
+      await showSellTipSelection(ctx);
+      return;
+    }
+
+    if (data.startsWith('manual_tip_set_buy_')) {
+      const sol = parseFloat(data.replace('manual_tip_set_buy_', ''));
+      if (!isNaN(sol)) {
+        await setBuyTip(ctx, sol);
+      }
+      return;
+    }
+
+    if (data.startsWith('manual_tip_set_sell_')) {
+      const sol = parseFloat(data.replace('manual_tip_set_sell_', ''));
+      if (!isNaN(sol)) {
+        await setSellTip(ctx, sol);
+      }
+      return;
+    }
+
+    if (data === 'manual_tip_custom_buy') {
+      ctx.session.step = 'awaiting_manual_buy_tip';
+      await ctx.editMessageText(
+        '⚡ *CUSTOM BUY TIP*\n\n' +
+        'Enter tip amount in SOL (e.g., 0.005):\n\n' +
+        '_Example: 0.001 = 0.001 SOL_',
+        { parse_mode: 'Markdown' }
+      );
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    if (data === 'manual_tip_custom_sell') {
+      ctx.session.step = 'awaiting_manual_sell_tip';
+      await ctx.editMessageText(
+        '⚡ *CUSTOM SELL TIP*\n\n' +
+        'Enter tip amount in SOL (e.g., 0.005):\n\n' +
+        '_Example: 0.001 = 0.001 SOL_',
+        { parse_mode: 'Markdown' }
+      );
+      await ctx.answerCallbackQuery();
       return;
     }
 

@@ -30,6 +30,10 @@ export interface SessionData {
     | 'awaiting_wallet_rename'     // v4.1: Wallet rename input
     | 'awaiting_send_address'      // v4.1: Send destination address
     | 'awaiting_send_token_ca'     // v4.1: Send token contract address
+    | 'awaiting_manual_buy_slip'   // v4.3: Custom buy slippage input
+    | 'awaiting_manual_sell_slip'  // v4.3: Custom sell slippage input
+    | 'awaiting_manual_buy_tip'    // v4.3: Custom buy tip input
+    | 'awaiting_manual_sell_tip'   // v4.3: Custom sell tip input
     | CustomStrategyStep
     | null;
   chainSettingsTarget?: string;  // v3.5: Target chain for settings input
