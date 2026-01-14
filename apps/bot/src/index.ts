@@ -128,7 +128,7 @@ bot.catch((err) => {
 });
 
 // Start the bot
-console.log('🦅 RAPTOR Bot starting...');
+console.log('🦖 RAPTOR Bot starting...');
 
 // v3.4.2: Set bot commands for the menu (added missing commands)
 bot.api.setMyCommands([
@@ -138,7 +138,7 @@ bot.api.setMyCommands([
   { command: 'sell', description: '💰 Sell tokens' },
   { command: 'positions', description: '📊 View positions' },
   { command: 'snipe', description: '🎯 Snipe a token' },
-  { command: 'hunt', description: '🦅 Auto-hunt settings' },
+  { command: 'hunt', description: '🦖 Hunt settings' },
   { command: 'score', description: '🔍 Analyze token' },
   { command: 'history', description: '📜 Trade history' },
   { command: 'deposit', description: '📥 Deposit funds' },

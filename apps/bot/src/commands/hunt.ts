@@ -64,32 +64,37 @@ async function saveUserHuntSettings(tgId: number, settings: Record<Chain, HuntSe
 }
 
 /**
- * Main hunt command - show chain selection
+ * Main hunt command - merged panel with settings inline (v4.0)
  */
 export async function huntCommand(ctx: MyContext) {
   const user = ctx.from;
   if (!user) return;
 
   const settings = await getUserHuntSettingsAsync(user.id);
-
-  // Build status message
-  let message = '🦅 *RAPTOR Hunt*\n\n';
-  message += '*Browse Opportunities:*\n';
-  message += '🌱 New Launches - Fresh tokens on bonding curves\n';
-  message += '🔥 Trending - Top performing tokens\n\n';
-  message += '*Auto-Hunt Status:*\n';
-
   const s = settings.sol;
-  const status = s.enabled ? '🟢' : '🔴';
-  message += `${CHAIN_EMOJI.sol} ${CHAIN_NAME.sol}: ${status}\n`;
 
-  message += '\n_Configure auto-hunt to trade new tokens automatically._';
+  // Build merged hunt panel
+  let message = '🦖 *HUNT*\n';
+  message += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
 
+  // Status and settings inline
+  const status = s.enabled ? '🟢 Active' : '🔴 Paused';
+  message += `*Status:* ${status}\n`;
+  message += `*Min Score:* *${s.minScore}*/100\n`;
+  message += `*Position:* *${s.maxPositionSize || 'Auto'} SOL*\n`;
+
+  // Show enabled launchpads
+  message += `*Launchpads:* ${s.launchpads.length > 0 ? s.launchpads.join(', ') : 'None'}\n\n`;
+
+  message += '_Auto-snipe new token launches_';
+
+  const toggleText = s.enabled ? '🔴 Stop Hunt' : '🟢 Start Hunt';
   const keyboard = new InlineKeyboard()
+    .text(toggleText, 'hunt_start_sol')
+    .text('⚙️ Configure', 'hunt_chain_sol')
+    .row()
     .text('🌱 New Launches', 'hunt_new')
     .text('🔥 Trending', 'hunt_trending')
-    .row()
-    .text(`${CHAIN_EMOJI.sol} Solana Settings`, 'hunt_chain_sol')
     .row()
     .text('« Back', 'menu');
 
@@ -100,31 +105,37 @@ export async function huntCommand(ctx: MyContext) {
 }
 
 /**
- * Show hunt settings via callback
+ * Show hunt settings via callback - merged panel (v4.0)
  */
 export async function showHunt(ctx: MyContext) {
   const user = ctx.from;
   if (!user) return;
 
   const settings = await getUserHuntSettingsAsync(user.id);
-
-  let message = '🦅 *RAPTOR Hunt*\n\n';
-  message += '*Browse Opportunities:*\n';
-  message += '🌱 New Launches - Fresh tokens on bonding curves\n';
-  message += '🔥 Trending - Top performing tokens\n\n';
-  message += '*Auto-Hunt Status:*\n';
-
   const s = settings.sol;
-  const status = s.enabled ? '🟢' : '🔴';
-  message += `${CHAIN_EMOJI.sol} ${CHAIN_NAME.sol}: ${status}\n`;
 
-  message += '\n_Configure auto-hunt to trade new tokens automatically._';
+  // Build merged hunt panel
+  let message = '🦖 *HUNT*\n';
+  message += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
 
+  // Status and settings inline
+  const status = s.enabled ? '🟢 Active' : '🔴 Paused';
+  message += `*Status:* ${status}\n`;
+  message += `*Min Score:* *${s.minScore}*/100\n`;
+  message += `*Position:* *${s.maxPositionSize || 'Auto'} SOL*\n`;
+
+  // Show enabled launchpads
+  message += `*Launchpads:* ${s.launchpads.length > 0 ? s.launchpads.join(', ') : 'None'}\n\n`;
+
+  message += '_Auto-snipe new token launches_';
+
+  const toggleText = s.enabled ? '🔴 Stop Hunt' : '🟢 Start Hunt';
   const keyboard = new InlineKeyboard()
+    .text(toggleText, 'hunt_start_sol')
+    .text('⚙️ Configure', 'hunt_chain_sol')
+    .row()
     .text('🌱 New Launches', 'hunt_new')
     .text('🔥 Trending', 'hunt_trending')
-    .row()
-    .text(`${CHAIN_EMOJI.sol} Solana Settings`, 'hunt_chain_sol')
     .row()
     .text('« Back', 'menu');
 
@@ -322,7 +333,7 @@ export async function showLaunchpadSelection(ctx: MyContext, chain: Chain) {
 
   if (launchpads.length === 0) {
     await ctx.editMessageText(
-      `🚀 *Launchpads - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n` +
+      `🎯 *Launchpads - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n` +
       `No specific launchpads configured for this chain.\n` +
       `All new token launches will be monitored.`,
       {
@@ -334,7 +345,7 @@ export async function showLaunchpadSelection(ctx: MyContext, chain: Chain) {
     return;
   }
 
-  let message = `🚀 *Launchpads - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n`;
+  let message = `🎯 *Launchpads - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n`;
   message += 'Select launchpads to monitor:\n\n';
 
   const keyboard = new InlineKeyboard();
@@ -433,7 +444,7 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
 
     if (tokens.length === 0) {
       await ctx.editMessageText(
-        `🦅 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n` +
+        `🌱 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n` +
         `No tokens found at the moment.\n` +
         `Try again in a few minutes.`,
         {
@@ -447,7 +458,7 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
       return;
     }
 
-    let message = `🦅 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n`;
+    let message = `🌱 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n`;
 
     const keyboard = new InlineKeyboard();
 
@@ -491,7 +502,7 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
   } catch (error) {
     console.error('[Hunt] Opportunities error:', error);
     await ctx.editMessageText(
-      `🦅 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n` +
+      `🌱 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n` +
       `⚠️ Error fetching data. Try again later.`,
       {
         parse_mode: 'Markdown',

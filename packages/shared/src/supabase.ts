@@ -751,14 +751,14 @@ export interface CustomStrategy {
 }
 
 /**
- * Get all wallets for a user
+ * Get all wallets for a user (Solana-only)
  */
 export async function getUserWallets(tgId: number): Promise<UserWallet[]> {
   const { data, error } = await supabase
     .from('user_wallets')
     .select('*')
     .eq('tg_id', tgId)
-    .order('chain')
+    .eq('chain', 'sol')  // Solana-only build
     .order('wallet_index');
 
   if (error) throw error;

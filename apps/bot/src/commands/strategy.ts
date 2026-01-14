@@ -871,7 +871,7 @@ ${LINE}`;
     .text(`🚶 Medium${current === 'medium' ? ' ✓' : ''}`, 'custom_gas_medium')
     .row()
     .text(`🏃 High${current === 'high' ? ' ✓' : ''}`, 'custom_gas_high')
-    .text(`🚀 Turbo${current === 'turbo' ? ' ✓' : ''}`, 'custom_gas_turbo')
+    .text(`⚡ Turbo${current === 'turbo' ? ' ✓' : ''}`, 'custom_gas_turbo')
     .row()
     .text('« Back', 'custom_page_4');
 

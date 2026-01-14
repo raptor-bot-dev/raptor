@@ -46,10 +46,10 @@ export const MODE_EMOJI: Record<TradingMode, string> = {
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text('💳 Wallets', 'wallets')
-    .text('⚙️ Manual Settings', 'settings_manual')
+    .text('⚙️ Settings', 'settings')
     .row()
-    .text('🦖 AutoHunt', 'hunt')
-    .text('🎯 AutoHunt Settings', 'settings_autohunt')
+    .text('🦖 Hunt', 'hunt')
+    .text('🎯 Strategies', 'settings_strategy')
     .row()
     .text('🔍 Scan Token', 'quick_trade')
     .row()
@@ -361,7 +361,7 @@ export function gasSpeedKeyboard(chain: Chain, currentSpeed?: string): InlineKey
   const speeds = [
     { key: 'slow', label: '🐢 Slow', desc: 'Cheaper' },
     { key: 'normal', label: '🚗 Normal', desc: 'Balanced' },
-    { key: 'fast', label: '🚀 Fast', desc: 'Quick' },
+    { key: 'fast', label: '🏃 Fast', desc: 'Quick' },
     { key: 'turbo', label: '⚡ Turbo', desc: 'Priority' },
   ];
 
@@ -443,21 +443,24 @@ export function snipeConfirmKeyboard(token: string): InlineKeyboard {
 }
 
 /**
- * Hunt settings keyboard for a chain
+ * Hunt settings keyboard (v4.0 - Configure panel)
  */
 export function huntKeyboard(chain: Chain, isEnabled: boolean): InlineKeyboard {
-  const statusText = isEnabled ? '⏸️ Pause Hunt' : '▶️ Start Hunt';
+  const statusText = isEnabled ? '🔴 Stop Hunt' : '🟢 Start Hunt';
   const statusCallback = isEnabled ? `hunt_pause_${chain}` : `hunt_start_${chain}`;
 
   return new InlineKeyboard()
     .text(statusText, statusCallback)
     .row()
-    .text('🎚️ Min Score', `hunt_score_${chain}`)
+    .text('🎯 Min Score', `hunt_score_${chain}`)
     .text('💰 Position Size', `hunt_size_${chain}`)
     .row()
-    .text('🚀 Launchpads', `hunt_launchpads_${chain}`)
+    .text('🎯 Launchpads', `hunt_launchpads_${chain}`)
     .row()
-    .text('← Back', 'back_to_hunt');
+    .text('⚡ Priority Fee', `chain_priority:sol`)
+    .text('🎚️ Slippage', `chain_buy_slip:sol`)
+    .row()
+    .text('« Back', 'hunt');
 }
 
 /**
@@ -791,7 +794,7 @@ export function autoHuntKeyboard(isEnabled: boolean): InlineKeyboard {
     .text('🎰 Bet Size', 'hunt_betsize')
     .text('🔗 Chains', 'hunt_chains')
     .row()
-    .text('🚀 Launchpads', 'hunt_launchpads')
+    .text('🎯 Launchpads', 'hunt_launchpads')
     .row()
     .text('« Back', 'back_to_menu');
 }

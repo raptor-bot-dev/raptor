@@ -57,7 +57,7 @@ const SPEED_INFO: Record<TipSpeed, { emoji: string; name: string; multiplier: st
   slow: { emoji: '🐢', name: 'Slow', multiplier: '0.5x' },
   normal: { emoji: '🚶', name: 'Normal', multiplier: '1x' },
   fast: { emoji: '🏃', name: 'Fast', multiplier: '2x' },
-  turbo: { emoji: '🚀', name: 'Turbo', multiplier: '3x' },
+  turbo: { emoji: '⚡', name: 'Turbo', multiplier: '3x' },
 };
 
 /**
@@ -149,7 +149,7 @@ export async function showChainGas(ctx: MyContext, chain: Chain) {
   message += '🐢 Slow - Cheapest, may miss fast tokens\n';
   message += '🚶 Normal - Balanced (recommended)\n';
   message += '🏃 Fast - Higher priority for hot launches\n';
-  message += '🚀 Turbo - Maximum priority, expensive\n\n';
+  message += '⚡ Turbo - Maximum priority, expensive\n\n';
 
   message += '💡 _Solana priority fees are very cheap_';
 

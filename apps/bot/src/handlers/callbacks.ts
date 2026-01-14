@@ -642,26 +642,38 @@ Tap "Show Keys" to reveal your private keys.`;
     }
 
     // ============================================
-    // v3.5: CHAIN-SPECIFIC MANUAL SETTINGS
+    // v4.0: SOLANA-ONLY MANUAL SETTINGS
     // ============================================
 
-    // Main manual settings menu - now shows chain selection
+    // Manual settings - go directly to Solana settings
     if (data === 'settings_manual') {
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, 'sol');
+
+      const buySlip = (settings.buy_slippage_bps / 100).toFixed(1);
+      const sellSlip = (settings.sell_slippage_bps / 100).toFixed(1);
+      const mevStatus = settings.anti_mev_enabled ? '✅ Enabled' : '❌ Disabled';
+
       const message =
-        `⚙️ *MANUAL SETTINGS*\n` +
+        `⚙️ *SETTINGS*\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `Configure trading settings per chain:\n` +
-        `• Buy/Sell Slippage\n` +
-        `• Gas (EVM) / Priority (SOL)\n` +
-        `• Anti-MEV Protection\n\n` +
-        `_Select a chain to configure:_`;
+        `*Slippage*\n` +
+        `Buy: ${buySlip}%\n` +
+        `Sell: ${sellSlip}%\n\n` +
+        `*Priority Fee:* ${settings.priority_sol} SOL\n\n` +
+        `*Anti-MEV (Jito)*\n` +
+        `${mevStatus}\n\n` +
+        `_Configure your trading preferences_`;
 
       const keyboard = new InlineKeyboard()
-        .text('☀️ Solana', 'chain_settings:sol')
-        .text('Ξ Ethereum', 'chain_settings:eth')
+        .text(`🎚️ Buy Slip: ${buySlip}%`, `chain_buy_slip:sol`)
+        .text(`🎚️ Sell Slip: ${sellSlip}%`, `chain_sell_slip:sol`)
         .row()
-        .text('🔵 Base', 'chain_settings:base')
-        .text('🟡 BSC', 'chain_settings:bsc')
+        .text(`⚡ Priority: ${settings.priority_sol} SOL`, `chain_priority:sol`)
+        .row()
+        .text(settings.anti_mev_enabled ? '✅ Anti-MEV' : '❌ Anti-MEV', `chain_mev_toggle:sol`)
+        .row()
+        .text('🔄 Reset to Defaults', `chain_reset:sol`)
         .row()
         .text('« Back', 'menu');
 
@@ -3394,7 +3406,7 @@ _(tap to copy)_
       .text('🔐 Backup Keys', 'backup_start')
       .row()
       .text('🎯 Start Sniping', 'menu_snipe')
-      .text('🦅 Setup Hunt', 'menu_hunt')
+      .text('🦖 Setup Hunt', 'menu_hunt')
       .row()
       .text('🏠 Main Menu', 'back_to_start');
 
@@ -3423,7 +3435,7 @@ Create a trading wallet for SOL, ETH, or BNB. Each chain has its own address.
 💰 *2. Deposit Funds*
 Send crypto to your deposit address. Funds are detected automatically.
 
-🦅 *3. Hunt Mode*
+🦖 *3. Hunt Mode*
 Enable auto-trading. RAPTOR scans for new token launches and scores them (0-35). High-scoring tokens are bought automatically.
 
 🎯 *4. Snipe Mode*
@@ -3480,7 +3492,7 @@ paste a token address to snipe.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
     const keyboard = new InlineKeyboard()
-      .text('🦅 Hunt Settings', 'menu_hunt')
+      .text('🦖 Hunt Settings', 'menu_hunt')
       .row()
       .text('« Back', 'back_to_menu');
 
@@ -3675,7 +3687,7 @@ How to set up and start trading
 💰 *Deposits & Withdrawals*
 Managing your funds
 
-🦅 *Auto-Hunt*
+🦖 *Hunt*
 Automatic token sniping
 
 📊 *Strategies*
@@ -3688,7 +3700,7 @@ How fees work`;
     .text('📖 Getting Started', 'help_start')
     .row()
     .text('💰 Deposits', 'help_deposits')
-    .text('🦅 Auto-Hunt', 'help_hunt')
+    .text('🦖 Hunt', 'help_hunt')
     .row()
     .text('📊 Strategies', 'help_strategies')
     .text('💸 Fees', 'help_fees')
@@ -3744,25 +3756,25 @@ async function showHelpDeposits(ctx: MyContext) {
 }
 
 async function showHelpHunt(ctx: MyContext) {
-  const message = `🦅 *AUTO-HUNT GUIDE*
+  const message = `🦖 *HUNT GUIDE*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*What is Auto-Hunt?*
+*What is Hunt Mode?*
 RAPTOR monitors new token launches 24/7
 and automatically buys tokens that pass
 our safety scoring system.
 
 *How It Works:*
 1. New token detected on launchpad
-2. Safety analysis runs (0-35 score)
+2. Safety analysis runs (0-100 score)
 3. If score >= your minimum, buy executes
 4. Position tracked with your strategy
 
 *Safety Score Breakdown:*
-• 0-14: Skip (dangerous)
-• 15-22: Tiny positions only
-• 23-28: Normal tradable
-• 29-35: Highest quality
+• 0-25: Skip (dangerous)
+• 25-50: Cautious positions
+• 50-75: Normal tradable
+• 75-100: Highest quality
 
 *Configurable Settings:*
 • Min Score: Higher = safer, fewer trades
@@ -3770,12 +3782,10 @@ our safety scoring system.
 • Launchpads: Which platforms to monitor
 
 *Supported Launchpads:*
-🟢 SOL: Pump.fun, PumpSwap, Moonshot
-🟡 BSC: Four.meme
-🔵 Base: Virtuals, WOW.xyz`;
+🟢 pump.fun, PumpSwap, Moonshot`;
 
   const keyboard = new InlineKeyboard()
-    .text('🦅 Configure Hunt', 'menu_hunt')
+    .text('🦖 Configure Hunt', 'menu_hunt')
     .row()
     .text('« Back', 'help');
 

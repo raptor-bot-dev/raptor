@@ -30,29 +30,10 @@ export async function depositCommand(ctx: MyContext) {
   );
 }
 
-// Handle mode selection callback
+// Handle mode selection callback - Solana-only build
 export async function handleModeSelection(ctx: MyContext, mode: string) {
-  // Store mode in context/session for next step
-  const keyboard = new InlineKeyboard()
-    .text('🟡 BSC (BNB)', `deposit_chain_bsc_${mode}`)
-    .text('🔵 Base (ETH)', `deposit_chain_base_${mode}`)
-    .row()
-    .text('⚪ ETH Mainnet', `deposit_chain_eth_${mode}`)
-    .text('🟣 Solana (SOL)', `deposit_chain_sol_${mode}`);
-
-  const modeEmoji = mode === 'pool' ? '🏊' : mode === 'solo' ? '👤' : '🎯';
-  const modeName = mode.charAt(0).toUpperCase() + mode.slice(1);
-
-  await ctx.editMessageText(
-    `💰 *Deposit to ${modeName} Mode* ${modeEmoji}\n\n` +
-      'Select which chain to deposit:',
-    {
-      parse_mode: 'Markdown',
-      reply_markup: keyboard,
-    }
-  );
-
-  await ctx.answerCallbackQuery();
+  // Solana-only build - go directly to Solana deposit
+  await handleChainSelection(ctx, 'sol', mode);
 }
 
 // Handle chain selection callback
@@ -64,11 +45,9 @@ export async function handleChainSelection(
   const user = ctx.from;
   if (!user) return;
 
+  // Solana-only build
   const chainInfo: Record<string, { name: string; symbol: string; emoji: string; minDeposit: string }> = {
-    bsc: { name: 'BNB Smart Chain', symbol: 'BNB', emoji: '🟡', minDeposit: '0.01 BNB' },
-    base: { name: 'Base', symbol: 'ETH', emoji: '🔵', minDeposit: '0.005 ETH' },
-    eth: { name: 'Ethereum', symbol: 'ETH', emoji: '⚪', minDeposit: '0.01 ETH' },
-    sol: { name: 'Solana', symbol: 'SOL', emoji: '🟣', minDeposit: '0.05 SOL' },
+    sol: { name: 'Solana', symbol: 'SOL', emoji: '🟢', minDeposit: '0.05 SOL' },
   };
 
   const info = chainInfo[chain];

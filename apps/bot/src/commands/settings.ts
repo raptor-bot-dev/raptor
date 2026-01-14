@@ -291,34 +291,33 @@ export async function toggleNotification(ctx: MyContext, type: string) {
 }
 
 /**
- * Format settings menu
+ * Format settings menu (v4.0 Solana-only)
  */
 function formatSettingsMenu(settings: UserSettingsData): string {
-  let message = '⚙️ *Settings*\n\n';
+  let message = '⚙️ *SETTINGS*\n';
+  message += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
 
-  message += `📊 *Strategy:* ${STRATEGY_NAMES[settings.strategy]}\n`;
-  message += `💰 *Max Position:* ${settings.maxPositionPercent}%\n`;
-  message += `⛓️ *Chains:* ${settings.chainsEnabled.length} enabled\n`;
-  message += `🔔 *Notifications:* ${settings.notifications.enabled ? 'ON' : 'OFF'}\n\n`;
+  message += `*Strategy:* ${STRATEGY_NAMES[settings.strategy]}\n`;
+  message += `*Max Position:* *${settings.maxPositionPercent}%*\n`;
+  message += `*Notifications:* ${settings.notifications.enabled ? '🟢 ON' : '🔴 OFF'}\n\n`;
 
-  message += '_Configure your trading preferences_';
+  message += '_Configure manual trading preferences_';
 
   return message;
 }
 
 /**
- * Build settings keyboard
+ * Build settings keyboard (v4.0 Solana-only)
  */
 function settingsKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text('📊 Strategy', 'settings_strategy')
-    .text('⛽ Gas', 'settings_gas')
+    .text('💰 Position', 'settings_size')
     .row()
+    .text('⚡ Priority', 'settings_gas')
     .text('🎚️ Slippage', 'settings_slippage')
-    .text('💰 Position Size', 'settings_size')
     .row()
-    .text('⛓️ Chains', 'settings_chains')
     .text('🔔 Notifications', 'settings_notif')
     .row()
-    .text('← Back', 'back_to_menu');
+    .text('« Back', 'back_to_menu');
 }

@@ -44,7 +44,7 @@ function formatAlert(alert: Alert): string {
   switch (type) {
     case 'POSITION_OPENED':
       return (
-        `🦅 *Target Acquired*\n\n` +
+        `🦖 *Target Acquired*\n\n` +
         `Token: ${data.symbol}\n` +
         `Chain: ${String(data.chain).toUpperCase()}\n` +
         `Amount: ${data.amount} ${data.chain === 'bsc' ? 'BNB' : 'ETH'}\n` +

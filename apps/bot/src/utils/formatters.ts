@@ -177,8 +177,8 @@ export function formatMainMenu(
 ): string {
   const displayName = username ? `@${username}` : 'Trader';
 
-  return `🦅 RAPTOR — Command Center
-━━━━━━━━━━━━━━━━━━━━━━
+  return `🦖 RAPTOR — Command Center
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Welcome, <b>${displayName}</b>.
 
@@ -260,62 +260,44 @@ export function formatWalletsOverview(
     return `*💼 WALLETS*\n\nNo wallets yet\\. Generate your first wallet to get started\\!`;
   }
 
-  let message = '*💼 WALLETS*\n';
-  message += `${LINE}\n`;
-  message += '_Manage your wallets across chains\\._\n\n';
+  let message = '💳 *WALLETS*\n';
+  message += `${LINE}\n\n`;
+  message += '_Manage your Solana wallets_\n\n';
 
-  // Group wallets by chain
-  const byChain = new Map<Chain, UserWallet[]>();
-  for (const wallet of wallets) {
-    if (!byChain.has(wallet.chain)) {
-      byChain.set(wallet.chain, []);
-    }
-    byChain.get(wallet.chain)!.push(wallet);
+  // Track total
+  let total = 0;
+
+  // Sort wallets by index
+  const sortedWallets = wallets.sort((a, b) => a.wallet_index - b.wallet_index);
+
+  for (const wallet of sortedWallets) {
+    // Skip non-Solana wallets (defensive check)
+    if (wallet.chain !== 'sol') continue;
+
+    const address = wallet.solana_address || wallet.public_key;
+    const key = `sol_${wallet.wallet_index}`;
+    const balanceInfo = balances.get(key) || { balance: 0, usdValue: 0 };
+    const activeMarker = wallet.is_active ? ' ✓ _\\(active\\)_' : '';
+
+    // Wallet header
+    const walletLabel = wallet.wallet_label
+      ? escapeMarkdownV2(wallet.wallet_label)
+      : `Wallet \\#${wallet.wallet_index}`;
+    message += `◉ ${walletLabel}${activeMarker}\n`;
+    message += `\`${address}\`\n`;
+
+    // Balance in bold
+    const balanceText = `${balanceInfo.balance.toFixed(4)} SOL`;
+    message += `*${escapeMarkdownV2(balanceText)}*\n\n`;
+
+    total += balanceInfo.balance;
   }
 
-  // Track totals per chain
-  const chainTotals = new Map<Chain, number>();
-
-  for (const [chain, chainWallets] of byChain) {
-    const chainEmoji = CHAIN_STATUS[chain];
-    const chainName = CHAIN_NAME[chain];
-    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
-
-    // Initialize chain total
-    let chainTotal = 0;
-
-    // Chain header with bold + underline
-    message += `*__${chainEmoji} ${chainName}__*\n\n`;
-
-    for (const wallet of chainWallets.sort((a, b) => a.wallet_index - b.wallet_index)) {
-      const address = chain === 'sol' ? wallet.solana_address : wallet.evm_address;
-      const key = `${chain}_${wallet.wallet_index}`;
-      const balanceInfo = balances.get(key) || { balance: 0, usdValue: 0 };
-      const activeMarker = wallet.is_active ? ' ✓' : '';
-
-      // v3.4 (F1): Use cleaner wallet naming with chain icon
-      const walletName = formatWalletName(wallet.wallet_index, wallet.wallet_label, chain, true);
-      const escapedName = escapeMarkdownV2(walletName);
-      message += `${escapedName}${activeMarker}\n`;
-      message += `\`${address}\`\n`;
-
-      // CRITICAL FIX: Escape decimal points in balance
-      const balanceText = `${balanceInfo.balance.toFixed(4)} ${symbol}`;
-      message += `${escapeMarkdownV2(balanceText)}\n\n`;
-
-      chainTotal += balanceInfo.balance;
-    }
-
-    // Store chain total
-    chainTotals.set(chain, chainTotal);
-  }
-
-  // Display per-chain totals in native tokens
-  message += '\n*Totals:*\n';
-  for (const [chain, total] of chainTotals) {
-    const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
-    const totalText = `${total.toFixed(4)} ${symbol}`;
-    message += `${CHAIN_STATUS[chain]} ${escapeMarkdownV2(totalText)}\n`;
+  // Total
+  if (sortedWallets.length > 1) {
+    message += `━━━\n`;
+    const totalText = `${total.toFixed(4)} SOL`;
+    message += `*Total:* ${escapeMarkdownV2(totalText)}\n`;
   }
 
   return message;
@@ -603,7 +585,7 @@ export function formatHuntStatus(huntSettings: {
   const emoji = CHAIN_EMOJI[chain];
   const status = huntSettings.enabled ? '🟢 Active' : '🔴 Paused';
 
-  let message = `🦅 *Hunt Settings - ${CHAIN_NAME[chain]}* ${emoji}
+  let message = `🦖 *Hunt Settings - ${CHAIN_NAME[chain]}* ${emoji}
 
 *Status:* ${status}
 *Min Score:* ${huntSettings.minScore}/35`;

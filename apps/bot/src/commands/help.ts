@@ -16,7 +16,7 @@ How to set up and start trading
 💰 *Deposits & Withdrawals*
 Managing your funds
 
-🦅 *Auto-Hunt*
+🦖 *Hunt*
 Automatic token sniping
 
 📊 *Strategies*
@@ -29,7 +29,7 @@ How fees work`;
     .text('📖 Getting Started', 'help_start')
     .row()
     .text('💰 Deposits', 'help_deposits')
-    .text('🦅 Auto-Hunt', 'help_hunt')
+    .text('🦖 Hunt', 'help_hunt')
     .row()
     .text('📊 Strategies', 'help_strategies')
     .text('💸 Fees', 'help_fees')
