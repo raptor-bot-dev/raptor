@@ -27,6 +27,9 @@ export interface SessionData {
     | 'awaiting_chain_sell_slip'   // v3.5: Chain-specific sell slippage
     | 'awaiting_chain_gas'         // v3.5: Chain-specific gas price
     | 'awaiting_chain_priority'    // v3.5: Chain-specific priority fee
+    | 'awaiting_wallet_rename'     // v4.1: Wallet rename input
+    | 'awaiting_send_address'      // v4.1: Send destination address
+    | 'awaiting_send_token_ca'     // v4.1: Send token contract address
     | CustomStrategyStep
     | null;
   chainSettingsTarget?: string;  // v3.5: Target chain for settings input
@@ -41,6 +44,11 @@ export interface SessionData {
     chain: Chain;
     amount?: string;
     tokenAddress?: string;
+    sendType?: 'native' | 'token';  // v4.1: Type of send operation
+  };
+  pendingRename?: {  // v4.1: Wallet rename data
+    chain: Chain;
+    walletIndex: number;
   };
   pendingWalletDelete?: {
     walletId: number;

@@ -22,6 +22,7 @@ import {
   type ManualSettings,
 } from '@raptor/shared';
 import type { SolanaExecutor } from '@raptor/executor';
+import { LINE } from '../utils/formatters.js';
 
 // Refresh interval (15 seconds)
 const REFRESH_INTERVAL_MS = 15_000;
@@ -161,7 +162,7 @@ export function formatTradeMonitorMessage(
 
   // Build message with new layout
   let message = `📊 *TRADE MONITOR*\n`;
-  message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+  message += `${LINE}\n\n`;
 
   // Token name | Chain
   const displayName = token_name || token_symbol || 'Unknown';
@@ -347,7 +348,7 @@ export function formatSellPanelMessage(
 
   // v3.5: New header format for EVM chains
   let message = `💰 *SELL ${tokenSymbol}* | ${chainName}\n`;
-  message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+  message += `${LINE}\n\n`;
 
   // v3.4: Show token name if available
   if (tokenInfo?.name) {
@@ -372,7 +373,7 @@ export function formatSellPanelMessage(
   }
 
   message += `*Holdings*\n`;
-  message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `${LINE}\n`;
   if (tokensHeld === null || tokensHeld === 0) {
     message += `⚠️ *No Balance Detected*\n`;
     message += `_Wallet has no tokens for this address_\n\n`;
@@ -393,7 +394,7 @@ export function formatSellPanelMessage(
 
   // Settings section
   message += `*Settings*\n`;
-  message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `${LINE}\n`;
   message += `Slippage: ${(slippageBps / 100).toFixed(1)}%\n`;
   const priorityVal = typeof gasOrPriority === 'number' ? (gasOrPriority / 1_000_000).toFixed(4) : gasOrPriority;
   message += `Priority: ${priorityVal} SOL\n\n`;

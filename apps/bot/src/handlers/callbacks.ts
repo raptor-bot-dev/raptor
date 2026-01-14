@@ -232,6 +232,52 @@ export async function handleCallbackQuery(ctx: MyContext) {
       return;
     }
 
+    // v4.1 FIX: Add missing help handlers
+    if (data === 'help_sniping') {
+      const message =
+        `🎯 *SNIPING GUIDE*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*How to Snipe Tokens:*\n\n` +
+        `1. Paste any token address in chat\n` +
+        `2. Review the token analysis\n` +
+        `3. Click buy amount buttons\n` +
+        `4. Confirm your trade\n\n` +
+        `*Tips:*\n` +
+        `• Use Hunt to find new launches\n` +
+        `• Check security score before buying\n` +
+        `• Set stop-loss to protect gains`;
+
+      const keyboard = new InlineKeyboard()
+        .text('← Back', 'help');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    if (data === 'help_settings') {
+      const message =
+        `⚙️ *SETTINGS GUIDE*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Available Settings:*\n\n` +
+        `• *Slippage* - Max price impact %\n` +
+        `• *Priority Fee* - Transaction speed\n` +
+        `• *Anti-MEV* - Jito protection\n` +
+        `• *Notifications* - Alert preferences\n\n` +
+        `Access via: Menu → Settings`;
+
+      const keyboard = new InlineKeyboard()
+        .text('← Back', 'help');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
     // === v2.3 MULTI-WALLET CALLBACKS ===
     if (data === 'wallets') {
       await showWallets(ctx);
@@ -420,6 +466,68 @@ export async function handleCallbackQuery(ctx: MyContext) {
       return;
     }
 
+    // v4.1 FIX: Add wallet rename handler
+    if (data.startsWith('wallet_rename_')) {
+      const parsed = parseWalletCallback(data, 'wallet_rename_');
+      if (parsed) {
+        const { chain, indexStr } = parsed;
+        await requireWalletOwnership(ctx, chain, indexStr, async () => {
+          const walletIndex = parseWalletIndex(indexStr)!;
+          ctx.session.step = 'awaiting_wallet_rename';
+          ctx.session.pendingRename = { chain: chain as Chain, walletIndex };
+
+          const message =
+            `✏️ *RENAME WALLET*\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `Renaming Wallet ${walletIndex + 1}\n\n` +
+            `Enter a new name for this wallet:`;
+
+          await ctx.editMessageText(message, { parse_mode: 'Markdown' });
+        });
+        return;
+      }
+    }
+
+    // v4.1 FIX: Add send_native_sol and send_token_sol handlers
+    if (data === 'send_native_sol') {
+      ctx.session.step = 'awaiting_send_address';
+      ctx.session.pendingSend = { toAddress: '', chain: 'sol' as Chain, sendType: 'native' };
+
+      const message =
+        `📤 *SEND SOL*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `Enter the destination wallet address:`;
+
+      await ctx.editMessageText(message, { parse_mode: 'Markdown' });
+      return;
+    }
+
+    if (data === 'send_token_sol') {
+      ctx.session.step = 'awaiting_send_token_ca';
+      ctx.session.pendingSend = { toAddress: '', chain: 'sol' as Chain, sendType: 'token' };
+
+      const message =
+        `🪙 *SEND TOKEN*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `Paste the token contract address (CA):`;
+
+      await ctx.editMessageText(message, { parse_mode: 'Markdown' });
+      return;
+    }
+
+    // v4.1 FIX: Add limit order handler (coming soon)
+    if (data.match(/^limit_\d+$/)) {
+      await ctx.answerCallbackQuery({ text: 'Limit orders coming soon' });
+      return;
+    }
+
+    // v4.1 FIX: Add edit_tpsl handler (alternative pattern)
+    if (data.match(/^edit_tpsl_\d+$/)) {
+      const positionId = parseInt(data.replace('edit_tpsl_', ''));
+      await showEditTpSl(ctx, positionId);
+      return;
+    }
+
     // === ADDRESS DETECTION CALLBACKS ===
     // Chain selection for detected address (address_chain_bsc_0x..., etc.)
     if (data.startsWith('address_chain_')) {
@@ -578,6 +686,140 @@ Tap "Show Keys" to reveal your private keys.`;
     // Back to settings
     if (data === 'back_to_settings') {
       await showSettings(ctx);
+      return;
+    }
+
+    // v4.1 FIX: Add missing back button handlers
+    if (data === 'back_to_gas') {
+      await showGas(ctx);
+      return;
+    }
+
+    if (data === 'back_to_slippage') {
+      await showSlippage(ctx);
+      return;
+    }
+
+    if (data === 'back_to_strategy') {
+      await showStrategy(ctx);
+      return;
+    }
+
+    if (data === 'back_to_custom') {
+      // Return to custom strategy page 1
+      const { showCustomStrategyPage1 } = await import('../commands/strategy.js');
+      await showCustomStrategyPage1(ctx);
+      return;
+    }
+
+    // v4.1 FIX: Add mixer handler
+    if (data === 'mixer') {
+      await ctx.answerCallbackQuery({ text: 'Mixer coming soon' });
+      return;
+    }
+
+    // v4.1 FIX: Add orphaned settings button handlers
+    if (data === 'settings_buy') {
+      // Redirect to manual settings which has buy slippage
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, 'sol');
+      const buySlip = (settings.buy_slippage_bps / 100).toFixed(1);
+
+      const message =
+        `🛒 *BUY SETTINGS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Buy Slippage:* ${buySlip}%\n` +
+        `*Priority Fee:* ${settings.priority_sol} SOL\n\n` +
+        `_Adjust settings for buy transactions_`;
+
+      const keyboard = new InlineKeyboard()
+        .text(`🎚️ Slippage: ${buySlip}%`, `chain_buy_slip:sol`)
+        .row()
+        .text(`⚡ Priority: ${settings.priority_sol} SOL`, `chain_priority:sol`)
+        .row()
+        .text('← Back', 'settings');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    if (data === 'settings_sell') {
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, 'sol');
+      const sellSlip = (settings.sell_slippage_bps / 100).toFixed(1);
+
+      const message =
+        `💰 *SELL SETTINGS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Sell Slippage:* ${sellSlip}%\n` +
+        `*Priority Fee:* ${settings.priority_sol} SOL\n\n` +
+        `_Adjust settings for sell transactions_`;
+
+      const keyboard = new InlineKeyboard()
+        .text(`🎚️ Slippage: ${sellSlip}%`, `chain_sell_slip:sol`)
+        .row()
+        .text(`⚡ Priority: ${settings.priority_sol} SOL`, `chain_priority:sol`)
+        .row()
+        .text('← Back', 'settings');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    if (data === 'settings_antirug') {
+      await ctx.answerCallbackQuery({ text: 'Anti-Rug settings coming soon' });
+      return;
+    }
+
+    if (data === 'settings_mev') {
+      const { getOrCreateChainSettings } = await import('@raptor/shared');
+      const settings = await getOrCreateChainSettings(user.id, 'sol');
+      const mevStatus = settings.anti_mev_enabled ? '✅ Enabled' : '❌ Disabled';
+
+      const message =
+        `🔒 *MEV PROTECTION*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `*Status:* ${mevStatus}\n\n` +
+        `Anti-MEV uses Jito bundles to protect\n` +
+        `your transactions from sandwich attacks.\n\n` +
+        `_Recommended for larger trades_`;
+
+      const keyboard = new InlineKeyboard()
+        .text(settings.anti_mev_enabled ? '❌ Disable Anti-MEV' : '✅ Enable Anti-MEV', `chain_mev_toggle:sol`)
+        .row()
+        .text('← Back', 'settings');
+
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    if (data === 'settings_degen') {
+      await ctx.answerCallbackQuery({ text: 'Degen Mode coming soon' });
+      return;
+    }
+
+    if (data === 'settings_tokenview') {
+      await ctx.answerCallbackQuery({ text: 'Token View settings coming soon' });
+      return;
+    }
+
+    if (data === 'settings_fees') {
+      await ctx.answerCallbackQuery({ text: 'Fee settings coming soon' });
+      return;
+    }
+
+    // v4.1 FIX: Handle settings_notifications (keyboard uses this, handler was settings_notif)
+    if (data === 'settings_notifications') {
+      await showNotifications(ctx);
       return;
     }
 
@@ -2717,9 +2959,9 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Unhandled callback
+    // Unhandled callback - v4.1 FIX: Provide user feedback instead of silent fail
     console.log(`[Callbacks] Unhandled callback: ${data}`);
-    await ctx.answerCallbackQuery();
+    await ctx.answerCallbackQuery({ text: 'This feature is not available yet' });
   } catch (error) {
     console.error('[Callbacks] Error:', error);
     await ctx.answerCallbackQuery({ text: 'An error occurred. Please try again.' });

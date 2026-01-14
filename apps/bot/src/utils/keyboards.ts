@@ -159,7 +159,7 @@ export function walletKeyboard(): InlineKeyboard {
     .row()
     .text('🔄 Refresh', 'wallet_refresh')
     .row()
-    .text('« Back', 'back_to_menu');
+    .text('← Back', 'back_to_menu');
 }
 
 /**
@@ -202,7 +202,7 @@ export function portfolioKeyboard(
   }
 
   // Add back button
-  kb.text('« Back to Wallets', 'wallets');
+  kb.text('← Back to Wallets', 'wallets');
 
   return kb;
 }
@@ -214,7 +214,7 @@ export function walletChainKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text(`${CHAIN_EMOJI.sol} Create Solana Wallet`, 'wallet_create_sol')
     .row()
-    .text('« Back', 'back_to_wallets');
+    .text('← Back', 'back_to_wallets');
 }
 
 /**
@@ -239,7 +239,7 @@ export function walletListKeyboard(
     kb.row();
   }
 
-  kb.text('« Back', 'back_to_wallets');
+  kb.text('← Back', 'back_to_wallets');
 
   return kb;
 }
@@ -258,7 +258,7 @@ export function walletActionsKeyboard(chain: Chain, walletIndex: number): Inline
     .text('⭐ Set Active', `wallet_activate_${chain}_${walletIndex}`)
     .text('🗑️ Delete', `wallet_delete_${chain}_${walletIndex}`)
     .row()
-    .text('« Back', `wallet_chain_${chain}`);
+    .text('← Back', `wallet_chain_${chain}`);
 }
 
 /**
@@ -284,7 +284,7 @@ export function withdrawAmountKeyboard(chain: Chain, walletIndex: number): Inlin
     .row()
     .text('💬 Custom Amount', `withdraw_custom_${chain}_${walletIndex}`)
     .row()
-    .text('« Cancel', `wallet_select_${chain}_${walletIndex}`);
+    .text('← Cancel', `wallet_select_${chain}_${walletIndex}`);
 }
 
 /**
@@ -306,7 +306,7 @@ export function settingsKeyboard(): InlineKeyboard {
     .text('🎯 Strategy', 'settings_strategy')
     .text('🔔 Notifications', 'settings_notifications')
     .row()
-    .text('« Back', 'back_to_menu');
+    .text('← Back', 'back_to_menu');
 }
 
 /**
@@ -318,7 +318,7 @@ export function chainsSelectionKeyboard(enabledChains: Chain[]): InlineKeyboard 
   const status = isEnabled ? '✓' : '✗';
   kb.text(`${CHAIN_EMOJI.sol} ${CHAIN_NAME.sol} ${status}`, 'toggle_chain_sol');
   kb.row();
-  kb.text('« Back', 'back_to_menu');
+  kb.text('← Back', 'back_to_menu');
   return kb;
 }
 
@@ -457,10 +457,10 @@ export function huntKeyboard(chain: Chain, isEnabled: boolean): InlineKeyboard {
     .row()
     .text('🎯 Launchpads', `hunt_launchpads_${chain}`)
     .row()
-    .text('⚡ Priority Fee', `chain_priority:sol`)
-    .text('🎚️ Slippage', `chain_buy_slip:sol`)
+    .text('⚡ Priority Fee', `chain_priority:${chain}`)
+    .text('🎚️ Slippage', `chain_buy_slip:${chain}`)
     .row()
-    .text('« Back', 'hunt');
+    .text('← Back', 'hunt');
 }
 
 /**
@@ -566,7 +566,7 @@ export function positionsListKeyboard(
     kb.row();
   }
 
-  kb.text('« Back', 'back_to_menu');
+  kb.text('← Back', 'back_to_menu');
 
   return kb;
 }
@@ -597,7 +597,7 @@ export function strategyPresetsKeyboard(current: TradingStrategy): InlineKeyboar
 
   kb.text('🔧 Custom Strategy', 'strategy_custom');
   kb.row();
-  kb.text('« Back', 'back_to_settings');
+  kb.text('← Back', 'back_to_settings');
 
   return kb;
 }
@@ -609,7 +609,7 @@ export function strategyDetailKeyboard(strategy: TradingStrategy): InlineKeyboar
   return new InlineKeyboard()
     .text('✅ Use This Strategy', `strategy_set_${strategy}`)
     .row()
-    .text('« Back', 'back_to_strategy');
+    .text('← Back', 'back_to_strategy');
 }
 
 /**
@@ -660,7 +660,7 @@ export function customStrategyPageKeyboard(page: number, totalPages: number = 5)
     kb.row();
   }
 
-  kb.text('« Back', 'back_to_strategy');
+  kb.text('← Back', 'back_to_strategy');
 
   return kb;
 }
@@ -684,7 +684,7 @@ export function percentageSelectKeyboard(
 
   kb.text('✏️ Custom', `${callbackPrefix}_custom`);
   kb.row();
-  kb.text('« Back', 'back_to_custom');
+  kb.text('← Back', 'back_to_custom');
 
   return kb;
 }
@@ -702,7 +702,7 @@ export function sendOptionsKeyboard(chain: Chain): InlineKeyboard {
     .row()
     .text('🪙 Send Token (paste CA)', `send_token_sol`)
     .row()
-    .text('« Cancel', 'back_to_menu');
+    .text('← Cancel', 'back_to_menu');
 }
 
 /**
@@ -718,7 +718,7 @@ export function amountSelectKeyboard(callbackPrefix: string): InlineKeyboard {
     .row()
     .text('✏️ Custom Amount', `${callbackPrefix}_custom`)
     .row()
-    .text('« Cancel', 'back_to_menu');
+    .text('← Cancel', 'back_to_menu');
 }
 
 // ============================================================================
@@ -748,7 +748,7 @@ export function tokenBuyKeyboard(
   kb.row();
   kb.text('🔄 Refresh', `refresh_token_sol_${tokenAddress}`);
   kb.row();
-  kb.text('« Back', 'back_to_menu');
+  kb.text('← Back', 'back_to_menu');
 
   return kb;
 }
@@ -771,7 +771,7 @@ export function tokenSellKeyboard(positionId: number): InlineKeyboard {
     .row()
     .text('🔄 Refresh', `refresh_position_${positionId}`)
     .row()
-    .text('« Back', 'back_to_positions');
+    .text('← Back', 'back_to_positions');
 }
 
 // ============================================================================
@@ -796,7 +796,7 @@ export function autoHuntKeyboard(isEnabled: boolean): InlineKeyboard {
     .row()
     .text('🎯 Launchpads', 'hunt_launchpads')
     .row()
-    .text('« Back', 'back_to_menu');
+    .text('← Back', 'back_to_menu');
 }
 
 /**
@@ -814,7 +814,7 @@ export function huntScoreKeyboard(currentScore: number): InlineKeyboard {
     kb.row();
   }
 
-  kb.text('« Back', 'back_to_hunt');
+  kb.text('← Back', 'back_to_hunt');
 
   return kb;
 }
