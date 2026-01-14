@@ -124,6 +124,9 @@ export interface Strategy {
   token_denylist: string[];
   deployer_denylist: string[];
 
+  // v4.3: Snipe mode for metadata fetch timeout
+  snipe_mode: 'speed' | 'balanced' | 'quality';
+
   created_at: string;
   updated_at: string;
 }

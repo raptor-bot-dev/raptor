@@ -80,6 +80,8 @@ import {
   setHuntSlippage,      // v4.2: Hunt-specific slippage
   showHuntPriority,     // v4.2: Hunt-specific priority
   setHuntPriority,      // v4.2: Hunt-specific priority
+  showSnipeMode,        // v4.3: Snipe mode selection
+  setSnipeMode,         // v4.3: Set snipe mode
 } from '../commands/hunt.js';
 
 // Settings imports
@@ -2371,6 +2373,27 @@ Tap "Show Keys" to reveal your private keys.`;
         const sol = parseFloat(rest.substring(underscoreIdx + 1));
         if (!isNaN(sol)) {
           await setHuntPriority(ctx, chain, sol);
+        }
+      }
+      return;
+    }
+
+    // v4.3: Show snipe mode selection (hunt_snipe_sol)
+    if (data.startsWith('hunt_snipe_') && !data.includes('_set_')) {
+      const chain = data.replace('hunt_snipe_', '') as Chain;
+      await showSnipeMode(ctx, chain);
+      return;
+    }
+
+    // v4.3: Set snipe mode (hunt_snipe_set_sol_balanced)
+    if (data.startsWith('hunt_snipe_set_')) {
+      const rest = data.replace('hunt_snipe_set_', '');
+      const underscoreIdx = rest.indexOf('_');
+      if (underscoreIdx > 0) {
+        const chain = rest.substring(0, underscoreIdx) as Chain;
+        const mode = rest.substring(underscoreIdx + 1) as 'speed' | 'balanced' | 'quality';
+        if (['speed', 'balanced', 'quality'].includes(mode)) {
+          await setSnipeMode(ctx, chain, mode);
         }
       }
       return;

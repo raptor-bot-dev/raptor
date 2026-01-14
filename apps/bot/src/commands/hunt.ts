@@ -11,7 +11,12 @@
 import { InlineKeyboard } from 'grammy';
 import type { MyContext } from '../types.js';
 import type { Chain } from '@raptor/shared';
-import { getHuntSettings, saveHuntSettings } from '@raptor/shared';
+import {
+  getHuntSettings,
+  saveHuntSettings,
+  getOrCreateAutoStrategy,
+  updateStrategy,
+} from '@raptor/shared';
 import {
   chainsWithBackKeyboard,
   huntKeyboard,
@@ -30,7 +35,15 @@ interface HuntSettings {
   launchpads: string[];
   slippageBps?: number;    // v4.2: Hunt-specific buy slippage (default: 1500 = 15%)
   prioritySol?: number;    // v4.2: Hunt-specific priority fee (default: 0.001 SOL)
+  snipeMode?: 'speed' | 'balanced' | 'quality';  // v4.3: Snipe mode for metadata fetching
 }
+
+// Snipe mode descriptions for UI
+const SNIPE_MODE_INFO: Record<string, { label: string; emoji: string; desc: string }> = {
+  speed: { label: 'Speed', emoji: '⚡', desc: 'Fastest (~1s), no metadata check' },
+  balanced: { label: 'Balanced', emoji: '⚖️', desc: 'Fast (~1.5s), quick metadata check' },
+  quality: { label: 'Quality', emoji: '🎯', desc: 'Slower (~3s), full metadata scoring' },
+};
 
 const defaultHuntSettings: Record<Chain, HuntSettings> = {
   sol: {
@@ -39,6 +52,7 @@ const defaultHuntSettings: Record<Chain, HuntSettings> = {
     launchpads: ['pump.fun', 'moonshot', 'bonk.fun'],
     slippageBps: 1500,   // v4.2: 15% default for hunt (higher than manual 10%)
     prioritySol: 0.001,  // v4.2: 0.001 SOL default tip
+    snipeMode: 'balanced',  // v4.3: Default to balanced mode
   },
 };
 
@@ -164,6 +178,8 @@ export async function showChainHunt(ctx: MyContext, chain: Chain) {
 
   const allSettings = await getUserHuntSettingsAsync(user.id);
   const settings = allSettings[chain];
+  const snipeMode = settings.snipeMode || 'balanced';
+  const snipeModeInfo = SNIPE_MODE_INFO[snipeMode];
   const message = formatHuntStatus({
     chain,
     enabled: settings.enabled,
@@ -172,6 +188,7 @@ export async function showChainHunt(ctx: MyContext, chain: Chain) {
     launchpads: settings.launchpads,
     slippageBps: settings.slippageBps,      // v4.2: Pass hunt-specific slippage
     prioritySol: settings.prioritySol,      // v4.2: Pass hunt-specific priority
+    snipeMode: `${snipeModeInfo.emoji} ${snipeModeInfo.label}`,  // v4.3: Pass snipe mode
   });
 
   await ctx.editMessageText(message, {
@@ -184,6 +201,7 @@ export async function showChainHunt(ctx: MyContext, chain: Chain) {
 
 /**
  * Toggle hunt on/off for a chain
+ * v4.3: Now syncs to AUTO strategy for execution
  */
 export async function toggleHunt(ctx: MyContext, chain: Chain, enable: boolean) {
   const user = ctx.from;
@@ -192,6 +210,10 @@ export async function toggleHunt(ctx: MyContext, chain: Chain, enable: boolean) 
   const settings = await getUserHuntSettingsAsync(user.id);
   settings[chain].enabled = enable;
   await saveUserHuntSettings(user.id, settings);
+
+  // v4.3: Sync to AUTO strategy
+  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+  await updateStrategy(strategy.id, { enabled: enable });
 
   const status = enable ? 'started' : 'paused';
   await ctx.answerCallbackQuery({ text: `Hunt ${status} for ${CHAIN_NAME[chain]}` });
@@ -244,6 +266,7 @@ _Higher score = safer but fewer trades_`;
 
 /**
  * Set min score for a chain
+ * v4.3: Now syncs to AUTO strategy for execution
  */
 export async function setMinScore(ctx: MyContext, chain: Chain, score: number) {
   const user = ctx.from;
@@ -252,6 +275,10 @@ export async function setMinScore(ctx: MyContext, chain: Chain, score: number) {
   const settings = await getUserHuntSettingsAsync(user.id);
   settings[chain].minScore = score;
   await saveUserHuntSettings(user.id, settings);
+
+  // v4.3: Sync to AUTO strategy
+  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+  await updateStrategy(strategy.id, { min_score: score });
 
   await ctx.answerCallbackQuery({ text: `Min score set to ${score}` });
 
@@ -309,6 +336,7 @@ Set maximum position size per trade:`;
 
 /**
  * Set position size for a chain
+ * v4.3: Now syncs to AUTO strategy for execution
  */
 export async function setPositionSize(ctx: MyContext, chain: Chain, size: string) {
   const user = ctx.from;
@@ -317,6 +345,11 @@ export async function setPositionSize(ctx: MyContext, chain: Chain, size: string
   const settings = await getUserHuntSettingsAsync(user.id);
   settings[chain].maxPositionSize = size === 'auto' ? undefined : size;
   await saveUserHuntSettings(user.id, settings);
+
+  // v4.3: Sync to AUTO strategy
+  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+  const solAmount = size === 'auto' ? 0.1 : parseFloat(size); // Default to 0.1 for auto
+  await updateStrategy(strategy.id, { max_per_trade_sol: solAmount });
 
   await ctx.answerCallbackQuery({ text: `Position size updated` });
 
@@ -382,6 +415,7 @@ export async function showLaunchpadSelection(ctx: MyContext, chain: Chain) {
 
 /**
  * Toggle a launchpad
+ * v4.3: Now syncs to AUTO strategy for execution
  */
 export async function toggleLaunchpad(ctx: MyContext, chain: Chain, launchpad: string) {
   const user = ctx.from;
@@ -397,6 +431,10 @@ export async function toggleLaunchpad(ctx: MyContext, chain: Chain, launchpad: s
   }
   await saveUserHuntSettings(user.id, settings);
 
+  // v4.3: Sync to AUTO strategy
+  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+  await updateStrategy(strategy.id, { allowed_launchpads: [...settings[chain].launchpads] });
+
   await ctx.answerCallbackQuery();
 
   // Refresh launchpad selection view
@@ -405,6 +443,7 @@ export async function toggleLaunchpad(ctx: MyContext, chain: Chain, launchpad: s
 
 /**
  * Enable all launchpads for a chain
+ * v4.3: Now syncs to AUTO strategy for execution
  */
 export async function enableAllLaunchpads(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
@@ -419,12 +458,17 @@ export async function enableAllLaunchpads(ctx: MyContext, chain: Chain) {
   settings[chain].launchpads = [...availableLaunchpads[chain]];
   await saveUserHuntSettings(user.id, settings);
 
+  // v4.3: Sync to AUTO strategy
+  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+  await updateStrategy(strategy.id, { allowed_launchpads: [...settings[chain].launchpads] });
+
   await ctx.answerCallbackQuery({ text: 'All launchpads enabled' });
   await showLaunchpadSelection(ctx, chain);
 }
 
 /**
  * Disable all launchpads for a chain
+ * v4.3: Now syncs to AUTO strategy for execution
  */
 export async function disableAllLaunchpads(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
@@ -433,6 +477,10 @@ export async function disableAllLaunchpads(ctx: MyContext, chain: Chain) {
   const settings = await getUserHuntSettingsAsync(user.id);
   settings[chain].launchpads = [];
   await saveUserHuntSettings(user.id, settings);
+
+  // v4.3: Sync to AUTO strategy
+  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+  await updateStrategy(strategy.id, { allowed_launchpads: [] });
 
   await ctx.answerCallbackQuery({ text: 'All launchpads disabled' });
   await showLaunchpadSelection(ctx, chain);
@@ -488,6 +536,7 @@ _Hunt default is higher than manual for speed_`;
 
 /**
  * Set hunt slippage (v4.2)
+ * v4.3: Now syncs to AUTO strategy for execution
  */
 export async function setHuntSlippage(ctx: MyContext, chain: Chain, bps: number) {
   const user = ctx.from;
@@ -496,6 +545,10 @@ export async function setHuntSlippage(ctx: MyContext, chain: Chain, bps: number)
   const settings = await getUserHuntSettingsAsync(user.id);
   settings[chain].slippageBps = bps;
   await saveUserHuntSettings(user.id, settings);
+
+  // v4.3: Sync to AUTO strategy
+  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+  await updateStrategy(strategy.id, { slippage_bps: bps });
 
   await ctx.answerCallbackQuery({ text: `Hunt slippage set to ${bps / 100}%` });
 
@@ -552,6 +605,7 @@ _Paid to validators for priority processing_`;
 
 /**
  * Set hunt priority fee (v4.2)
+ * v4.3: Now syncs to AUTO strategy for execution
  */
 export async function setHuntPriority(ctx: MyContext, chain: Chain, sol: number) {
   const user = ctx.from;
@@ -561,10 +615,83 @@ export async function setHuntPriority(ctx: MyContext, chain: Chain, sol: number)
   settings[chain].prioritySol = sol;
   await saveUserHuntSettings(user.id, settings);
 
+  // v4.3: Sync to AUTO strategy (convert SOL to lamports)
+  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+  const lamports = Math.round(sol * 1_000_000_000);
+  await updateStrategy(strategy.id, { priority_fee_lamports: lamports });
+
   await ctx.answerCallbackQuery({ text: `Hunt priority set to ${sol} SOL` });
 
   // Refresh priority selection view
   await showHuntPriority(ctx, chain);
+}
+
+/**
+ * Show snipe mode selection (v4.3)
+ */
+export async function showSnipeMode(ctx: MyContext, chain: Chain) {
+  const user = ctx.from;
+  if (!user) return;
+
+  const allSettings = await getUserHuntSettingsAsync(user.id);
+  const settings = allSettings[chain];
+  const currentMode = settings.snipeMode || 'balanced';
+
+  const message = `⚡ *Snipe Mode - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}
+
+Current: *${SNIPE_MODE_INFO[currentMode].emoji} ${SNIPE_MODE_INFO[currentMode].label}*
+
+Select sniping speed vs quality trade-off:
+
+*⚡ Speed* (~1s)
+Skip metadata fetch, fastest execution
+
+*⚖️ Balanced* (~1.5s)
+200ms metadata timeout, good balance
+
+*🎯 Quality* (~3s)
+Full metadata scoring (Twitter, TG, website)
+
+_Speed = more trades, Quality = better filtering_`;
+
+  const keyboard = new InlineKeyboard();
+
+  for (const [mode, info] of Object.entries(SNIPE_MODE_INFO)) {
+    const check = currentMode === mode ? ' ✓' : '';
+    keyboard.text(`${info.emoji} ${info.label}${check}`, `hunt_snipe_set_${chain}_${mode}`).row();
+  }
+
+  keyboard.text('← Back', `hunt_chain_${chain}`);
+
+  await ctx.editMessageText(message, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
+
+  await ctx.answerCallbackQuery();
+}
+
+/**
+ * Set snipe mode (v4.3)
+ * v4.3: Now syncs to AUTO strategy for execution
+ */
+export async function setSnipeMode(ctx: MyContext, chain: Chain, mode: 'speed' | 'balanced' | 'quality') {
+  const user = ctx.from;
+  if (!user) return;
+
+  const settings = await getUserHuntSettingsAsync(user.id);
+  settings[chain].snipeMode = mode;
+  await saveUserHuntSettings(user.id, settings);
+
+  // v4.3: Sync to AUTO strategy
+  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+  await updateStrategy(strategy.id, { snipe_mode: mode });
+
+  const modeInfo = SNIPE_MODE_INFO[mode];
+  await ctx.answerCallbackQuery({ text: `Snipe mode set to ${modeInfo.label}` });
+
+  // Refresh snipe mode selection view
+  await showSnipeMode(ctx, chain);
 }
 
 /**

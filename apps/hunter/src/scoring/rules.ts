@@ -1,10 +1,11 @@
 // =============================================================================
-// RAPTOR v3.1 Scoring Rules
-// Individual rules for token scoring
+// RAPTOR v4.3 Scoring Rules
+// Individual rules for token scoring with metadata support
 // =============================================================================
 
 import type { OpportunityV31 } from '@raptor/shared';
 import type { PumpFunEvent } from '../monitors/pumpfun.js';
+import type { TokenMetadata } from '../utils/metadataFetcher.js';
 
 export interface ScoringContext {
   opportunity: OpportunityV31;
@@ -15,6 +16,7 @@ export interface ScoringContext {
   creator: string;
   bondingCurve: string;
   timestamp: number;
+  metadata?: TokenMetadata | null;  // v4.3: Optional metadata from fetch
 }
 
 export interface RuleResult {
@@ -146,7 +148,7 @@ export const scoringRules: ScoringRule[] = [
   },
 
   // =========================================================================
-  // SOCIAL SIGNALS (future integration)
+  // SOCIAL SIGNALS (v4.3: Now uses fetched metadata)
   // =========================================================================
 
   {
@@ -154,8 +156,10 @@ export const scoringRules: ScoringRule[] = [
     weight: 5,
     isHardStop: false,
     evaluate: async (ctx) => {
-      // TODO: Fetch metadata and check for Twitter link
-      return { passed: false, value: null };
+      // Check metadata for Twitter link
+      if (!ctx.metadata) return { passed: false, value: 'no_metadata' };
+      const hasTwitter = Boolean(ctx.metadata.twitter);
+      return { passed: hasTwitter, value: ctx.metadata.twitter || null };
     },
   },
 
@@ -164,8 +168,10 @@ export const scoringRules: ScoringRule[] = [
     weight: 5,
     isHardStop: false,
     evaluate: async (ctx) => {
-      // TODO: Fetch metadata and check for Telegram link
-      return { passed: false, value: null };
+      // Check metadata for Telegram link
+      if (!ctx.metadata) return { passed: false, value: 'no_metadata' };
+      const hasTelegram = Boolean(ctx.metadata.telegram);
+      return { passed: hasTelegram, value: ctx.metadata.telegram || null };
     },
   },
 
@@ -174,8 +180,22 @@ export const scoringRules: ScoringRule[] = [
     weight: 5,
     isHardStop: false,
     evaluate: async (ctx) => {
-      // TODO: Fetch metadata and check for website
-      return { passed: false, value: null };
+      // Check metadata for website
+      if (!ctx.metadata) return { passed: false, value: 'no_metadata' };
+      const hasWebsite = Boolean(ctx.metadata.website);
+      return { passed: hasWebsite, value: ctx.metadata.website || null };
+    },
+  },
+
+  {
+    name: 'has_profile_image',
+    weight: 5,
+    isHardStop: false,
+    evaluate: async (ctx) => {
+      // Check metadata for profile image (v4.3)
+      if (!ctx.metadata) return { passed: false, value: 'no_metadata' };
+      const hasImage = Boolean(ctx.metadata.image);
+      return { passed: hasImage, value: ctx.metadata.image?.slice(0, 50) || null };
     },
   },
 ];

@@ -1379,6 +1379,74 @@ export async function getOrCreateManualStrategy(userId: number, chain: Chain): P
 }
 
 /**
+ * Get user's AUTO strategy for a chain (or create if missing)
+ * v4.3: Used by hunt.ts to sync UI settings to execution strategy
+ */
+export async function getOrCreateAutoStrategy(userId: number, chain: Chain): Promise<Strategy> {
+  // Check for existing AUTO strategy
+  const { data: existing } = await supabase
+    .from('strategies')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('kind', 'AUTO')
+    .eq('chain', chain)
+    .single();
+
+  if (existing) return existing;
+
+  // Create new AUTO strategy with hunt defaults
+  const { data, error } = await supabase
+    .from('strategies')
+    .insert({
+      user_id: userId,
+      kind: 'AUTO',
+      name: `Auto Hunt (${chain.toUpperCase()})`,
+      chain,
+      enabled: false, // Disabled by default until user starts hunt
+      auto_execute: true,
+      risk_profile: 'BALANCED',
+      // Position limits
+      max_positions: 5,
+      max_per_trade_sol: 0.1,
+      max_daily_sol: 1.0,
+      max_open_exposure_sol: 0.5,
+      // Execution params (hunt defaults)
+      slippage_bps: 1500, // 15% for hunt
+      priority_fee_lamports: 1000000, // 0.001 SOL
+      // Exit strategy
+      take_profit_percent: 50,
+      stop_loss_percent: 30,
+      max_hold_minutes: 240, // 4 hours
+      // Trailing stop
+      trailing_enabled: true,
+      trailing_activation_percent: 30,
+      trailing_distance_percent: 20,
+      // DCA
+      dca_enabled: false,
+      dca_levels: [],
+      // Moon bag
+      moon_bag_percent: 25,
+      // Filters
+      min_score: 23,
+      min_liquidity_sol: 0,
+      allowed_launchpads: ['pump.fun', 'moonshot', 'bonk.fun'],
+      // Cooldown
+      cooldown_seconds: 60,
+      // Blocklists
+      token_allowlist: [],
+      token_denylist: [],
+      deployer_denylist: [],
+      // v4.3: Snipe mode
+      snipe_mode: 'balanced',
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
  * Get all enabled auto strategies that match a chain
  */
 export async function getEnabledAutoStrategies(chain: Chain): Promise<Strategy[]> {

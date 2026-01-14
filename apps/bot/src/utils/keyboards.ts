@@ -456,6 +456,7 @@ export function huntKeyboard(chain: Chain, isEnabled: boolean): InlineKeyboard {
     .text('💰 Position Size', `hunt_size_${chain}`)
     .row()
     .text('🎯 Launchpads', `hunt_launchpads_${chain}`)
+    .text('⚡ Snipe Mode', `hunt_snipe_${chain}`)     // v4.3: Snipe mode selection
     .row()
     .text('⚡ Priority Fee', `hunt_priority_${chain}`)  // v4.2: Hunt-specific priority
     .text('🎚️ Slippage', `hunt_slippage_${chain}`)     // v4.2: Hunt-specific slippage

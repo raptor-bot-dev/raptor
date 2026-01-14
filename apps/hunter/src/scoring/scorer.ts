@@ -1,11 +1,12 @@
 // =============================================================================
-// RAPTOR v3.1 Token Scorer
-// Scores token opportunities based on multiple factors
+// RAPTOR v4.3 Token Scorer
+// Scores token opportunities based on multiple factors with metadata support
 // =============================================================================
 
 import type { OpportunityV31 } from '@raptor/shared';
 import type { PumpFunEvent } from '../monitors/pumpfun.js';
 import { scoringRules, type ScoringRule } from './rules.js';
+import type { TokenMetadata } from '../utils/metadataFetcher.js';
 
 export interface ScoringReason {
   rule: string;
@@ -28,10 +29,14 @@ const MIN_QUALIFICATION_SCORE = 23;
 
 /**
  * Score a token opportunity
+ * @param opportunity - The opportunity record
+ * @param event - The pump.fun event data
+ * @param metadata - Optional metadata from URI fetch (v4.3)
  */
 export async function scoreOpportunity(
   opportunity: OpportunityV31,
-  event: PumpFunEvent
+  event: PumpFunEvent,
+  metadata?: TokenMetadata | null
 ): Promise<ScoringResult> {
   const reasons: ScoringReason[] = [];
   let totalScore = 0;
@@ -39,7 +44,7 @@ export async function scoreOpportunity(
   let hardStopTriggered = false;
   let hardStopReason: string | undefined;
 
-  // Context object for rules
+  // Context object for rules (v4.3: includes metadata)
   const context = {
     opportunity,
     event,
@@ -49,6 +54,7 @@ export async function scoreOpportunity(
     creator: event.creator,
     bondingCurve: event.bondingCurve,
     timestamp: event.timestamp,
+    metadata,  // v4.3: Pass metadata to rules
   };
 
   // Evaluate each rule

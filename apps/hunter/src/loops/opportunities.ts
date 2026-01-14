@@ -1,6 +1,6 @@
 // =============================================================================
-// RAPTOR v3.1 Opportunity Loop
-// Monitors launchpads and creates qualified opportunities
+// RAPTOR v4.3 Opportunity Loop
+// Monitors launchpads and creates qualified opportunities with snipe modes
 // =============================================================================
 
 import {
@@ -15,6 +15,17 @@ import {
 import { idKeyAutoBuy } from '@raptor/shared';
 import { PumpFunMonitor, type PumpFunEvent } from '../monitors/pumpfun.js';
 import { scoreOpportunity, type ScoringResult } from '../scoring/scorer.js';
+import { fetchMetadata, type TokenMetadata } from '../utils/metadataFetcher.js';
+
+// Snipe mode timeout configurations (ms)
+const SNIPE_MODE_TIMEOUTS: Record<string, number> = {
+  speed: 0,       // No metadata fetch
+  balanced: 200,  // 200ms timeout
+  quality: 2000,  // 2 second timeout
+};
+
+// Default snipe mode if not specified
+const DEFAULT_SNIPE_MODE = 'balanced';
 
 export class OpportunityLoop {
   private running = false;
@@ -47,6 +58,7 @@ export class OpportunityLoop {
 
   /**
    * Handle a new token detection from any launchpad
+   * v4.3: Added metadata fetching based on per-user snipe mode from strategy
    */
   private async handleNewToken(event: PumpFunEvent): Promise<void> {
     if (!this.running) return;
@@ -68,10 +80,42 @@ export class OpportunityLoop {
         `[OpportunityLoop] New token: ${event.symbol} (${event.mint.slice(0, 8)}...)`
       );
 
-      // 2. Score the opportunity
-      const scoring = await scoreOpportunity(opportunity, event);
+      // 2. Get all enabled AUTO strategies to determine snipe mode
+      const strategies = await getEnabledAutoStrategies('sol');
 
-      // 3. Update opportunity with score
+      if (strategies.length === 0) {
+        console.log(`[OpportunityLoop] No enabled strategies, skipping: ${event.symbol}`);
+        return;
+      }
+
+      // 3. Determine snipe mode: use the most thorough mode among all enabled strategies
+      // Priority: quality > balanced > speed (to ensure quality users get metadata)
+      const snipeMode = this.getMostThoroughSnipeMode(strategies);
+      const timeoutMs = SNIPE_MODE_TIMEOUTS[snipeMode] || SNIPE_MODE_TIMEOUTS.balanced;
+
+      console.log(`[OpportunityLoop] Using snipe mode: ${snipeMode} (${strategies.length} strategies)`);
+
+      // 4. Fetch metadata based on determined snipe mode
+      let metadata: TokenMetadata | null = null;
+      if (timeoutMs > 0 && event.uri) {
+        const fetchStart = Date.now();
+        metadata = await fetchMetadata(event.uri, timeoutMs);
+        const fetchTime = Date.now() - fetchStart;
+        if (metadata) {
+          console.log(
+            `[OpportunityLoop] Metadata fetched in ${fetchTime}ms: ` +
+            `twitter=${Boolean(metadata.twitter)}, tg=${Boolean(metadata.telegram)}, ` +
+            `web=${Boolean(metadata.website)}, img=${Boolean(metadata.image)}`
+          );
+        } else {
+          console.log(`[OpportunityLoop] Metadata fetch ${timeoutMs > fetchTime ? 'failed' : 'timed out'} (${fetchTime}ms)`);
+        }
+      }
+
+      // 5. Score the opportunity with metadata
+      const scoring = await scoreOpportunity(opportunity, event, metadata);
+
+      // 6. Update opportunity with score
       await upsertOpportunity({
         chain: 'sol',
         source: 'pump.fun',
@@ -80,7 +124,7 @@ export class OpportunityLoop {
         reasons: scoring.reasons,
       });
 
-      // 4. Check qualification
+      // 7. Check qualification
       if (!scoring.qualified) {
         await updateOpportunityStatus(
           opportunity.id,
@@ -93,8 +137,7 @@ export class OpportunityLoop {
         return;
       }
 
-      // 5. Find matching strategies
-      const strategies = await getEnabledAutoStrategies('sol');
+      // 8. Find matching strategies
       const matchingStrategies = strategies.filter((s) =>
         this.strategyMatchesOpportunity(s, opportunity, scoring)
       );
@@ -111,7 +154,7 @@ export class OpportunityLoop {
         return;
       }
 
-      // 6. Mark as executing and create trade jobs
+      // 9. Mark as executing and create trade jobs
       await updateOpportunityStatus(opportunity.id, 'EXECUTING');
 
       for (const strategy of matchingStrategies) {
@@ -124,6 +167,18 @@ export class OpportunityLoop {
     } catch (error) {
       console.error('[OpportunityLoop] Error handling token:', error);
     }
+  }
+
+  /**
+   * Get the most thorough snipe mode from all strategies
+   * v4.3: quality > balanced > speed to ensure quality users get metadata
+   */
+  private getMostThoroughSnipeMode(strategies: Strategy[]): string {
+    const modes = strategies.map((s) => s.snipe_mode || DEFAULT_SNIPE_MODE);
+
+    if (modes.includes('quality')) return 'quality';
+    if (modes.includes('balanced')) return 'balanced';
+    return 'speed';
   }
 
   /**

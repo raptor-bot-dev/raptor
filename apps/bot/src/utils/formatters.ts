@@ -582,6 +582,7 @@ export function formatHuntStatus(huntSettings: {
   launchpads: string[];
   slippageBps?: number;    // v4.2: Hunt-specific slippage
   prioritySol?: number;    // v4.2: Hunt-specific priority
+  snipeMode?: string;      // v4.3: Snipe mode display
 }): string {
   const chain = huntSettings.chain;
   const emoji = CHAIN_EMOJI[chain];
@@ -602,6 +603,11 @@ export function formatHuntStatus(huntSettings: {
   const priorityFee = huntSettings.prioritySol || 0.001;
   message += `\n*Slippage:* ${slippagePercent}%`;
   message += `\n*Priority:* ${priorityFee} SOL`;
+
+  // v4.3: Show snipe mode
+  if (huntSettings.snipeMode) {
+    message += `\n*Snipe Mode:* ${huntSettings.snipeMode}`;
+  }
 
   if (huntSettings.launchpads.length > 0) {
     message += '\n\n*Active Launchpads:*\n';
