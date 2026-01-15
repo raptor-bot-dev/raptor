@@ -37,8 +37,8 @@ export async function handleTextMessage(ctx: MyContext) {
 
   if (!user || !text) return;
 
-  // Handle session-based flows first
-  if (ctx.session.step) {
+  // Handle session-based flows first (step OR awaitingImport)
+  if (ctx.session.step || ctx.session.awaitingImport) {
     const handled = await handleSessionFlow(ctx, text);
     if (handled) return;
   }
