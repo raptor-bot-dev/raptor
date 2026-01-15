@@ -232,8 +232,10 @@ export async function toggleHunt(ctx: MyContext, chain: Chain, enable: boolean) 
   const strategy = await getOrCreateAutoStrategy(user.id, chain);
   await updateStrategy(strategy.id, { enabled: enable });
 
-  const status = enable ? 'started' : 'paused';
-  await ctx.answerCallbackQuery({ text: `Hunt ${status} for ${CHAIN_NAME[chain]}` });
+  const status = enable ? 'STARTED' : 'STOPPED';
+  console.log(`[Hunt] User ${user.id} ${status} hunt for ${CHAIN_NAME[chain]}`);
+
+  await ctx.answerCallbackQuery({ text: `Hunt ${status.toLowerCase()} for ${CHAIN_NAME[chain]}` });
 
   // Refresh the view
   await showChainHunt(ctx, chain);
@@ -850,17 +852,24 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
       : await pumpfun.getTrendingTokens(15);
 
     if (tokens.length === 0) {
-      await ctx.editMessageText(
-        `${type === 'new' ? '🌱 *NEW LAUNCHES*' : '🔥 *TRENDING ON PUMP.FUN*'}\n\n` +
-        `No tokens found at the moment.\n` +
-        `Try again in a few minutes.`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: new InlineKeyboard()
-            .text('🔄 Refresh', `hunt_${type}`)
-            .text('« Back', 'hunt'),
+      try {
+        await ctx.editMessageText(
+          `${type === 'new' ? '🌱 *NEW LAUNCHES*' : '🔥 *TRENDING ON PUMP.FUN*'}\n\n` +
+          `No tokens found at the moment.\n` +
+          `Try again in a few minutes.`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: new InlineKeyboard()
+              .text('🔄 Refresh', `hunt_${type}`)
+              .text('« Back', 'hunt'),
+          }
+        );
+      } catch (error) {
+        // Ignore "message is not modified" error
+        if (!(error instanceof Error && error.message.includes('message is not modified'))) {
+          throw error;
         }
-      );
+      }
       await ctx.answerCallbackQuery();
       return;
     }
