@@ -33,7 +33,7 @@ import {
 
 // Import command handlers
 import { handleModeSelection, handleChainSelection } from '../commands/deposit.js';
-import { handleSellCallback, handleConfirmSell, handleCancelSell } from '../commands/sell.js';
+// v5.0: Legacy sell handlers no longer used - sells now go through handleSellPctFromMonitor
 import { showMenu } from '../commands/menu.js';
 import { showStart } from '../commands/start.js';
 import { handleBackupConfirm, showWalletInfo } from '../commands/backup.js';
@@ -2412,12 +2412,23 @@ Tap "Show Keys" to reveal your private keys.`;
     }
 
     // Sell position (pos_123_sell_25, etc.)
+    // v5.0: Updated to use working sell execution instead of legacy stub
     if (data.match(/^pos_\d+_sell_\d+$/)) {
       const parts = data.split('_');
       const positionId = parseInt(parts[1]);
       const percent = parseInt(parts[3]);
-      // Convert to legacy format for existing handler
-      await handleSellCallback(ctx, `sell:${positionId}:${percent}`);
+
+      // Get position to extract mint address
+      const { getPosition } = await import('@raptor/shared');
+      const position = await getPosition(positionId);
+
+      if (!position) {
+        await ctx.answerCallbackQuery({ text: 'Position not found', show_alert: true });
+        return;
+      }
+
+      // Use the working sell execution flow
+      await handleSellPctFromMonitor(ctx, position.token_address, percent, (position.chain || 'sol') as Chain);
       return;
     }
 
@@ -2499,20 +2510,40 @@ Tap "Show Keys" to reveal your private keys.`;
 
     // === LEGACY CALLBACKS (backward compatibility) ===
     // Sell position callbacks (sell:<positionId>:<percent>)
+    // v5.0: Updated to use working sell execution
     if (data.startsWith('sell:')) {
-      await handleSellCallback(ctx, data);
+      const [, positionIdStr, percentStr] = data.split(':');
+      const positionId = parseInt(positionIdStr, 10);
+      const percent = parseInt(percentStr, 10);
+
+      // Get position to extract mint address
+      const { getPosition } = await import('@raptor/shared');
+      const position = await getPosition(positionId);
+
+      if (!position) {
+        await ctx.answerCallbackQuery({ text: 'Position not found', show_alert: true });
+        return;
+      }
+
+      // Use the working sell execution flow
+      await handleSellPctFromMonitor(ctx, position.token_address, percent, (position.chain || 'sol') as Chain);
       return;
     }
 
-    // Confirm sell callback (confirm_sell:<positionId>:<amount>)
+    // Confirm sell callback - v5.0: No longer used, kept for safety
     if (data.startsWith('confirm_sell:')) {
-      await handleConfirmSell(ctx, data);
+      await ctx.answerCallbackQuery({ text: 'Please use the sell panel' });
       return;
     }
 
-    // Cancel sell
+    // Cancel sell - v5.0: Just dismiss
     if (data === 'cancel_sell') {
-      await handleCancelSell(ctx);
+      await ctx.answerCallbackQuery({ text: 'Cancelled' });
+      try {
+        await ctx.editMessageText('❌ Sell cancelled.');
+      } catch {
+        // Message may be deleted
+      }
       return;
     }
 
