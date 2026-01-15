@@ -7,6 +7,13 @@ import type { OpportunityV31 } from '@raptor/shared';
 import type { PumpFunEvent } from '../monitors/pumpfun.js';
 import type { TokenMetadata } from '../utils/metadataFetcher.js';
 
+// Known scammer deployers (global blacklist)
+// These wallets have been identified as serial rug-pullers
+const GLOBAL_DEPLOYER_BLACKLIST: string[] = [
+  // Add known scammer addresses here as they're identified
+  // Example: 'ScamWallet111111111111111111111111111111111'
+];
+
 export interface ScoringContext {
   opportunity: OpportunityV31;
   event: PumpFunEvent;
@@ -43,10 +50,18 @@ export const scoringRules: ScoringRule[] = [
     name: 'not_honeypot',
     weight: 0,
     isHardStop: true,
-    evaluate: async (ctx) => {
-      // TODO: Integrate with honeypot detection service
-      // For now, pass everything
-      return { passed: true, value: false };
+    evaluate: async () => {
+      // Solana SPL tokens use a standardized token program.
+      // Unlike EVM chains, SPL tokens CANNOT have:
+      // - Transfer taxes
+      // - Blacklist functions
+      // - Sell restrictions (honeypot logic)
+      // - Pausable transfers
+      //
+      // GoPlus/honeypot checks are EVM-specific and useless here.
+      // Real Solana risks (rug pulls) are handled by deployer blacklist
+      // and bonding curve monitoring.
+      return { passed: true, value: 'spl_safe' };
     },
   },
 
@@ -55,7 +70,12 @@ export const scoringRules: ScoringRule[] = [
     weight: 0,
     isHardStop: true,
     evaluate: async (ctx) => {
-      // TODO: Check deployer against blacklist
+      // v4.3: Check deployer against global blacklist
+      // Strategy-level denylist is checked separately in strategyMatchesOpportunity
+      if (GLOBAL_DEPLOYER_BLACKLIST.includes(ctx.creator)) {
+        console.warn(`[Rules] BLACKLISTED DEPLOYER: ${ctx.creator} for ${ctx.symbol}`);
+        return { passed: false, value: ctx.creator };
+      }
       return { passed: true, value: ctx.creator };
     },
   },

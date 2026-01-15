@@ -157,13 +157,36 @@ export class OpportunityLoop {
       // 9. Mark as executing and create trade jobs
       await updateOpportunityStatus(opportunity.id, 'EXECUTING');
 
+      let jobsCreated = 0;
       for (const strategy of matchingStrategies) {
-        await this.createBuyJob(opportunity, strategy);
+        try {
+          await this.createBuyJob(opportunity, strategy);
+          jobsCreated++;
+        } catch (error) {
+          console.error(`[OpportunityLoop] Failed to create job for strategy ${strategy.id}:`, error);
+        }
       }
 
-      console.log(
-        `[OpportunityLoop] Created ${matchingStrategies.length} jobs for: ${event.symbol}`
-      );
+      // 10. Update opportunity status based on job creation results
+      if (jobsCreated > 0) {
+        await updateOpportunityStatus(
+          opportunity.id,
+          'COMPLETED',
+          `Created ${jobsCreated}/${matchingStrategies.length} trade jobs`
+        );
+        console.log(
+          `[OpportunityLoop] Created ${jobsCreated} jobs for: ${event.symbol}`
+        );
+      } else {
+        await updateOpportunityStatus(
+          opportunity.id,
+          'REJECTED',
+          'Failed to create any trade jobs'
+        );
+        console.warn(
+          `[OpportunityLoop] Failed to create any jobs for: ${event.symbol}`
+        );
+      }
     } catch (error) {
       console.error('[OpportunityLoop] Error handling token:', error);
     }
@@ -172,12 +195,30 @@ export class OpportunityLoop {
   /**
    * Get the most thorough snipe mode from all strategies
    * v4.3: quality > balanced > speed to ensure quality users get metadata
+   *
+   * NOTE: This is a known limitation - all users share the same metadata fetch timeout.
+   * If ANY user has 'quality' mode, all users wait for metadata (up to 2000ms).
+   * This ensures quality users get proper scoring, but may delay speed users slightly.
+   *
+   * Future improvement: Per-user scoring with separate metadata fetch per snipe mode.
    */
   private getMostThoroughSnipeMode(strategies: Strategy[]): string {
     const modes = strategies.map((s) => s.snipe_mode || DEFAULT_SNIPE_MODE);
 
-    if (modes.includes('quality')) return 'quality';
-    if (modes.includes('balanced')) return 'balanced';
+    // Count modes for logging
+    const speedCount = modes.filter(m => m === 'speed').length;
+    const balancedCount = modes.filter(m => m === 'balanced').length;
+    const qualityCount = modes.filter(m => m === 'quality').length;
+
+    if (qualityCount > 0) {
+      console.log(`[OpportunityLoop] Snipe modes: ${speedCount} speed, ${balancedCount} balanced, ${qualityCount} quality -> using quality`);
+      return 'quality';
+    }
+    if (balancedCount > 0) {
+      console.log(`[OpportunityLoop] Snipe modes: ${speedCount} speed, ${balancedCount} balanced -> using balanced`);
+      return 'balanced';
+    }
+    console.log(`[OpportunityLoop] Snipe modes: ${speedCount} speed -> using speed`);
     return 'speed';
   }
 

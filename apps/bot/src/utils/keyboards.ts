@@ -441,7 +441,7 @@ export function snipeConfirmKeyboard(token: string): InlineKeyboard {
  * Hunt settings keyboard (v4.0 - Configure panel)
  */
 export function huntKeyboard(chain: Chain, isEnabled: boolean): InlineKeyboard {
-  const statusText = isEnabled ? '🔴 Stop Hunt' : '🟢 Start Hunt';
+  const statusText = isEnabled ? '⏹️ Stop Hunt' : '▶️ Start Hunt';
   const statusCallback = isEnabled ? `hunt_pause_${chain}` : `hunt_start_${chain}`;
 
   return new InlineKeyboard()

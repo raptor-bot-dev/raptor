@@ -157,20 +157,22 @@ export async function getRecentTrades(
  * Get trending tokens on PumpFun
  */
 export async function getTrendingTokens(limit = 10): Promise<PumpFunToken[]> {
+  const url = `${PUMPFUN_API}/coins?sort=market_cap&order=DESC&limit=${limit}&includeNsfw=false`;
   try {
-    const response = await fetch(
-      `${PUMPFUN_API}/coins?sort=market_cap&order=DESC&limit=${limit}&includeNsfw=false`,
-      {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(5000),
-      }
-    );
+    console.log('[PumpFun] Fetching trending tokens from:', url);
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
 
     if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.error(`[PumpFun] Trending API error: ${response.status} - ${body.slice(0, 200)}`);
       return [];
     }
 
     const data = await response.json() as Array<Record<string, unknown>>;
+    console.log(`[PumpFun] Trending tokens fetched: ${data.length} results`);
     return data.map(d => parsePumpFunToken(d));
   } catch (error) {
     console.error('[PumpFun] Trending fetch error:', error);
@@ -182,20 +184,22 @@ export async function getTrendingTokens(limit = 10): Promise<PumpFunToken[]> {
  * Get new token launches
  */
 export async function getNewLaunches(limit = 10): Promise<PumpFunToken[]> {
+  const url = `${PUMPFUN_API}/coins?sort=created_timestamp&order=DESC&limit=${limit}&includeNsfw=false`;
   try {
-    const response = await fetch(
-      `${PUMPFUN_API}/coins?sort=created_timestamp&order=DESC&limit=${limit}&includeNsfw=false`,
-      {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(5000),
-      }
-    );
+    console.log('[PumpFun] Fetching new launches from:', url);
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
 
     if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.error(`[PumpFun] New launches API error: ${response.status} - ${body.slice(0, 200)}`);
       return [];
     }
 
     const data = await response.json() as Array<Record<string, unknown>>;
+    console.log(`[PumpFun] New launches fetched: ${data.length} results`);
     return data.map(d => parsePumpFunToken(d));
   } catch (error) {
     console.error('[PumpFun] New launches fetch error:', error);

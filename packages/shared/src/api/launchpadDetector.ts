@@ -163,6 +163,7 @@ export async function detectLaunchpad(mint: string): Promise<LaunchpadType> {
  * Get new launches from all launchpads
  */
 export async function getNewLaunches(limit = 10): Promise<UnifiedTokenData[]> {
+  console.log('[LaunchpadDetector] Fetching new launches...');
   const [pumpLaunches, bonkLaunches] = await Promise.allSettled([
     pumpfun.getNewLaunches(limit),
     bonkfun.getNewLaunches(limit),
@@ -171,18 +172,26 @@ export async function getNewLaunches(limit = 10): Promise<UnifiedTokenData[]> {
   const results: UnifiedTokenData[] = [];
 
   if (pumpLaunches.status === 'fulfilled') {
+    console.log(`[LaunchpadDetector] PumpFun new launches: ${pumpLaunches.value.length}`);
     for (const token of pumpLaunches.value) {
       const converted = convertPumpFunData(token, null, null);
       if (converted) results.push(converted);
     }
+  } else {
+    console.error('[LaunchpadDetector] PumpFun new launches failed:', pumpLaunches.reason);
   }
 
   if (bonkLaunches.status === 'fulfilled') {
+    console.log(`[LaunchpadDetector] BonkFun new launches: ${bonkLaunches.value.length}`);
     for (const token of bonkLaunches.value) {
       const converted = convertBonkFunData(token, null, null);
       if (converted) results.push(converted);
     }
+  } else {
+    console.error('[LaunchpadDetector] BonkFun new launches failed:', bonkLaunches.reason);
   }
+
+  console.log(`[LaunchpadDetector] Total new launches: ${results.length}`);
 
   // Sort by creation time
   results.sort((a, b) => b.createdAt - a.createdAt);
@@ -194,6 +203,7 @@ export async function getNewLaunches(limit = 10): Promise<UnifiedTokenData[]> {
  * Get trending tokens from all launchpads
  */
 export async function getTrending(limit = 10): Promise<UnifiedTokenData[]> {
+  console.log('[LaunchpadDetector] Fetching trending tokens...');
   const [pumpTrending, bonkTrending] = await Promise.allSettled([
     pumpfun.getTrendingTokens(limit),
     bonkfun.getTrending(limit),
@@ -202,18 +212,26 @@ export async function getTrending(limit = 10): Promise<UnifiedTokenData[]> {
   const results: UnifiedTokenData[] = [];
 
   if (pumpTrending.status === 'fulfilled') {
+    console.log(`[LaunchpadDetector] PumpFun trending: ${pumpTrending.value.length}`);
     for (const token of pumpTrending.value) {
       const converted = convertPumpFunData(token, null, null);
       if (converted) results.push(converted);
     }
+  } else {
+    console.error('[LaunchpadDetector] PumpFun trending failed:', pumpTrending.reason);
   }
 
   if (bonkTrending.status === 'fulfilled') {
+    console.log(`[LaunchpadDetector] BonkFun trending: ${bonkTrending.value.length}`);
     for (const token of bonkTrending.value) {
       const converted = convertBonkFunData(token, null, null);
       if (converted) results.push(converted);
     }
+  } else {
+    console.error('[LaunchpadDetector] BonkFun trending failed:', bonkTrending.reason);
   }
+
+  console.log(`[LaunchpadDetector] Total trending: ${results.length}`);
 
   // Sort by market cap
   results.sort((a, b) => b.marketCapSol - a.marketCapSol);

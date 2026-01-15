@@ -2,25 +2,20 @@
  * Trading Strategies for RAPTOR v4.0
  * Solana-only build
  *
- * Five predefined strategies with different risk/reward profiles:
+ * @deprecated v5.0 - Predefined strategies are deprecated.
+ * Users now configure TP/SL directly in Hunt Settings, which updates
+ * their AUTO strategy in the database. This file is kept for backward
+ * compatibility only.
  *
- * MICRO_SCALP - Quick scalps for high-frequency opportunities
- *   TP: 15%, SL: 8%, Max Hold: 15min
+ * Previous predefined strategies (no longer used):
+ * - MICRO_SCALP - Quick scalps (15% TP, 8% SL)
+ * - STANDARD - Balanced approach (50% TP, 30% SL)
+ * - MOON_BAG - Keep 25% position after TP
+ * - DCA_EXIT - Ladder exits
+ * - TRAILING - Trailing stop loss
  *
- * STANDARD - Balanced default strategy
- *   TP: 50%, SL: 30%, Max Hold: 4h
- *
- * MOON_BAG - Take profit but keep exposure
- *   TP: 50%, SL: 30%, Max Hold: 8h
- *   Sells 75% at TP, keeps 25% "moon bag"
- *
- * DCA_EXIT - Ladder out of positions
- *   Max TP: 200%, SL: 30%, Max Hold: 8h
- *   Exit ladder: 25% at 25%, 25% at 50%, 25% at 100%, 25% at 200%
- *
- * TRAILING - Dynamic profit taking
- *   Activation: 30%, Distance: 20%, SL: 30%, Max Hold: 8h
- *   After 30% gain, trailing stop activates 20% below peak
+ * New approach: Users set their own TP/SL values in Hunt Settings menu,
+ * which directly updates the strategies table in the database.
  */
 
 import type { Chain } from '../types.js';

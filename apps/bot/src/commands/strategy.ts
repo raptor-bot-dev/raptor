@@ -1,14 +1,10 @@
 /**
- * Strategy Command - Trading strategy selection for RAPTOR v2.3
+ * Strategy Command - DEPRECATED in v5.0
  *
- * Features:
- * - 5 preset strategies with explanations
- * - Full custom strategy editor (5 pages):
- *   1. Core Settings (TP, SL, Max Hold)
- *   2. Advanced Exits (Trailing, DCA Ladder, Moon Bag)
- *   3. Filters (Min Liquidity, Max MCap, Min Score, Max Taxes)
- *   4. Protection & Execution (Anti-Rug, Anti-MEV, Slippage, Gas)
- *   5. Review & Save
+ * Users now configure TP/SL directly in Hunt Settings.
+ * This command redirects to Hunt settings for backward compatibility.
+ *
+ * @deprecated Use /hunt to configure exit settings instead
  */
 
 import { InlineKeyboard } from 'grammy';
@@ -197,16 +193,27 @@ function setCurrentPage(tgId: number, page: number) {
 }
 
 /**
- * Main strategy command
+ * Main strategy command - DEPRECATED
+ * Redirects users to Hunt settings where TP/SL is now configured
  */
 export async function strategyCommand(ctx: MyContext) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = await getUserSettings(user.id);
-  const current = settings?.trading_strategy || 'STANDARD';
-  const message = formatStrategyMenu(current);
-  const keyboard = strategyKeyboard(current);
+  const message = `${LINE}
+📢 *STRATEGY SETTINGS MOVED*
+${LINE}
+
+Exit strategy settings (Take Profit, Stop Loss) are now configured in Hunt Settings.
+
+Use /hunt or tap below to configure your trading strategy.
+
+${LINE}`;
+
+  const keyboard = new InlineKeyboard()
+    .text('🦖 Go to Hunt Settings', 'hunt')
+    .row()
+    .text('« Back to Menu', 'back_to_menu');
 
   await ctx.reply(message, {
     parse_mode: 'Markdown',
@@ -215,16 +222,27 @@ export async function strategyCommand(ctx: MyContext) {
 }
 
 /**
- * Show strategy selection via callback
+ * Show strategy selection via callback - DEPRECATED
+ * Redirects users to Hunt settings
  */
 export async function showStrategy(ctx: MyContext) {
   const user = ctx.from;
   if (!user) return;
 
-  const settings = await getUserSettings(user.id);
-  const current = settings?.trading_strategy || 'STANDARD';
-  const message = formatStrategyMenu(current);
-  const keyboard = strategyKeyboard(current);
+  const message = `${LINE}
+📢 *STRATEGY SETTINGS MOVED*
+${LINE}
+
+Exit strategy settings (Take Profit, Stop Loss) are now configured in Hunt Settings.
+
+Tap below to configure your trading strategy.
+
+${LINE}`;
+
+  const keyboard = new InlineKeyboard()
+    .text('🦖 Go to Hunt Settings', 'hunt')
+    .row()
+    .text('« Back to Menu', 'back_to_menu');
 
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',

@@ -111,12 +111,20 @@ export class ExecutionLoop {
   private async processJob(job: TradeJob): Promise<void> {
     console.log(`[ExecutionLoop] Processing job ${job.id} (${job.action})`);
 
+    // Track lease validity
+    let leaseValid = true;
+
     // Start heartbeat
     const heartbeat = setInterval(async () => {
       try {
-        await extendLease(job.id, this.workerId);
-      } catch {
-        // Ignore heartbeat errors
+        const extended = await extendLease(job.id, this.workerId);
+        if (!extended) {
+          console.warn(`[ExecutionLoop] Lost lease for job ${job.id} - another worker may have claimed it`);
+          leaseValid = false;
+        }
+      } catch (err) {
+        console.warn(`[ExecutionLoop] Heartbeat failed for job ${job.id}:`, err);
+        leaseValid = false;
       }
     }, 10000);
 
@@ -157,6 +165,13 @@ export class ExecutionLoop {
 
       const executionId = reservation.reservation_id!;
       console.log(`[ExecutionLoop] Reserved budget: ${executionId}`);
+
+      // CRITICAL: Verify we still have the lease before executing trade
+      if (!leaseValid) {
+        console.error(`[ExecutionLoop] Aborting job ${job.id} - lease lost before trade execution`);
+        await this.failJob(job, 'Lease lost - another worker claimed job', false);
+        return;
+      }
 
       // 4. Execute the trade
       let result;
