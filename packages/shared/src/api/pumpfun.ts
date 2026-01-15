@@ -14,6 +14,14 @@
 const PUMPFUN_API = 'https://frontend-api.pump.fun';
 const PUMPFUN_CLIENT_API = 'https://client-api-2-74b1891ee9f9.herokuapp.com';
 
+// Browser-like headers to bypass Cloudflare 530 blocks
+const PUMPFUN_HEADERS = {
+  'Accept': 'application/json',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Referer': 'https://pump.fun/',
+  'Origin': 'https://pump.fun',
+};
+
 // Bonding curve constants
 const BONDING_CURVE_LIMIT = 85; // SOL required to graduate (approx)
 const INITIAL_VIRTUAL_SOL = 30; // Virtual SOL in bonding curve
@@ -90,7 +98,7 @@ export async function getTokenInfo(
 
   try {
     const response = await fetch(`${PUMPFUN_API}/coins/${mint}`, {
-      headers: { Accept: 'application/json' },
+      headers: PUMPFUN_HEADERS,
       signal: AbortSignal.timeout(5000),
     });
 
@@ -136,7 +144,7 @@ export async function getRecentTrades(
     const response = await fetch(
       `${PUMPFUN_API}/trades/latest?mint=${mint}&limit=${limit}`,
       {
-        headers: { Accept: 'application/json' },
+        headers: PUMPFUN_HEADERS,
         signal: AbortSignal.timeout(5000),
       }
     );
@@ -161,7 +169,7 @@ export async function getTrendingTokens(limit = 10): Promise<PumpFunToken[]> {
   try {
     console.log('[PumpFun] Fetching trending tokens from:', url);
     const response = await fetch(url, {
-      headers: { Accept: 'application/json' },
+      headers: PUMPFUN_HEADERS,
       signal: AbortSignal.timeout(5000),
     });
 
@@ -188,7 +196,7 @@ export async function getNewLaunches(limit = 10): Promise<PumpFunToken[]> {
   try {
     console.log('[PumpFun] Fetching new launches from:', url);
     const response = await fetch(url, {
-      headers: { Accept: 'application/json' },
+      headers: PUMPFUN_HEADERS,
       signal: AbortSignal.timeout(5000),
     });
 

@@ -144,99 +144,72 @@ export async function detectAndFetch(
 
 /**
  * Quick launchpad detection (no data fetch)
+ * Note: Bonk.fun check removed as API doesn't exist
  */
 export async function detectLaunchpad(mint: string): Promise<LaunchpadType> {
-  const [isPump, isMoon, isBonk] = await Promise.all([
+  const [isPump, isMoon] = await Promise.all([
     pumpfun.isPumpFunToken(mint).catch(() => false),
     moonshot.isMoonshotToken(mint).catch(() => false),
-    bonkfun.isBonkFunToken(mint).catch(() => false),
   ]);
 
   if (isPump) return 'pumpfun';
   if (isMoon) return 'moonshot';
-  if (isBonk) return 'bonkfun';
 
   return 'unknown';
 }
 
 /**
- * Get new launches from all launchpads
+ * Get new launches from pump.fun
+ * Note: Bonk.fun API was removed as the endpoint doesn't exist
  */
 export async function getNewLaunches(limit = 10): Promise<UnifiedTokenData[]> {
-  console.log('[LaunchpadDetector] Fetching new launches...');
-  const [pumpLaunches, bonkLaunches] = await Promise.allSettled([
-    pumpfun.getNewLaunches(limit),
-    bonkfun.getNewLaunches(limit),
-  ]);
+  console.log('[LaunchpadDetector] Fetching new launches from pump.fun...');
 
-  const results: UnifiedTokenData[] = [];
+  try {
+    const pumpLaunches = await pumpfun.getNewLaunches(limit);
+    console.log(`[LaunchpadDetector] PumpFun new launches: ${pumpLaunches.length}`);
 
-  if (pumpLaunches.status === 'fulfilled') {
-    console.log(`[LaunchpadDetector] PumpFun new launches: ${pumpLaunches.value.length}`);
-    for (const token of pumpLaunches.value) {
+    const results: UnifiedTokenData[] = [];
+    for (const token of pumpLaunches) {
       const converted = convertPumpFunData(token, null, null);
       if (converted) results.push(converted);
     }
-  } else {
-    console.error('[LaunchpadDetector] PumpFun new launches failed:', pumpLaunches.reason);
+
+    // Sort by creation time
+    results.sort((a, b) => b.createdAt - a.createdAt);
+
+    return results.slice(0, limit);
+  } catch (error) {
+    console.error('[LaunchpadDetector] PumpFun new launches failed:', error);
+    return [];
   }
-
-  if (bonkLaunches.status === 'fulfilled') {
-    console.log(`[LaunchpadDetector] BonkFun new launches: ${bonkLaunches.value.length}`);
-    for (const token of bonkLaunches.value) {
-      const converted = convertBonkFunData(token, null, null);
-      if (converted) results.push(converted);
-    }
-  } else {
-    console.error('[LaunchpadDetector] BonkFun new launches failed:', bonkLaunches.reason);
-  }
-
-  console.log(`[LaunchpadDetector] Total new launches: ${results.length}`);
-
-  // Sort by creation time
-  results.sort((a, b) => b.createdAt - a.createdAt);
-
-  return results.slice(0, limit);
 }
 
 /**
- * Get trending tokens from all launchpads
+ * Get trending tokens from pump.fun
+ * Note: Bonk.fun API was removed as the endpoint doesn't exist
  */
 export async function getTrending(limit = 10): Promise<UnifiedTokenData[]> {
-  console.log('[LaunchpadDetector] Fetching trending tokens...');
-  const [pumpTrending, bonkTrending] = await Promise.allSettled([
-    pumpfun.getTrendingTokens(limit),
-    bonkfun.getTrending(limit),
-  ]);
+  console.log('[LaunchpadDetector] Fetching trending tokens from pump.fun...');
 
-  const results: UnifiedTokenData[] = [];
+  try {
+    const pumpTrending = await pumpfun.getTrendingTokens(limit);
+    console.log(`[LaunchpadDetector] PumpFun trending: ${pumpTrending.length}`);
 
-  if (pumpTrending.status === 'fulfilled') {
-    console.log(`[LaunchpadDetector] PumpFun trending: ${pumpTrending.value.length}`);
-    for (const token of pumpTrending.value) {
+    const results: UnifiedTokenData[] = [];
+    for (const token of pumpTrending) {
       const converted = convertPumpFunData(token, null, null);
       if (converted) results.push(converted);
     }
-  } else {
-    console.error('[LaunchpadDetector] PumpFun trending failed:', pumpTrending.reason);
+
+    // Sort by market cap
+    results.sort((a, b) => b.marketCapSol - a.marketCapSol);
+
+    return results.slice(0, limit);
+  } catch (error) {
+    console.error('[LaunchpadDetector] PumpFun trending failed:', error);
+    return [];
   }
-
-  if (bonkTrending.status === 'fulfilled') {
-    console.log(`[LaunchpadDetector] BonkFun trending: ${bonkTrending.value.length}`);
-    for (const token of bonkTrending.value) {
-      const converted = convertBonkFunData(token, null, null);
-      if (converted) results.push(converted);
-    }
-  } else {
-    console.error('[LaunchpadDetector] BonkFun trending failed:', bonkTrending.reason);
-  }
-
-  console.log(`[LaunchpadDetector] Total trending: ${results.length}`);
-
-  // Sort by market cap
-  results.sort((a, b) => b.marketCapSol - a.marketCapSol);
-
-  return results.slice(0, limit);
 }
 
 // Converter functions

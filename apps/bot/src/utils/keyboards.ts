@@ -778,27 +778,6 @@ export function tokenSellKeyboard(positionId: number): InlineKeyboard {
 // ============================================================================
 
 /**
- * Auto Hunt main keyboard
- */
-export function autoHuntKeyboard(isEnabled: boolean): InlineKeyboard {
-  const status = isEnabled ? '⏸️ Pause Hunt' : '▶️ Start Hunt';
-  const callback = isEnabled ? 'hunt_pause' : 'hunt_start';
-
-  return new InlineKeyboard()
-    .text(status, callback)
-    .row()
-    .text('🎚️ Min Score', 'hunt_score')
-    .text('💰 Max Buy', 'hunt_maxbuy')
-    .row()
-    .text('🎰 Bet Size', 'hunt_betsize')
-    .text('🔗 Chains', 'hunt_chains')
-    .row()
-    .text('🎯 Launchpads', 'hunt_launchpads')
-    .row()
-    .text('← Back', 'back_to_menu');
-}
-
-/**
  * Hunt score selection keyboard
  */
 export function huntScoreKeyboard(currentScore: number): InlineKeyboard {

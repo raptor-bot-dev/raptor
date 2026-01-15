@@ -114,9 +114,11 @@ export async function huntCommand(ctx: MyContext) {
 
   message += '_Auto-snipe new token launches_';
 
-  const toggleText = s.enabled ? '🔴 Stop Hunt' : '🟢 Start Hunt';
+  // Fix: Use correct callback based on enabled state
+  const toggleText = s.enabled ? '⏹️ Stop Hunt' : '▶️ Start Hunt';
+  const toggleCallback = s.enabled ? 'hunt_pause_sol' : 'hunt_start_sol';
   const keyboard = new InlineKeyboard()
-    .text(toggleText, 'hunt_start_sol')
+    .text(toggleText, toggleCallback)
     .text('⚙️ Configure', 'hunt_chain_sol')
     .row()
     .text('🌱 New Launches', 'hunt_new')
@@ -155,9 +157,11 @@ export async function showHunt(ctx: MyContext) {
 
   message += '_Auto-snipe new token launches_';
 
-  const toggleText = s.enabled ? '🔴 Stop Hunt' : '🟢 Start Hunt';
+  // Fix: Use correct callback based on enabled state
+  const toggleText = s.enabled ? '⏹️ Stop Hunt' : '▶️ Start Hunt';
+  const toggleCallback = s.enabled ? 'hunt_pause_sol' : 'hunt_start_sol';
   const keyboard = new InlineKeyboard()
-    .text(toggleText, 'hunt_start_sol')
+    .text(toggleText, toggleCallback)
     .text('⚙️ Configure', 'hunt_chain_sol')
     .row()
     .text('🌱 New Launches', 'hunt_new')
@@ -165,10 +169,17 @@ export async function showHunt(ctx: MyContext) {
     .row()
     .text('« Back', 'menu');
 
-  await ctx.editMessageText(message, {
-    parse_mode: 'Markdown',
-    reply_markup: keyboard,
-  });
+  try {
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  } catch (error) {
+    // Ignore "message is not modified" error - happens when user clicks refresh but nothing changed
+    if (!(error instanceof Error && error.message.includes('message is not modified'))) {
+      throw error;
+    }
+  }
 
   await ctx.answerCallbackQuery();
 }
@@ -823,22 +834,24 @@ export async function setStopLoss(ctx: MyContext, chain: Chain, sl: number) {
 }
 
 /**
- * Show live opportunities from all launchpads
+ * Show live opportunities from pump.fun
+ * Simplified to pump.fun only with numbered list 1-15
  */
 export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending') {
   const user = ctx.from;
   if (!user) return;
 
   try {
-    const { launchpadDetector } = await import('@raptor/shared');
+    const { pumpfun } = await import('@raptor/shared');
 
+    // Fetch 15 tokens from pump.fun
     const tokens = type === 'new'
-      ? await launchpadDetector.getNewLaunches(10)
-      : await launchpadDetector.getTrending(10);
+      ? await pumpfun.getNewLaunches(15)
+      : await pumpfun.getTrendingTokens(15);
 
     if (tokens.length === 0) {
       await ctx.editMessageText(
-        `🌱 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n` +
+        `${type === 'new' ? '🌱 *NEW LAUNCHES*' : '🔥 *TRENDING ON PUMP.FUN*'}\n\n` +
         `No tokens found at the moment.\n` +
         `Try again in a few minutes.`,
         {
@@ -852,36 +865,36 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
       return;
     }
 
-    let message = `🌱 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n`;
+    // Header
+    let message = type === 'new'
+      ? '🌱 *NEW LAUNCHES ON PUMP.FUN*\n\n'
+      : '🔥 *TRENDING ON PUMP.FUN*\n\n';
 
     const keyboard = new InlineKeyboard();
 
-    for (let i = 0; i < Math.min(tokens.length, 8); i++) {
+    // Show numbered list 1-15
+    for (let i = 0; i < Math.min(tokens.length, 15); i++) {
       const t = tokens[i];
-      const lpEmoji = launchpadDetector.getLaunchpadEmoji(t.launchpad.launchpad);
-      const lpName = launchpadDetector.getLaunchpadName(t.launchpad.launchpad);
+      const num = i + 1;
 
-      // Format price
+      // Format bonding progress
+      const progressEmoji = t.bondingCurveProgress >= 90 ? '🔥'
+        : t.bondingCurveProgress >= 50 ? '📈'
+        : '🌱';
+
+      // Format price compactly
       const priceStr = t.priceInSol > 0
-        ? `${t.priceInSol.toFixed(6)} SOL`
-        : 'N/A';
+        ? t.priceInSol.toFixed(8).replace(/\.?0+$/, '')
+        : '—';
 
-      // Status
-      const statusEmoji = t.launchpad.status === 'bonding'
-        ? (t.launchpad.bondingProgress >= 90 ? '🔥' : t.launchpad.bondingProgress >= 50 ? '📈' : '🌱')
-        : '🎓';
+      // Compact format: "1. SYMBOL - 85% bonded | 0.00123 SOL"
+      message += `*${num}.* *${t.symbol}* ${progressEmoji} ${t.bondingCurveProgress.toFixed(0)}% | ${priceStr} SOL\n`;
 
-      message += `${lpEmoji} *${t.symbol}* — ${lpName}\n`;
-      message += `${statusEmoji} ${t.launchpad.bondingProgress.toFixed(0)}% | 💰 ${priceStr}\n`;
-      if (t.security) {
-        const secEmoji = t.security.riskScore >= 70 ? '✅' : t.security.riskScore >= 40 ? '🟡' : '⚠️';
-        message += `${secEmoji} Security: ${t.security.riskScore}/100\n`;
+      // Add button for first 8 tokens (Telegram button limit)
+      if (i < 8) {
+        keyboard.text(`${num}. ${t.symbol}`, `analyze_sol_${t.mint}`);
+        if ((i + 1) % 2 === 0) keyboard.row();
       }
-      message += '\n';
-
-      // Add button for each token
-      keyboard.text(`${lpEmoji} ${t.symbol}`, `analyze_sol_${t.mint}`);
-      if ((i + 1) % 2 === 0) keyboard.row();
     }
 
     keyboard
@@ -889,22 +902,36 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
       .text('🔄 Refresh', `hunt_${type}`)
       .text('« Back', 'hunt');
 
-    await ctx.editMessageText(message, {
-      parse_mode: 'Markdown',
-      reply_markup: keyboard,
-    });
-  } catch (error) {
-    console.error('[Hunt] Opportunities error:', error);
-    await ctx.editMessageText(
-      `🌱 *${type === 'new' ? 'New Launches' : 'Trending Tokens'}*\n\n` +
-      `⚠️ Error fetching data. Try again later.`,
-      {
+    try {
+      await ctx.editMessageText(message, {
         parse_mode: 'Markdown',
-        reply_markup: new InlineKeyboard()
-          .text('🔄 Retry', `hunt_${type}`)
-          .text('« Back', 'hunt'),
+        reply_markup: keyboard,
+      });
+    } catch (editError) {
+      // Ignore "message is not modified" error - happens when user clicks refresh but nothing changed
+      if (!(editError instanceof Error && editError.message.includes('message is not modified'))) {
+        throw editError;
       }
-    );
+    }
+  } catch (error) {
+    console.error('[Hunt] PumpFun fetch error:', error);
+    try {
+      await ctx.editMessageText(
+        `${type === 'new' ? '🌱 *NEW LAUNCHES*' : '🔥 *TRENDING*'}\n\n` +
+        `⚠️ Error fetching from pump.fun.\nTry again later.`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: new InlineKeyboard()
+            .text('🔄 Retry', `hunt_${type}`)
+            .text('« Back', 'hunt'),
+        }
+      );
+    } catch (editError) {
+      // Ignore "message is not modified" error
+      if (!(editError instanceof Error && editError.message.includes('message is not modified'))) {
+        console.error('[Hunt] Failed to show error message:', editError);
+      }
+    }
   }
 
   await ctx.answerCallbackQuery();
