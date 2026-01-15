@@ -36,6 +36,8 @@ interface HuntSettings {
   slippageBps?: number;    // v4.2: Hunt-specific buy slippage (default: 1500 = 15%)
   prioritySol?: number;    // v4.2: Hunt-specific priority fee (default: 0.001 SOL)
   snipeMode?: 'speed' | 'balanced' | 'quality';  // v4.3: Snipe mode for metadata fetching
+  takeProfitPercent?: number;  // v5.0: Take profit % (default: 50)
+  stopLossPercent?: number;    // v5.0: Stop loss % (default: 30)
 }
 
 // Snipe mode descriptions for UI
@@ -53,6 +55,8 @@ const defaultHuntSettings: Record<Chain, HuntSettings> = {
     slippageBps: 1500,   // v4.2: 15% default for hunt (higher than manual 10%)
     prioritySol: 0.001,  // v4.2: 0.001 SOL default tip
     snipeMode: 'balanced',  // v4.3: Default to balanced mode
+    takeProfitPercent: 50,   // v5.0: Default 50% take profit
+    stopLossPercent: 30,     // v5.0: Default 30% stop loss
   },
 };
 
@@ -189,6 +193,8 @@ export async function showChainHunt(ctx: MyContext, chain: Chain) {
     slippageBps: settings.slippageBps,      // v4.2: Pass hunt-specific slippage
     prioritySol: settings.prioritySol,      // v4.2: Pass hunt-specific priority
     snipeMode: `${snipeModeInfo.emoji} ${snipeModeInfo.label}`,  // v4.3: Pass snipe mode
+    takeProfitPercent: settings.takeProfitPercent,  // v5.0: Pass TP
+    stopLossPercent: settings.stopLossPercent,      // v5.0: Pass SL
   });
 
   await ctx.editMessageText(message, {
@@ -692,6 +698,128 @@ export async function setSnipeMode(ctx: MyContext, chain: Chain, mode: 'speed' |
 
   // Refresh snipe mode selection view
   await showSnipeMode(ctx, chain);
+}
+
+/**
+ * Show take profit selection (v5.0)
+ */
+export async function showTpSelection(ctx: MyContext, chain: Chain) {
+  const user = ctx.from;
+  if (!user) return;
+
+  const allSettings = await getUserHuntSettingsAsync(user.id);
+  const settings = allSettings[chain];
+  const currentTp = settings.takeProfitPercent ?? 50;
+
+  const message = `🎯 *Take Profit - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}
+
+Current: *+${currentTp}%*
+
+Select take profit target for hunt trades:
+
+_Auto-sell when position reaches this profit %_`;
+
+  const tpOptions = [25, 50, 75, 100, 150, 200];
+
+  const keyboard = new InlineKeyboard();
+  for (let i = 0; i < tpOptions.length; i += 3) {
+    if (i > 0) keyboard.row();
+    for (let j = i; j < Math.min(i + 3, tpOptions.length); j++) {
+      const tp = tpOptions[j];
+      const check = currentTp === tp ? ' ✓' : '';
+      keyboard.text(`+${tp}%${check}`, `hunt_tp_set_${chain}_${tp}`);
+    }
+  }
+  keyboard.row().text('← Back', `hunt_chain_${chain}`);
+
+  await ctx.editMessageText(message, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
+
+  await ctx.answerCallbackQuery();
+}
+
+/**
+ * Set take profit (v5.0)
+ */
+export async function setTakeProfit(ctx: MyContext, chain: Chain, tp: number) {
+  const user = ctx.from;
+  if (!user) return;
+
+  const settings = await getUserHuntSettingsAsync(user.id);
+  settings[chain].takeProfitPercent = tp;
+  await saveUserHuntSettings(user.id, settings);
+
+  // Sync to AUTO strategy
+  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+  await updateStrategy(strategy.id, { take_profit_percent: tp });
+
+  await ctx.answerCallbackQuery({ text: `Take profit set to +${tp}%` });
+
+  // Refresh TP selection view
+  await showTpSelection(ctx, chain);
+}
+
+/**
+ * Show stop loss selection (v5.0)
+ */
+export async function showSlSelection(ctx: MyContext, chain: Chain) {
+  const user = ctx.from;
+  if (!user) return;
+
+  const allSettings = await getUserHuntSettingsAsync(user.id);
+  const settings = allSettings[chain];
+  const currentSl = settings.stopLossPercent ?? 30;
+
+  const message = `🛑 *Stop Loss - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}
+
+Current: *-${currentSl}%*
+
+Select stop loss for hunt trades:
+
+_Auto-sell when position drops by this %_`;
+
+  const slOptions = [10, 20, 30, 40, 50];
+
+  const keyboard = new InlineKeyboard();
+  for (let i = 0; i < slOptions.length; i += 3) {
+    if (i > 0) keyboard.row();
+    for (let j = i; j < Math.min(i + 3, slOptions.length); j++) {
+      const sl = slOptions[j];
+      const check = currentSl === sl ? ' ✓' : '';
+      keyboard.text(`-${sl}%${check}`, `hunt_sl_set_${chain}_${sl}`);
+    }
+  }
+  keyboard.row().text('← Back', `hunt_chain_${chain}`);
+
+  await ctx.editMessageText(message, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
+
+  await ctx.answerCallbackQuery();
+}
+
+/**
+ * Set stop loss (v5.0)
+ */
+export async function setStopLoss(ctx: MyContext, chain: Chain, sl: number) {
+  const user = ctx.from;
+  if (!user) return;
+
+  const settings = await getUserHuntSettingsAsync(user.id);
+  settings[chain].stopLossPercent = sl;
+  await saveUserHuntSettings(user.id, settings);
+
+  // Sync to AUTO strategy
+  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+  await updateStrategy(strategy.id, { stop_loss_percent: sl });
+
+  await ctx.answerCallbackQuery({ text: `Stop loss set to -${sl}%` });
+
+  // Refresh SL selection view
+  await showSlSelection(ctx, chain);
 }
 
 /**

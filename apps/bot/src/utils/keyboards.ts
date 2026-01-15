@@ -450,6 +450,9 @@ export function huntKeyboard(chain: Chain, isEnabled: boolean): InlineKeyboard {
     .text('🎯 Min Score', `hunt_score_${chain}`)
     .text('💰 Position Size', `hunt_size_${chain}`)
     .row()
+    .text('🎯 Take Profit', `hunt_tp_${chain}`)       // v5.0: TP setting
+    .text('🛑 Stop Loss', `hunt_sl_${chain}`)         // v5.0: SL setting
+    .row()
     .text('🎯 Launchpads', `hunt_launchpads_${chain}`)
     .text('⚡ Snipe Mode', `hunt_snipe_${chain}`)     // v4.3: Snipe mode selection
     .row()

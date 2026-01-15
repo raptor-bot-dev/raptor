@@ -585,6 +585,8 @@ export function formatHuntStatus(huntSettings: {
   slippageBps?: number;    // v4.2: Hunt-specific slippage
   prioritySol?: number;    // v4.2: Hunt-specific priority
   snipeMode?: string;      // v4.3: Snipe mode display
+  takeProfitPercent?: number;  // v5.0: Take profit
+  stopLossPercent?: number;    // v5.0: Stop loss
 }): string {
   const chain = huntSettings.chain;
   const emoji = CHAIN_EMOJI[chain];
@@ -599,6 +601,12 @@ export function formatHuntStatus(huntSettings: {
     const symbol = chain === 'sol' ? 'SOL' : chain === 'bsc' ? 'BNB' : 'ETH';
     message += `\n*Max Position:* ${formatCrypto(huntSettings.maxPositionSize, symbol)}`;
   }
+
+  // v5.0: Show TP/SL
+  const tp = huntSettings.takeProfitPercent ?? 50;
+  const sl = huntSettings.stopLossPercent ?? 30;
+  message += `\n*Take Profit:* +${tp}%`;
+  message += `\n*Stop Loss:* -${sl}%`;
 
   // v4.2: Show hunt-specific slippage and priority
   const slippagePercent = (huntSettings.slippageBps || 1500) / 100;

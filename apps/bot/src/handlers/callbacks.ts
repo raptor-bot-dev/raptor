@@ -83,6 +83,10 @@ import {
   setHuntPriority,      // v4.2: Hunt-specific priority
   showSnipeMode,        // v4.3: Snipe mode selection
   setSnipeMode,         // v4.3: Set snipe mode
+  showTpSelection as showHuntTpSelection,      // v5.0: Take profit selection
+  setTakeProfit as setHuntTakeProfit,          // v5.0: Set take profit
+  showSlSelection as showHuntSlSelection,      // v5.0: Stop loss selection
+  setStopLoss as setHuntStopLoss,              // v5.0: Set stop loss
 } from '../commands/hunt.js';
 
 // Settings imports
@@ -2398,6 +2402,48 @@ Tap "Show Keys" to reveal your private keys.`;
         const mode = rest.substring(underscoreIdx + 1) as 'speed' | 'balanced' | 'quality';
         if (['speed', 'balanced', 'quality'].includes(mode)) {
           await setSnipeMode(ctx, chain, mode);
+        }
+      }
+      return;
+    }
+
+    // v5.0: Show take profit selection (hunt_tp_sol)
+    if (data.startsWith('hunt_tp_') && !data.includes('_set_')) {
+      const chain = data.replace('hunt_tp_', '') as Chain;
+      await showHuntTpSelection(ctx, chain);
+      return;
+    }
+
+    // v5.0: Set take profit (hunt_tp_set_sol_50)
+    if (data.startsWith('hunt_tp_set_')) {
+      const rest = data.replace('hunt_tp_set_', '');
+      const underscoreIdx = rest.indexOf('_');
+      if (underscoreIdx > 0) {
+        const chain = rest.substring(0, underscoreIdx) as Chain;
+        const tp = parseInt(rest.substring(underscoreIdx + 1));
+        if (!isNaN(tp)) {
+          await setHuntTakeProfit(ctx, chain, tp);
+        }
+      }
+      return;
+    }
+
+    // v5.0: Show stop loss selection (hunt_sl_sol)
+    if (data.startsWith('hunt_sl_') && !data.includes('_set_')) {
+      const chain = data.replace('hunt_sl_', '') as Chain;
+      await showHuntSlSelection(ctx, chain);
+      return;
+    }
+
+    // v5.0: Set stop loss (hunt_sl_set_sol_30)
+    if (data.startsWith('hunt_sl_set_')) {
+      const rest = data.replace('hunt_sl_set_', '');
+      const underscoreIdx = rest.indexOf('_');
+      if (underscoreIdx > 0) {
+        const chain = rest.substring(0, underscoreIdx) as Chain;
+        const sl = parseInt(rest.substring(underscoreIdx + 1));
+        if (!isNaN(sl)) {
+          await setHuntStopLoss(ctx, chain, sl);
         }
       }
       return;

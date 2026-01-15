@@ -172,6 +172,9 @@ export class NotificationPoller {
       case 'CIRCUIT_BREAKER':
         return this.formatCircuitBreaker(payload);
 
+      case 'TRADE_DONE':
+        return this.formatTradeDone(payload);
+
       default:
         return this.formatGeneric(notification.type, payload);
     }
@@ -386,6 +389,34 @@ Consider adjusting your daily limit in settings.`;
 *Auto-trading paused until:* ${reopensAt || 'manual reset'}
 
 This is a safety measure. Check your RPC and wallet status.`;
+  }
+
+  private formatTradeDone(payload: Record<string, unknown>): string {
+    const action = String(payload.action || 'BUY');
+    const mint = String(payload.mint || '');
+    const amountSol = Number(payload.amount_sol || 0);
+    const tokens = Number(payload.tokens || 0);
+    const txSig = String(payload.tx_sig || '');
+
+    const explorerUrl = `https://solscan.io/tx/${txSig}`;
+    const mintUrl = `https://solscan.io/token/${mint}`;
+    const emoji = action === 'BUY' ? '🦖' : '💰';
+
+    if (action === 'BUY') {
+      return `${emoji} *HUNT BUY*
+
+*Spent:* ${amountSol.toFixed(4)} SOL
+*Tokens:* ${tokens.toLocaleString()}
+
+[View TX](${explorerUrl}) | [View Token](${mintUrl})`;
+    } else {
+      return `${emoji} *HUNT SELL*
+
+*Tokens:* ${tokens.toLocaleString()}
+*Received:* ${amountSol.toFixed(4)} SOL
+
+[View TX](${explorerUrl})`;
+    }
   }
 
   private formatGeneric(type: string, payload: Record<string, unknown>): string {
