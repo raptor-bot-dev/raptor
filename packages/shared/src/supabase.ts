@@ -1723,7 +1723,7 @@ export async function getExecution(executionId: string): Promise<Execution | nul
 export async function getOpenPositions(chain?: Chain): Promise<PositionV31[]> {
   let query = supabase
     .from('positions')
-    .select('*, strategies(*)')
+    .select('*')
     .eq('status', 'OPEN');
 
   if (chain) {
@@ -1743,7 +1743,7 @@ export async function getOpenPositions(chain?: Chain): Promise<PositionV31[]> {
 export async function getUserOpenPositions(userId: number, chain?: Chain): Promise<PositionV31[]> {
   let query = supabase
     .from('positions')
-    .select('*, strategies(*)')
+    .select('*')
     .eq('user_id', userId)
     .eq('status', 'OPEN');
 
