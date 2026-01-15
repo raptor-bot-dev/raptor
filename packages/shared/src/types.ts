@@ -426,6 +426,7 @@ export interface RecentPosition {
   unrealized_pnl_percent: number;
   created_at: string;
   has_monitor: boolean;
+  source: string;  // v5.0: Added for manual vs hunt filtering
 }
 
 // =============================================================================

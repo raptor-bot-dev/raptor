@@ -39,34 +39,29 @@ export const MODE_EMOJI: Record<TradingMode, string> = {
 };
 
 /**
- * Main menu keyboard (v3.2 redesigned - simplified)
- * Removed: Positions, Orders, Chains, Copytrade
- * Renamed: Bridge → Mixer
+ * Main menu keyboard (v5.0 - Solana-only redesign)
+ * Clean 2x2 grid with core actions only
  */
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text('💳 Wallets', 'wallets')
-    .text('⚙️ Settings', 'settings')
-    .row()
     .text('🦖 Hunt', 'hunt')
-    .text('🎯 Strategies', 'settings_strategy')
+    .text('📊 Positions', 'positions')
     .row()
-    .text('🔍 Scan Token', 'quick_trade')
-    .row()
-    .text('💎 Premium', 'premium')
-    .text('🌀 Mixer', 'mixer')
-    .row()
-    .text('💸 Cashback', 'cashback')
-    .text('🎁 Referral', 'referral')
-    .row()
-    .text('❓ Help', 'help');
+    .text('💳 Wallets', 'wallets')
+    .text('⚙️ Settings', 'settings');
 }
 
 /**
- * Welcome screen keyboard (first-time user)
+ * Welcome screen keyboard (first-time user with new wallet)
+ * Same as main menu - wallet is auto-generated
  */
 export function welcomeKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text('🦖 Get Started', 'start_generate_wallet');
+  return new InlineKeyboard()
+    .text('🦖 Hunt', 'hunt')
+    .text('📊 Positions', 'positions')
+    .row()
+    .text('💳 Wallets', 'wallets')
+    .text('⚙️ Settings', 'settings');
 }
 
 /**

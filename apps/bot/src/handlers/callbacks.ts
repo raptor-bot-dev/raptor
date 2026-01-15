@@ -37,6 +37,7 @@ import { handleSellCallback, handleConfirmSell, handleCancelSell } from '../comm
 import { showMenu } from '../commands/menu.js';
 import { showStart } from '../commands/start.js';
 import { handleBackupConfirm, showWalletInfo } from '../commands/backup.js';
+import { showPositions } from '../commands/positions.js';
 
 // v2.3 Wallet imports
 import {
@@ -213,14 +214,9 @@ export async function handleCallbackQuery(ctx: MyContext) {
     }
 
     // === START / ONBOARDING ===
-    if (data === 'start_generate_wallet') {
-      await showGenerateWallet(ctx);
-      return;
-    }
-
-    if (data.startsWith('generate_wallet_')) {
-      const chain = data.replace('generate_wallet_', '') as Chain;
-      await generateWalletForChain(ctx, chain);
+    // v5.0: Wallet is auto-generated on /start, redirect legacy callbacks
+    if (data === 'start_generate_wallet' || data.startsWith('generate_wallet_')) {
+      await showStart(ctx);
       return;
     }
 
@@ -645,7 +641,15 @@ Tap "Show Keys" to reveal your private keys.`;
     }
 
     if (data === 'menu_positions' || data === 'positions') {
-      await showPositionsList(ctx);
+      await showPositions(ctx, 'all');
+      return;
+    }
+
+    // v5.0: Positions filter callbacks
+    if (data.startsWith('positions_filter_')) {
+      const filter = data.replace('positions_filter_', '') as 'all' | 'manual' | 'hunt';
+      await showPositions(ctx, filter, true);
+      await ctx.answerCallbackQuery();
       return;
     }
 

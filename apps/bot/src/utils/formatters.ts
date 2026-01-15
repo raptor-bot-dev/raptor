@@ -166,58 +166,60 @@ export function formatDuration(ms: number): string {
 }
 
 /**
- * Format main menu message (v3.4.2 Command Center design - HTML)
+ * Format main menu message (v5.0 - Solana-only redesign)
+ * Shows balance and P&L stats in a clean, compact format
  */
 export function formatMainMenu(
-  username: string | undefined,
-  _totalBalance: number,
-  _activePositions: number,
-  _todayPnL: number,
-  _activeOrders: number = 0
+  balance: number,
+  stats: {
+    totalPnl: number;
+    totalTrades: number;
+    winRate: number;
+  }
 ): string {
-  const displayName = username ? `@${username}` : 'Trader';
+  // Format balance
+  const balanceStr = balance.toFixed(4);
 
-  return `🦖 RAPTOR — Command Center
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Format P&L
+  const pnlSign = stats.totalPnl >= 0 ? '+' : '';
+  const pnlStr = `${pnlSign}${stats.totalPnl.toFixed(4)} SOL`;
 
-Welcome, <b>${displayName}</b>.
+  // Format stats line
+  let statsLine = '';
+  if (stats.totalTrades > 0) {
+    statsLine = `📈 P&L: ${pnlStr} (${stats.totalTrades} trades, ${stats.winRate.toFixed(0)}% win)`;
+  } else {
+    statsLine = `📈 No trades yet`;
+  }
 
-RAPTOR is a high-speed multi-chain trading and launch monitoring bot built for precision execution, fast routing, and disciplined risk controls.
+  return `🦖 RAPTOR
+━━━━━━━━━━━━━━━━━━━━
 
-You can use RAPTOR in two modes:
-<b>• Manual Buyer</b> — instant buys/sells with configurable slippage and priority.
-<b>• Auto Hunt</b> — automated launchpad hunting that detects new listings, scores opportunities, and executes trades based on your strategy.
+◎ ${balanceStr} SOL
+${statsLine}
 
-Use the menu below to trade manually, manage your wallet, and configure Manual vs Auto Hunt settings separately.
-
-━━━━━━━━━━━━━━━━━━━━━━
-<b>Links</b>
-• <a href="https://raptorbot.com">Website</a>
-• <a href="https://x.com/raptortradebot">X / Twitter</a>
-• <a href="https://t.me/raptortradebot">Telegram Portal</a>
-• <a href="https://docs.raptorbot.com">Docs</a>`;
+Paste any token address to scan & buy.`;
 }
 
 /**
- * Format welcome screen for first-time users (v2.3)
+ * Format welcome screen for first-time users (v5.0)
+ * Shows auto-generated wallet with deposit address
  */
-export function formatWelcome(firstName: string): string {
-  return `🦖 *Welcome to RAPTOR*
+export function formatWelcome(address: string): string {
+  return `🦖 RAPTOR
 ${LINE}
 
-The fastest MEV hunter in the game.
+Welcome! Your wallet is ready.
 
-⚡ *WHAT RAPTOR DOES:*
-• Snipe new tokens before anyone else
-• Auto-detect scams & honeypots
-• Execute trades in milliseconds
-• Monitor positions 24/7
+◎ <b>Deposit Address:</b>
+<code>${address}</code>
+<i>(tap to copy)</i>
 
-🔐 *YOUR KEYS, YOUR COINS:*
-Self-custody. We never store your keys.
+Send SOL to start trading.
+Min deposit: 0.05 SOL
 
-⚡ Quick: Paste any contract address
-   to get instant token info + buy!`;
+━━━━━━━━━━━━━━━━━━━━
+🔐 Use /backup to save your private key`;
 }
 
 /**
