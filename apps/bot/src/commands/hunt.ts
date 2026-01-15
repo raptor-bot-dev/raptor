@@ -51,7 +51,7 @@ const defaultHuntSettings: Record<Chain, HuntSettings> = {
   sol: {
     enabled: false,
     minScore: 23,
-    launchpads: ['pump.fun', 'moonshot', 'bonk.fun'],
+    launchpads: ['pump.fun'],  // v5.3: pump.fun only - others not implemented
     slippageBps: 1500,   // v4.2: 15% default for hunt (higher than manual 10%)
     prioritySol: 0.001,  // v4.2: 0.001 SOL default tip
     snipeMode: 'balanced',  // v4.3: Default to balanced mode
@@ -384,9 +384,9 @@ export async function showLaunchpadSelection(ctx: MyContext, chain: Chain) {
   const allSettings = await getUserHuntSettingsAsync(user.id);
   const settings = allSettings[chain];
 
-  // Available launchpads per chain (Solana-only build)
+  // Available launchpads per chain (pump.fun only - others stubbed out)
   const availableLaunchpads: Record<Chain, string[]> = {
-    sol: ['pump.fun', 'pumpswap', 'moonshot', 'bonk.fun', 'believe.app'],
+    sol: ['pump.fun'],
   };
 
   const launchpads = availableLaunchpads[chain];
@@ -466,9 +466,9 @@ export async function enableAllLaunchpads(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  // Solana-only build
+  // pump.fun only - others stubbed out
   const availableLaunchpads: Record<Chain, string[]> = {
-    sol: ['pump.fun', 'pumpswap', 'moonshot', 'bonk.fun', 'believe.app'],
+    sol: ['pump.fun'],
   };
 
   const settings = await getUserHuntSettingsAsync(user.id);

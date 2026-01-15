@@ -1,23 +1,23 @@
 /**
  * Unified Launchpad Detector for RAPTOR
  *
- * Detects which launchpad a Solana token is from:
- * - PumpFun (pump.fun)
- * - Moonshot (DEX Screener)
- * - Bonk.fun (BONK ecosystem)
- * - Believe.app
+ * Currently supports:
+ * - PumpFun (pump.fun) - Full support with WebSocket monitor
+ * - Raydium - Fallback for graduated/unknown tokens via DexScreener
  *
- * Aggregates data from multiple sources
+ * Deprecated (no monitor implementation):
+ * - Moonshot, Bonk.fun, Believe - stubbed out, kept for backward compatibility
  */
 
 import * as pumpfun from './pumpfun.js';
-import * as moonshot from './moonshot.js';
-import * as bonkfun from './bonkfun.js';
 import * as rugcheck from './rugcheck.js';
 import * as goplus from './goplus.js';
 import * as dexscreener from './dexscreener.js';
 
-export type LaunchpadType = 'pumpfun' | 'moonshot' | 'bonkfun' | 'believe' | 'raydium' | 'unknown';
+// NOTE: moonshot and bonkfun imports removed - APIs are stubbed out
+
+// Simplified to only working launchpads
+export type LaunchpadType = 'pumpfun' | 'raydium' | 'unknown';
 
 export interface LaunchpadInfo {
   launchpad: LaunchpadType;
@@ -77,84 +77,45 @@ export interface UnifiedTokenData {
 
 /**
  * Detect launchpad and get unified token data
+ * Simplified to pump.fun + DexScreener fallback only
  */
 export async function detectAndFetch(
   mint: string,
   solPriceUsd?: number
 ): Promise<UnifiedTokenData | null> {
-  // Try all launchpads in parallel
-  const [pumpResult, moonshotResult, bonkResult, dexResult, rugResult, goplusResult] = await Promise.allSettled([
+  // Try pump.fun and DexScreener in parallel
+  const [pumpResult, dexResult, rugResult, goplusResult] = await Promise.allSettled([
     pumpfun.getTokenInfo(mint, solPriceUsd),
-    moonshot.getTokenInfo(mint, solPriceUsd),
-    bonkfun.getTokenInfo(mint, solPriceUsd),
     dexscreener.getTokenByAddress(mint),
     rugcheck.getTokenSecurity(mint),
     goplus.getTokenSecurity(mint, 'sol'),
   ]);
 
   const pumpData = pumpResult.status === 'fulfilled' ? pumpResult.value : null;
-  const moonshotData = moonshotResult.status === 'fulfilled' ? moonshotResult.value : null;
-  const bonkData = bonkResult.status === 'fulfilled' ? bonkResult.value : null;
   const dexData = dexResult.status === 'fulfilled' ? dexResult.value : null;
   const rugData = rugResult.status === 'fulfilled' ? rugResult.value : null;
   const goplusData = goplusResult.status === 'fulfilled' ? goplusResult.value : null;
 
-  // Determine launchpad and primary data source
-  let launchpad: LaunchpadType = 'unknown';
-  let primaryData: UnifiedTokenData | null = null;
-
-  // PumpFun takes priority for bonding curve tokens
-  if (pumpData && !pumpData.complete) {
-    launchpad = 'pumpfun';
-    primaryData = convertPumpFunData(pumpData, rugData, goplusData);
-  }
-  // Then Moonshot
-  else if (moonshotData && moonshotData.status !== 'migrated') {
-    launchpad = 'moonshot';
-    primaryData = convertMoonshotData(moonshotData, rugData, goplusData);
-  }
-  // Then Bonk.fun
-  else if (bonkData && bonkData.status !== 'graduated') {
-    launchpad = 'bonkfun';
-    primaryData = convertBonkFunData(bonkData, rugData, goplusData);
-  }
-  // Graduated PumpFun
-  else if (pumpData?.complete) {
-    launchpad = 'pumpfun';
-    primaryData = convertPumpFunData(pumpData, rugData, goplusData);
-  }
-  // Graduated Moonshot
-  else if (moonshotData?.status === 'migrated') {
-    launchpad = 'moonshot';
-    primaryData = convertMoonshotData(moonshotData, rugData, goplusData);
-  }
-  // Graduated Bonk.fun
-  else if (bonkData?.status === 'graduated') {
-    launchpad = 'bonkfun';
-    primaryData = convertBonkFunData(bonkData, rugData, goplusData);
-  }
-  // DexScreener data only (regular Raydium/Orca token)
-  else if (dexData?.data) {
-    launchpad = 'raydium';
-    primaryData = convertDexScreenerData(dexData.data, mint, rugData, goplusData, solPriceUsd);
+  // PumpFun takes priority
+  if (pumpData) {
+    return convertPumpFunData(pumpData, rugData, goplusData);
   }
 
-  return primaryData;
+  // DexScreener fallback (Raydium/Orca tokens)
+  if (dexData?.data) {
+    return convertDexScreenerData(dexData.data, mint, rugData, goplusData, solPriceUsd);
+  }
+
+  return null;
 }
 
 /**
  * Quick launchpad detection (no data fetch)
- * Note: Bonk.fun check removed as API doesn't exist
+ * Simplified to pump.fun only
  */
 export async function detectLaunchpad(mint: string): Promise<LaunchpadType> {
-  const [isPump, isMoon] = await Promise.all([
-    pumpfun.isPumpFunToken(mint).catch(() => false),
-    moonshot.isMoonshotToken(mint).catch(() => false),
-  ]);
-
+  const isPump = await pumpfun.isPumpFunToken(mint).catch(() => false);
   if (isPump) return 'pumpfun';
-  if (isMoon) return 'moonshot';
-
   return 'unknown';
 }
 
@@ -255,85 +216,7 @@ function convertPumpFunData(
   };
 }
 
-function convertMoonshotData(
-  token: moonshot.MoonshotToken,
-  rug: rugcheck.RugCheckResult | null,
-  gop: goplus.GoPlusSecurityResult | null
-): UnifiedTokenData {
-  const links = moonshot.getMoonshotLinks(token.mint);
-
-  return {
-    mint: token.mint,
-    name: token.name,
-    symbol: token.symbol,
-    description: token.description,
-    imageUri: token.imageUri,
-    creator: token.creator,
-    createdAt: token.createdAt,
-    launchpad: {
-      launchpad: 'moonshot',
-      status: token.status === 'migrated' ? 'graduated' : token.status,
-      bondingProgress: token.bondingCurveProgress,
-      solRaised: token.solRaised,
-      targetSol: token.targetSol,
-    },
-    priceInSol: token.priceInSol,
-    priceInUsd: token.priceInUsd,
-    marketCapSol: token.marketCapSol,
-    marketCapUsd: token.marketCapUsd,
-    volume24h: token.volume24h,
-    liquidity: token.solRaised,
-    holders: 0,
-    security: buildSecurityInfo(rug, gop),
-    links: {
-      launchpad: links.moonshot,
-      dexscreener: links.dexscreener,
-      birdeye: links.birdeye,
-      solscan: links.solscan,
-    },
-    rawData: token,
-  };
-}
-
-function convertBonkFunData(
-  token: bonkfun.BonkFunToken,
-  rug: rugcheck.RugCheckResult | null,
-  gop: goplus.GoPlusSecurityResult | null
-): UnifiedTokenData {
-  const links = bonkfun.getBonkFunLinks(token.mint);
-
-  return {
-    mint: token.mint,
-    name: token.name,
-    symbol: token.symbol,
-    description: token.description,
-    imageUri: token.imageUri,
-    creator: token.creator,
-    createdAt: token.createdAt,
-    launchpad: {
-      launchpad: 'bonkfun',
-      status: token.status === 'graduated' ? 'graduated' : token.status === 'migrating' ? 'migrating' : 'bonding',
-      bondingProgress: token.bondingCurveProgress,
-      solRaised: token.solRaised,
-      targetSol: token.targetSol,
-    },
-    priceInSol: token.priceInSol,
-    priceInUsd: token.priceInUsd,
-    marketCapSol: token.marketCapSol,
-    marketCapUsd: token.marketCapUsd,
-    volume24h: token.volume24h,
-    liquidity: token.solRaised,
-    holders: token.holders,
-    security: buildSecurityInfo(rug, gop),
-    links: {
-      launchpad: links.bonkfun,
-      dexscreener: links.dexscreener,
-      birdeye: links.birdeye,
-      solscan: links.solscan,
-    },
-    rawData: token,
-  };
-}
+// NOTE: convertMoonshotData and convertBonkFunData removed - APIs are stubbed out
 
 function convertDexScreenerData(
   data: dexscreener.DexScreenerTokenData,
@@ -428,12 +311,6 @@ export function getLaunchpadEmoji(launchpad: LaunchpadType): string {
   switch (launchpad) {
     case 'pumpfun':
       return '🎰';
-    case 'moonshot':
-      return '🌙';
-    case 'bonkfun':
-      return '🐕';
-    case 'believe':
-      return '✨';
     case 'raydium':
       return '💧';
     default:
@@ -448,12 +325,6 @@ export function getLaunchpadName(launchpad: LaunchpadType): string {
   switch (launchpad) {
     case 'pumpfun':
       return 'Pump.fun';
-    case 'moonshot':
-      return 'Moonshot';
-    case 'bonkfun':
-      return 'Bonk.fun';
-    case 'believe':
-      return 'Believe';
     case 'raydium':
       return 'Raydium';
     default:
