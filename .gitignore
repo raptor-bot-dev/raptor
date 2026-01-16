@@ -35,3 +35,6 @@ contracts/lib/
 # Logs
 *.log
 npm-debug.log*
+
+# MCP Server Config (contains secrets)
+.mcp.json
