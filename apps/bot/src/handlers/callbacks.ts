@@ -38,6 +38,7 @@ import { showMenu } from '../commands/menu.js';
 import { showStart } from '../commands/start.js';
 import { handleBackupConfirm, showWalletInfo } from '../commands/backup.js';
 import { showPositions } from '../commands/positions.js';
+import { showHistory } from '../commands/history.js';
 
 // v2.3 Wallet imports
 import {
@@ -453,6 +454,10 @@ export async function handleCallbackQuery(ctx: MyContext) {
         const chain = parts[0] as Chain;
         const indexStr = parts[1];
         const percentage = parseInt(parts[2]);
+        if (isNaN(percentage)) {
+          await ctx.answerCallbackQuery({ text: 'Invalid value' });
+          return;
+        }
 
         await requireWalletOwnership(ctx, chain, indexStr, async (wallet) => {
           const walletIndex = parseWalletIndex(indexStr)!;
@@ -541,6 +546,10 @@ export async function handleCallbackQuery(ctx: MyContext) {
     // v4.1 FIX: Add edit_tpsl handler (alternative pattern)
     if (data.match(/^edit_tpsl_\d+$/)) {
       const positionId = parseInt(data.replace('edit_tpsl_', ''));
+      if (isNaN(positionId)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid position' });
+        return;
+      }
       await showEditTpSl(ctx, positionId);
       return;
     }
@@ -1171,6 +1180,10 @@ Tap "Show Keys" to reveal your private keys.`;
       const parts = data.replace('set_chain_buy_slip:', '').split('_');
       const chain = parts[0];
       const bps = parseInt(parts[1]);
+      if (isNaN(bps)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
 
       const { updateChainSettings } = await import('@raptor/shared');
       await updateChainSettings({ userId: user.id, chain, buySlippageBps: bps });
@@ -1258,6 +1271,10 @@ Tap "Show Keys" to reveal your private keys.`;
       const parts = data.replace('set_chain_sell_slip:', '').split('_');
       const chain = parts[0];
       const bps = parseInt(parts[1]);
+      if (isNaN(bps)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
 
       const { updateChainSettings } = await import('@raptor/shared');
       await updateChainSettings({ userId: user.id, chain, sellSlippageBps: bps });
@@ -1356,6 +1373,10 @@ Tap "Show Keys" to reveal your private keys.`;
       const parts = data.replace('set_chain_gas:', '').split('_');
       const chain = parts[0];
       const gwei = parseFloat(parts[1]);
+      if (isNaN(gwei)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
 
       const { updateChainSettings, getOrCreateChainSettings } = await import('@raptor/shared');
       await updateChainSettings({ userId: user.id, chain, gasGwei: gwei });
@@ -1440,6 +1461,10 @@ Tap "Show Keys" to reveal your private keys.`;
       const parts = data.replace('set_chain_priority:', '').split('_');
       const chain = parts[0];
       const priority = parseFloat(parts[1]);
+      if (isNaN(priority)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
 
       const { updateChainSettings, getOrCreateChainSettings } = await import('@raptor/shared');
       await updateChainSettings({ userId: user.id, chain, prioritySol: priority });
@@ -1682,6 +1707,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // Handle slippage preset selection
     if (data.startsWith('manual_slippage:')) {
       const bps = parseInt(data.replace('manual_slippage:', ''));
+      if (isNaN(bps)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       const { updateManualSettings, getOrCreateManualSettings } = await import('@raptor/shared');
 
       await updateManualSettings({ userId: user.id, slippageBps: bps });
@@ -1766,6 +1795,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // Handle priority preset selection
     if (data.startsWith('manual_priority:')) {
       const priority = parseFloat(data.replace('manual_priority:', ''));
+      if (isNaN(priority)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       const { updateManualSettings, getOrCreateManualSettings } = await import('@raptor/shared');
 
       await updateManualSettings({ userId: user.id, prioritySol: priority });
@@ -1989,7 +2022,12 @@ Tap "Show Keys" to reveal your private keys.`;
       if (value === 'input') {
         await requestCustomInput(ctx, 'tp');
       } else {
-        await setCustomTp(ctx, parseInt(value));
+        const parsed = parseInt(value);
+        if (isNaN(parsed)) {
+          await ctx.answerCallbackQuery({ text: 'Invalid value' });
+          return;
+        }
+        await setCustomTp(ctx, parsed);
       }
       return;
     }
@@ -2000,7 +2038,12 @@ Tap "Show Keys" to reveal your private keys.`;
       if (value === 'input') {
         await requestCustomInput(ctx, 'sl');
       } else {
-        await setCustomSl(ctx, parseInt(value));
+        const parsed = parseInt(value);
+        if (isNaN(parsed)) {
+          await ctx.answerCallbackQuery({ text: 'Invalid value' });
+          return;
+        }
+        await setCustomSl(ctx, parsed);
       }
       return;
     }
@@ -2011,7 +2054,12 @@ Tap "Show Keys" to reveal your private keys.`;
       if (value === 'input') {
         await requestCustomInput(ctx, 'maxhold');
       } else {
-        await setCustomHold(ctx, parseInt(value));
+        const parsed = parseInt(value);
+        if (isNaN(parsed)) {
+          await ctx.answerCallbackQuery({ text: 'Invalid value' });
+          return;
+        }
+        await setCustomHold(ctx, parsed);
       }
       return;
     }
@@ -2019,6 +2067,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // Custom strategy value setters - Moon Bag
     if (data.startsWith('custom_moon_')) {
       const value = parseInt(data.replace('custom_moon_', ''));
+      if (isNaN(value)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       await setCustomMoonBag(ctx, value);
       return;
     }
@@ -2026,6 +2078,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // Custom strategy value setters - Slippage
     if (data.startsWith('custom_slip_')) {
       const value = parseInt(data.replace('custom_slip_', ''));
+      if (isNaN(value)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       await setCustomSlippage(ctx, value);
       return;
     }
@@ -2040,6 +2096,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // Custom strategy value setters - Liquidity
     if (data.startsWith('custom_liq_')) {
       const value = parseInt(data.replace('custom_liq_', ''));
+      if (isNaN(value)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       await setCustomLiquidity(ctx, value);
       return;
     }
@@ -2047,6 +2107,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // Custom strategy value setters - Market Cap
     if (data.startsWith('custom_mcap_')) {
       const value = parseInt(data.replace('custom_mcap_', ''));
+      if (isNaN(value)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       await setCustomMcap(ctx, value);
       return;
     }
@@ -2054,6 +2118,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // Custom strategy value setters - Min Score
     if (data.startsWith('custom_score_')) {
       const value = parseInt(data.replace('custom_score_', ''));
+      if (isNaN(value)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       await setCustomMinScore(ctx, value);
       return;
     }
@@ -2061,6 +2129,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // Custom strategy value setters - Max Tax
     if (data.startsWith('custom_tax_')) {
       const value = parseInt(data.replace('custom_tax_', ''));
+      if (isNaN(value)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       await setCustomTax(ctx, value);
       return;
     }
@@ -2126,7 +2198,12 @@ Tap "Show Keys" to reveal your private keys.`;
       const parts = data.replace('gas_max_set_', '').split('_');
       if (parts.length === 2) {
         const [chain, maxStr] = parts;
-        await setMaxTip(ctx, chain as Chain, parseFloat(maxStr));
+        const maxTip = parseFloat(maxStr);
+        if (isNaN(maxTip)) {
+          await ctx.answerCallbackQuery({ text: 'Invalid value' });
+          return;
+        }
+        await setMaxTip(ctx, chain as Chain, maxTip);
         return;
       }
       return;
@@ -2159,7 +2236,12 @@ Tap "Show Keys" to reveal your private keys.`;
       const parts = data.replace('slip_set_', '').split('_');
       if (parts.length === 2) {
         const [chain, bpsStr] = parts;
-        await setSlippage(ctx, chain as Chain, parseInt(bpsStr));
+        const bps = parseInt(bpsStr);
+        if (isNaN(bps)) {
+          await ctx.answerCallbackQuery({ text: 'Invalid value' });
+          return;
+        }
+        await setSlippage(ctx, chain as Chain, bps);
         return;
       }
       return;
@@ -2168,6 +2250,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // === POSITION SIZE CALLBACKS ===
     if (data.startsWith('size_set_')) {
       const percent = parseInt(data.replace('size_set_', ''));
+      if (isNaN(percent)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       await setPositionSize(ctx, percent);
       return;
     }
@@ -2236,8 +2322,7 @@ Tap "Show Keys" to reveal your private keys.`;
     }
 
     if (data === 'wallet_history') {
-      // TODO: Show transaction history
-      await ctx.answerCallbackQuery({ text: 'History coming soon' });
+      await showHistory(ctx, 1);
       return;
     }
 
@@ -2286,7 +2371,12 @@ Tap "Show Keys" to reveal your private keys.`;
       const parts = data.replace('hunt_score_set_', '').split('_');
       if (parts.length === 2) {
         const [chain, scoreStr] = parts;
-        await setMinScore(ctx, chain as Chain, parseInt(scoreStr));
+        const score = parseInt(scoreStr);
+        if (isNaN(score)) {
+          await ctx.answerCallbackQuery({ text: 'Invalid value' });
+          return;
+        }
+        await setMinScore(ctx, chain as Chain, score);
         return;
       }
       return;
@@ -2453,6 +2543,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // View position (pos_view_123)
     if (data.startsWith('pos_view_')) {
       const positionId = parseInt(data.replace('pos_view_', ''));
+      if (isNaN(positionId)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid position' });
+        return;
+      }
       await showPositionDetail(ctx, positionId);
       return;
     }
@@ -2463,6 +2557,10 @@ Tap "Show Keys" to reveal your private keys.`;
       const parts = data.split('_');
       const positionId = parseInt(parts[1]);
       const percent = parseInt(parts[3]);
+      if (isNaN(positionId) || isNaN(percent)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
 
       // Get position to extract mint address
       const { getPosition } = await import('@raptor/shared');
@@ -2481,6 +2579,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // Edit position TP/SL (pos_123_edit)
     if (data.match(/^pos_\d+_edit$/)) {
       const positionId = parseInt(data.replace('pos_', '').replace('_edit', ''));
+      if (isNaN(positionId)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid position' });
+        return;
+      }
       await showEditTpSl(ctx, positionId);
       return;
     }
@@ -2505,6 +2607,10 @@ Tap "Show Keys" to reveal your private keys.`;
       const parts = data.split('_');
       const positionId = parseInt(parts[2]);
       const tp = parseInt(parts[3]);
+      if (isNaN(positionId) || isNaN(tp)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       await setPositionTp(ctx, positionId, tp);
       return;
     }
@@ -2514,6 +2620,10 @@ Tap "Show Keys" to reveal your private keys.`;
       const parts = data.split('_');
       const positionId = parseInt(parts[2]);
       const sl = parseInt(parts[3]);
+      if (isNaN(positionId) || isNaN(sl)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       await setPositionSl(ctx, positionId, sl);
       return;
     }
@@ -2561,6 +2671,10 @@ Tap "Show Keys" to reveal your private keys.`;
       const [, positionIdStr, percentStr] = data.split(':');
       const positionId = parseInt(positionIdStr, 10);
       const percent = parseInt(percentStr, 10);
+      if (isNaN(positionId) || isNaN(percent)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
 
       // Get position to extract mint address
       const { getPosition } = await import('@raptor/shared');
@@ -2605,6 +2719,10 @@ Tap "Show Keys" to reveal your private keys.`;
     // Refresh monitor (refresh_monitor:<monitorId>)
     if (data.startsWith('refresh_monitor:')) {
       const monitorId = parseInt(data.replace('refresh_monitor:', ''));
+      if (isNaN(monitorId)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid monitor' });
+        return;
+      }
       await ctx.answerCallbackQuery({ text: '🔄 Refreshing...' });
 
       try {
@@ -2730,6 +2848,10 @@ Tap "Show Keys" to reveal your private keys.`;
         let mintPart = parts[0];
         const percentStr = parts[1];
         const percent = parseInt(percentStr);
+        if (isNaN(percent)) {
+          await ctx.answerCallbackQuery({ text: 'Invalid value' });
+          return;
+        }
 
         // v3.5: Extract chain if present (new format: chain_mint)
         let chain: Chain = 'sol';
@@ -2832,6 +2954,10 @@ Tap "Show Keys" to reveal your private keys.`;
     if (data.startsWith('set_sell_slip:')) {
       const parts = data.replace('set_sell_slip:', '').split('_');
       const bps = parseInt(parts[parts.length - 1]);
+      if (isNaN(bps)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       const chain = parts[0] as Chain;
       const mint = parts.slice(1, -1).join('_');
 
@@ -2904,6 +3030,10 @@ Tap "Show Keys" to reveal your private keys.`;
     if (data.startsWith('set_sell_gwei:')) {
       const parts = data.replace('set_sell_gwei:', '').split('_');
       const gwei = parseFloat(parts[parts.length - 1]);
+      if (isNaN(gwei)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       const chain = parts[0] as Chain;
       const mint = parts.slice(1, -1).join('_');
 
@@ -2931,6 +3061,10 @@ Tap "Show Keys" to reveal your private keys.`;
     if (data.startsWith('set_sell_prio:')) {
       const parts = data.replace('set_sell_prio:', '').split('_');
       const priority = parseFloat(parts[parts.length - 1]);
+      if (isNaN(priority)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       const chain = parts[0] as Chain;
       const mint = parts.slice(1, -1).join('_');
 
@@ -3027,6 +3161,10 @@ Tap "Show Keys" to reveal your private keys.`;
     if (data.startsWith('set_buy_slip:')) {
       const parts = data.replace('set_buy_slip:', '').split('_');
       const bps = parseInt(parts[parts.length - 1]);
+      if (isNaN(bps)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       const chain = parts[0] as Chain;
       const mint = parts.slice(1, -1).join('_');
 
@@ -3131,6 +3269,10 @@ Tap "Show Keys" to reveal your private keys.`;
     if (data.startsWith('set_buy_gwei:')) {
       const parts = data.replace('set_buy_gwei:', '').split('_');
       const gwei = parseFloat(parts[parts.length - 1]);
+      if (isNaN(gwei)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       const chain = parts[0] as Chain;
       const mint = parts.slice(1, -1).join('_');
 
@@ -3148,6 +3290,10 @@ Tap "Show Keys" to reveal your private keys.`;
     if (data.startsWith('set_buy_prio:')) {
       const parts = data.replace('set_buy_prio:', '').split('_');
       const priority = parseFloat(parts[parts.length - 1]);
+      if (isNaN(priority)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid value' });
+        return;
+      }
       const chain = parts[0] as Chain;
       const mint = parts.slice(1, -1).join('_');
 
@@ -3546,7 +3692,7 @@ async function handleConfirmSendTransaction(ctx: MyContext) {
   const user = ctx.from;
   if (!user || !ctx.session.pendingSend) return;
 
-  const { toAddress, chain, amount } = ctx.session.pendingSend;
+  const { amount } = ctx.session.pendingSend;
   if (!amount) {
     await ctx.answerCallbackQuery({ text: 'No amount specified' });
     return;
@@ -3554,13 +3700,15 @@ async function handleConfirmSendTransaction(ctx: MyContext) {
 
   await ctx.answerCallbackQuery({ text: 'Processing...' });
 
-  // TODO: Implement actual send transaction
+  // NOTE: This flow is intentionally disabled in the Solana-only build.
+  // We prefer a hard stop over a "fake" success message.
   await ctx.editMessageText(
-    `✅ *Transaction Submitted*
+    `❌ *Send Disabled*
 
-Sending ${amount} to \`${toAddress.slice(0, 10)}...${toAddress.slice(-8)}\`
+Wallet-to-wallet sends are not enabled in this build.
 
-_Transaction processing..._`,
+Use *Withdraw* for outbound transfers, or export the wallet and send from your preferred wallet UI.
+`,
     { parse_mode: 'Markdown' }
   );
 
