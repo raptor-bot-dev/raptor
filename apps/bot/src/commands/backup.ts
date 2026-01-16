@@ -77,9 +77,9 @@ export async function handleBackupConfirm(ctx: MyContext) {
       return;
     }
 
-    // Decrypt private keys
-    const solanaKey = decryptPrivateKey(wallet.solana_private_key_encrypted as EncryptedData);
-    const evmKey = decryptPrivateKey(wallet.evm_private_key_encrypted as EncryptedData);
+    // Decrypt private keys (pass tgId for v2 encryption)
+    const solanaKey = decryptPrivateKey(wallet.solana_private_key_encrypted as EncryptedData, user.id);
+    const evmKey = decryptPrivateKey(wallet.evm_private_key_encrypted as EncryptedData, user.id);
 
     const message = `🔐 *YOUR PRIVATE KEYS*
 

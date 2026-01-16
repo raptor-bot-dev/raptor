@@ -1777,6 +1777,26 @@ export async function getUserOpenPositions(userId: number, chain?: Chain): Promi
 }
 
 /**
+ * Get closed positions for a specific user (for PnL calculation)
+ */
+export async function getClosedPositions(userId: number, chain?: Chain): Promise<PositionV31[]> {
+  let query = supabase
+    .from('positions')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('status', 'CLOSED');
+
+  if (chain) {
+    query = query.eq('chain', chain);
+  }
+
+  const { data, error } = await query.order('closed_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as PositionV31[];
+}
+
+/**
  * Get a position by ID
  */
 export async function getPositionById(positionId: string): Promise<PositionV31 | null> {
