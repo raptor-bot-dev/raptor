@@ -21,6 +21,47 @@ import {
 import { showHome } from './home.js';
 
 /**
+ * Show hunt panel from /hunt command
+ * Shows arm or disarm confirmation based on current state
+ */
+export async function showHunt(ctx: MyContext): Promise<void> {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  try {
+    const strategy = await getOrCreateAutoStrategy(userId, 'sol');
+
+    if (strategy.enabled) {
+      // Already armed - show disarm confirmation
+      const positions = await getUserOpenPositions(userId);
+      const panel = renderDisarmConfirm(positions.length);
+      await ctx.reply(panel.text, panel.opts);
+    } else {
+      // Not armed - show arm confirmation with settings
+      if (!strategy.max_per_trade_sol || strategy.max_per_trade_sol <= 0) {
+        const errorPanel = renderArmError('Trade size not set. Configure in Settings.');
+        await ctx.reply(errorPanel.text, errorPanel.opts);
+        return;
+      }
+
+      const armData: ArmConfirmData = {
+        tradeSize: strategy.max_per_trade_sol,
+        maxPositions: strategy.max_positions ?? 2,
+        takeProfitPercent: strategy.take_profit_percent ?? 50,
+        stopLossPercent: strategy.stop_loss_percent ?? 20,
+      };
+
+      const panel = renderArmConfirm(armData);
+      await ctx.reply(panel.text, panel.opts);
+    }
+  } catch (error) {
+    console.error('Error showing hunt:', error);
+    const errorPanel = renderArmError('Failed to load. Please try again.');
+    await ctx.reply(errorPanel.text, errorPanel.opts);
+  }
+}
+
+/**
  * Handle hunt:* callbacks
  */
 export async function handleHuntCallbacks(ctx: MyContext, data: string): Promise<void> {

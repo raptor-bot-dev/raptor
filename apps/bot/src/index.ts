@@ -5,6 +5,11 @@ import { startCommand } from './commands/start.js';
 import { helpCommand } from './commands/help.js';
 // v3.5: Import showHome to redirect legacy commands
 import { showHome } from './handlers/home.js';
+// v3.6: Import handlers for direct command access
+import { showHunt } from './handlers/huntHandler.js';
+import { showPositionsList } from './handlers/positionsHandler.js';
+import { showWithdrawHome } from './handlers/withdrawHandler.js';
+import { showSettings } from './handlers/settingsHandler.js';
 import { handleCallbackQuery } from './handlers/callbacks.js';
 import { handleTextMessage } from './handlers/messages.js';
 import { depositMonitor } from './services/depositMonitor.js';
@@ -96,29 +101,28 @@ bot.use(sequentialize((ctx) => ctx.from?.id.toString()));
 // Rate limiting middleware - SECURITY: Prevent DoS and abuse
 bot.use(rateLimitMiddleware());
 
-// v3.5: Register only v3 commands per DESIGN.md
+// v3.6: Register v3 commands with direct panel access
 bot.command('start', startCommand);
 bot.command('help', helpCommand);
+bot.command('hunt', async (ctx) => showHunt(ctx));
+bot.command('positions', async (ctx) => showPositionsList(ctx));
+bot.command('wallet', async (ctx) => showWithdrawHome(ctx));
+bot.command('settings', async (ctx) => showSettings(ctx));
 
 // v3.5: Redirect legacy commands to v3 Home panel
-// Users who type old commands get redirected gracefully
 bot.command('menu', async (ctx) => showHome(ctx));
-bot.command('wallet', async (ctx) => showHome(ctx));
 bot.command('balance', async (ctx) => showHome(ctx));
-bot.command('hunt', async (ctx) => showHome(ctx));
 bot.command('history', async (ctx) => showHome(ctx));
-bot.command('positions', async (ctx) => showHome(ctx));
-bot.command('settings', async (ctx) => showHome(ctx));
-bot.command('withdraw', async (ctx) => showHome(ctx));
+bot.command('withdraw', async (ctx) => showWithdrawHome(ctx));
 bot.command('deposit', async (ctx) => showHome(ctx));
 bot.command('snipe', async (ctx) => showHome(ctx));
 bot.command('sell', async (ctx) => showHome(ctx));
 bot.command('status', async (ctx) => showHome(ctx));
 bot.command('backup', async (ctx) => showHome(ctx));
 bot.command('score', async (ctx) => showHome(ctx));
-bot.command('strategy', async (ctx) => showHome(ctx));
-bot.command('gas', async (ctx) => showHome(ctx));
-bot.command('slippage', async (ctx) => showHome(ctx));
+bot.command('strategy', async (ctx) => showHunt(ctx));
+bot.command('gas', async (ctx) => showSettings(ctx));
+bot.command('slippage', async (ctx) => showSettings(ctx));
 bot.command('chains', async (ctx) => showHome(ctx));
 
 // Handle callback queries (inline button presses)
@@ -145,9 +149,13 @@ bot.catch((err) => {
 // Start the bot
 console.log('🦅 RAPTOR Bot starting...');
 
-// v3.5: Simplified menu commands - only /start and /help per DESIGN.md
+// v3.6: Bot menu commands for direct panel access
 bot.api.setMyCommands([
   { command: 'start', description: 'Home - Dashboard and controls' },
+  { command: 'hunt', description: 'Autohunt settings' },
+  { command: 'positions', description: 'View open positions' },
+  { command: 'wallet', description: 'Wallet and withdraw' },
+  { command: 'settings', description: 'Bot settings' },
   { command: 'help', description: 'Help and quick tips' },
 ]).catch((err) => {
   console.error('Failed to set bot commands:', err);

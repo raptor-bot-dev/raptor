@@ -25,7 +25,7 @@ export type Button = {
 // --- Constants ---
 
 const DINO = '🦖';
-const DIVIDER = '━━━━━━━━━━━━━━━━━━━━━━';
+const DIVIDER = '━━━━━━━━━━━━━━━━';
 
 /**
  * WIDTH_PAD: U+2800 Braille Pattern Blank repeated ~80 chars
@@ -151,8 +151,7 @@ export function panel(
 
   const textLines = [
     `${DINO} <b>RAPTOR | ${safeTitle}</b>`,
-    DIVIDER,
-    `<code>${WIDTH_PAD}</code>`,
+    `${DIVIDER}<code>${WIDTH_PAD}</code>`,
     ...body,
   ];
 
