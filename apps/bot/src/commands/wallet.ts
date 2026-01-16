@@ -60,20 +60,24 @@ async function fetchWalletBalances(
   wallets: UserWallet[]
 ): Promise<Map<string, { balance: number; usdValue: number }>> {
   const balances = new Map<string, { balance: number; usdValue: number }>();
-  const connection = new Connection(SOLANA_CONFIG.rpcUrl);
+  const rpcUrl = SOLANA_CONFIG.rpcUrl;
+
+  console.log(`[Wallet] Fetching balances for ${wallets.length} wallets from: ${rpcUrl.substring(0, 50)}...`);
+
+  const connection = new Connection(rpcUrl);
 
   for (const wallet of wallets) {
     const key = `${wallet.chain}_${wallet.wallet_index}`;
     const address = wallet.solana_address;
 
     try {
-      const balance = BigInt(
-        await connection.getBalance(new PublicKey(address), 'finalized')
-      );
-      const sol = Number(balance) / LAMPORTS_PER_SOL;
+      const balanceLamports = await connection.getBalance(new PublicKey(address), 'finalized');
+      const sol = balanceLamports / LAMPORTS_PER_SOL;
+      console.log(`[Wallet] ${key} (${address.slice(0, 8)}...): ${sol.toFixed(4)} SOL`);
       balances.set(key, { balance: sol, usdValue: 0 });
     } catch (error) {
-      console.error(`[Wallet] Failed to fetch balance for ${key}:`, error);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[Wallet] RPC error for ${key} (${address.slice(0, 8)}...): ${errMsg}`);
       balances.set(key, { balance: 0, usdValue: 0 });
     }
   }

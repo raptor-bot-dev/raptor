@@ -2,34 +2,59 @@
  * Menu Command - Main navigation hub for RAPTOR v5.0
  *
  * Shows compact menu with:
- * - SOL balance
+ * - SOL balance (live from RPC)
  * - P&L stats (trades, win rate)
  * - Quick navigation buttons
  */
 
 import type { MyContext } from '../types.js';
-import { getUserBalances, getUserStats } from '@raptor/shared';
+import { getUserWallets, getUserStats, SOLANA_CONFIG } from '@raptor/shared';
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { mainMenuKeyboard } from '../utils/keyboards.js';
 import { formatMainMenu } from '../utils/formatters.js';
+
+/**
+ * Fetch live SOL balance from RPC for all user wallets
+ */
+async function fetchLiveSolBalance(userId: number): Promise<number> {
+  try {
+    const wallets = await getUserWallets(userId);
+    if (wallets.length === 0) return 0;
+
+    const connection = new Connection(SOLANA_CONFIG.rpcUrl);
+    let totalBalance = 0;
+
+    for (const wallet of wallets) {
+      if (wallet.chain === 'sol' && wallet.solana_address) {
+        try {
+          const balanceLamports = await connection.getBalance(
+            new PublicKey(wallet.solana_address),
+            'finalized'
+          );
+          totalBalance += balanceLamports / LAMPORTS_PER_SOL;
+        } catch (err) {
+          console.error(`[Menu] RPC error for wallet ${wallet.wallet_index}:`, err);
+        }
+      }
+    }
+
+    return totalBalance;
+  } catch (error) {
+    console.error('[Menu] Error fetching live balance:', error);
+    return 0;
+  }
+}
 
 export async function menuCommand(ctx: MyContext) {
   const user = ctx.from;
   if (!user) return;
 
   try {
-    // Fetch balance and stats in parallel
-    const [balances, stats] = await Promise.all([
-      getUserBalances(user.id),
+    // Fetch live balance and stats in parallel
+    const [solBalance, stats] = await Promise.all([
+      fetchLiveSolBalance(user.id),
       getUserStats(user.id),
     ]);
-
-    // Calculate SOL balance
-    let solBalance = 0;
-    for (const bal of balances) {
-      if (bal.chain === 'sol') {
-        solBalance += parseFloat(bal.current_value) || 0;
-      }
-    }
 
     const message = formatMainMenu(solBalance, {
       totalPnl: stats.totalPnl,
@@ -59,17 +84,11 @@ export async function showMenu(ctx: MyContext) {
   if (!user) return;
 
   try {
-    const [balances, stats] = await Promise.all([
-      getUserBalances(user.id),
+    // Fetch live balance and stats in parallel
+    const [solBalance, stats] = await Promise.all([
+      fetchLiveSolBalance(user.id),
       getUserStats(user.id),
     ]);
-
-    let solBalance = 0;
-    for (const bal of balances) {
-      if (bal.chain === 'sol') {
-        solBalance += parseFloat(bal.current_value) || 0;
-      }
-    }
 
     const message = formatMainMenu(solBalance, {
       totalPnl: stats.totalPnl,
