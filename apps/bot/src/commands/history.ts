@@ -11,6 +11,7 @@
 
 import type { MyContext } from '../types.js';
 import type { Chain, Trade } from '@raptor/shared';
+import { getTradesPaginated } from '@raptor/shared';
 import { backKeyboard, paginationKeyboard, CHAIN_EMOJI } from '../utils/keyboards.js';
 import { formatTradeHistory, formatTime, formatPnL } from '../utils/formatters.js';
 
@@ -25,9 +26,7 @@ export async function historyCommand(ctx: MyContext) {
   if (!user) return;
 
   try {
-    // TODO: Fetch from database
-    // const trades = await getUserTrades(user.id, PAGE_SIZE, 0);
-    const trades: Trade[] = []; // Placeholder
+    const { trades } = await getTradesPaginated(user.id, PAGE_SIZE, 0);
 
     if (trades.length === 0) {
       await ctx.reply(
@@ -62,11 +61,8 @@ export async function showHistory(ctx: MyContext, page: number = 1) {
   if (!user) return;
 
   try {
-    // TODO: Fetch from database with pagination
-    // const offset = (page - 1) * PAGE_SIZE;
-    // const { trades, total } = await getUserTradesPaginated(user.id, PAGE_SIZE, offset);
-    const trades: Trade[] = [];
-    const total = 0;
+    const offset = (page - 1) * PAGE_SIZE;
+    const { trades, total } = await getTradesPaginated(user.id, PAGE_SIZE, offset);
 
     if (trades.length === 0 && page === 1) {
       await ctx.editMessageText(

@@ -275,6 +275,25 @@ export async function getRecentTrades(tgId: number, limit = 20): Promise<Trade[]
   return data || [];
 }
 
+export async function getTradesPaginated(
+  tgId: number,
+  limit = 20,
+  offset = 0
+): Promise<{ trades: Trade[]; total: number }> {
+  const from = Math.max(0, offset);
+  const to = from + Math.max(1, limit) - 1;
+
+  const { data, error, count } = await supabase
+    .from('trades')
+    .select('*', { count: 'exact' })
+    .eq('tg_id', tgId)
+    .order('created_at', { ascending: false })
+    .range(from, to);
+
+  if (error) throw error;
+  return { trades: data || [], total: count || 0 };
+}
+
 export async function recordTrade(trade: {
   tg_id: number;
   position_id?: number | null;
@@ -1429,7 +1448,7 @@ export async function getOrCreateAutoStrategy(userId: number, chain: Chain): Pro
       // Filters
       min_score: 23,
       min_liquidity_sol: 0,
-      allowed_launchpads: ['pump.fun', 'moonshot', 'bonk.fun'],
+      allowed_launchpads: ['pump.fun'],
       // Cooldown
       cooldown_seconds: 60,
       // Blocklists
