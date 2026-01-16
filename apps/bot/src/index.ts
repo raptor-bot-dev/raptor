@@ -31,6 +31,7 @@ import { rateLimitMiddleware } from './middleware/rateLimit.js';
 // v3.1 Trade monitor service
 import { startMonitorRefreshLoop, stopMonitorRefreshLoop } from './services/tradeMonitor.js';
 import { solanaExecutor } from '@raptor/executor/solana';
+import { shouldWrapTelegramText, wrapTelegramMarkdown, clampTelegramText } from './utils/panelWrap.js';
 
 // SECURITY: L-007 - Global promise rejection and error handlers
 process.on('unhandledRejection', (reason, promise) => {
@@ -63,6 +64,35 @@ console.log('==================================================');
 
 // Initialize bot
 const bot = new Bot<MyContext>(process.env.TELEGRAM_BOT_TOKEN);
+
+// ---------------------------------------------------------------------------
+// Global UI middleware (panel wrapper)
+// ---------------------------------------------------------------------------
+// Applies a consistent RAPTOR header + divider to Markdown (v1) messages.
+// This yields a premium, uniform look across commands/callback panels without
+// forcing a full rewrite.
+bot.api.config.use(async (prev, method, payload, signal) => {
+  try {
+    // Only wrap text-based methods.
+    if ((method === 'sendMessage' || method === 'editMessageText') && shouldWrapTelegramText(payload)) {
+      // Type assertion: shouldWrapTelegramText validates payload has text field
+      const textPayload = payload as { text: string; parse_mode?: string; disable_web_page_preview?: boolean };
+      const wrapped = wrapTelegramMarkdown(textPayload.text);
+      textPayload.text = clampTelegramText(wrapped);
+
+      // Ensure consistent defaults.
+      textPayload.parse_mode = textPayload.parse_mode || 'Markdown';
+      if (textPayload.disable_web_page_preview === undefined) {
+        textPayload.disable_web_page_preview = true;
+      }
+    }
+  } catch (e) {
+    // Never fail the request due to UI wrapping.
+    console.error('[UI] wrap error:', e);
+  }
+
+  return prev(method, payload, signal);
+});
 
 // Session middleware
 // M-5 LIMITATION: Uses in-memory storage - session state is lost on restart/redeploy.
@@ -128,7 +158,7 @@ bot.catch((err) => {
 });
 
 // Start the bot
-console.log('🦖 RAPTOR Bot starting...');
+console.log('🦅 RAPTOR Bot starting...');
 
 // v3.4.2: Set bot commands for the menu (added missing commands)
 bot.api.setMyCommands([
@@ -138,7 +168,7 @@ bot.api.setMyCommands([
   { command: 'sell', description: '💰 Sell tokens' },
   { command: 'positions', description: '📊 View positions' },
   { command: 'snipe', description: '🎯 Snipe a token' },
-  { command: 'hunt', description: '🦖 Hunt settings' },
+  { command: 'hunt', description: '🦅 Hunt settings' },
   { command: 'score', description: '🔍 Analyze token' },
   { command: 'history', description: '📜 Trade history' },
   { command: 'deposit', description: '📥 Deposit funds' },
