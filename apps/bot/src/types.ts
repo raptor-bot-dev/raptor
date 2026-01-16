@@ -9,6 +9,7 @@ export interface SessionData {
     | 'awaiting_withdrawal_amount'
     | 'awaiting_withdrawal_address'
     | 'awaiting_withdrawal_confirm'
+    | 'awaiting_withdrawal_percent'  // v5: Withdraw by percentage
     | 'awaiting_delete_confirmation'
     | 'awaiting_custom_tp'
     | 'awaiting_custom_sl'
@@ -34,6 +35,12 @@ export interface SessionData {
     | 'awaiting_manual_sell_slip'  // v4.3: Custom sell slippage input
     | 'awaiting_manual_buy_tip'    // v4.3: Custom buy tip input
     | 'awaiting_manual_sell_tip'   // v4.3: Custom sell tip input
+    // v5: Settings panel edit steps
+    | 'awaiting_trade_size'
+    | 'awaiting_max_positions'
+    | 'awaiting_tp_percent'
+    | 'awaiting_sl_percent'
+    | 'awaiting_slippage_bps'
     | CustomStrategyStep
     | null;
   chainSettingsTarget?: string;  // v3.5: Target chain for settings input

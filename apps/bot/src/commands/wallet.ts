@@ -250,8 +250,8 @@ export async function createNewWallet(ctx: MyContext, chain: Chain) {
       private_key_encrypted: keypair.privateKeyEncrypted,
     });
 
-    // Decrypt private key for display
-    const privateKey = decryptPrivateKey(keypair.privateKeyEncrypted);
+    // Decrypt private key for display (pass tgId for v2 encryption)
+    const privateKey = decryptPrivateKey(keypair.privateKeyEncrypted, user.id);
 
     // Show credentials
     const message = formatWalletCredentials(
@@ -589,10 +589,10 @@ export async function exportWalletKey(
       return;
     }
 
-    // Decrypt private key
+    // Decrypt private key (pass tgId for v2 encryption)
     const encryptedKey = wallet.solana_private_key_encrypted;
     const address = wallet.solana_address;
-    const privateKey = decryptPrivateKey(encryptedKey as EncryptedData);
+    const privateKey = decryptPrivateKey(encryptedKey as EncryptedData, user.id);
 
     // Show credentials in new message
     const message = formatWalletCredentials('sol', address, privateKey, walletIndex);

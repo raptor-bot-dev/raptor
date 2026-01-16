@@ -207,6 +207,13 @@ export async function handleCallbackQuery(ctx: MyContext) {
   if (!user) return;
 
   try {
+    // === V3 TERMINAL UI CALLBACKS ===
+    // Route new-style callbacks (home:*, hunt:*, settings:*, etc.) first
+    const { routeNewCallbacks } = await import('./callbackRouter.js');
+    if (await routeNewCallbacks(ctx)) {
+      return; // Handled by new router
+    }
+
     // === NAVIGATION ===
     if (data === 'back_to_menu' || data === 'menu') {
       await showMenu(ctx);
