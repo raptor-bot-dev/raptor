@@ -56,12 +56,15 @@ Fields:
 * Max Positions (1 or 2)
 * Take Profit %
 * Stop Loss %
-* Max Buys/Hour
-* Slippage bps (optional, but include for completeness)
-  Keyboard:
+* Slippage bps
+
+NOTE: Max Buys/Hour is DEPRECATED - use cooldown_seconds in strategy instead.
+cooldown_seconds provides time-based rate limiting (e.g., 600s ≈ max 6 buys/hour).
+
+Keyboard:
 * `Edit Trade Size`, `Edit Max Positions`
 * `Edit TP`, `Edit SL`
-* `Edit Max Buys/Hr`, `Edit Slippage`
+* `Edit Slippage`
 * `Home`
   Each edit leads to an input prompt and updates persisted user config.
 
@@ -171,9 +174,10 @@ Implement or standardize these callback IDs (no emoji labels):
 * `settings:edit_max_positions`
 * `settings:edit_tp`
 * `settings:edit_sl`
-* `settings:edit_max_buys_hr`
 * `settings:edit_slippage`
 * `settings:back_home`
+
+NOTE: `settings:edit_max_buys_hr` is DEPRECATED - use cooldown_seconds instead.
 
 ### Positions
 

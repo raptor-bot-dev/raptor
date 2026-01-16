@@ -23,7 +23,20 @@ Single source of truth for current progress. Keep it brief.
 - PnL computed from closed positions only (no fake values)
 - Strategy field names corrected (max_positions, max_per_trade_sol)
 - Database performance indexes added
+- **Emergency Sell service fully implemented** (2026-01-16 audit fix):
+  - Idempotent execution via idKeyExitSell with trigger='EMERGENCY'
+  - Atomic budget reservation and execution tracking
+  - High slippage (15%) for faster execution
+  - Proper position closing and notification creation
 - `pnpm -w lint && pnpm -w build` passes
+
+## Design Notes
+- **Max Buys/Hour**: DEPRECATED - superseded by `cooldown_seconds`.
+  Early design docs mentioned this field but implementation consolidated to `cooldown_seconds`
+  which provides the same rate-limiting with better properties (time-based, deterministic,
+  no reset logic needed). Example: cooldown_seconds=600 ≈ max 6 buys/hour.
+- **Position Chart/TX buttons**: Use URL buttons (`urlBtn`) which open directly in browser.
+  No callback handlers needed for these.
 
 ## Next steps (post-MVP)
 - Edge Functions for background cleanup (stale executions, expired monitors)
@@ -35,7 +48,9 @@ Single source of truth for current progress. Keep it brief.
 - Manual buyer callbacks safely disabled. ✅
 - Autohunt notifications render with Solscan + Dexscreener links. ✅
 - Withdraw math validated in code. ✅
+- Emergency sell implemented with idempotency. ✅
 
 ## Where we left off last
-- v3 Terminal UI implementation complete and building successfully.
+- 2026-01-16: Audit completed, Emergency Sell service implemented.
+- All P1 critical issues resolved.
 - Ready for deployment testing.

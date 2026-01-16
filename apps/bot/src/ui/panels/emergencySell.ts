@@ -11,6 +11,7 @@ import {
   urlBtn,
   homeBtn,
   dexscreenerChartUrl,
+  solscanTxUrl,
   type Button,
   type Panel,
 } from '../panelKit.js';
@@ -74,24 +75,42 @@ function formatTokenAmount(amount: number): string {
 }
 
 /**
- * Render emergency sell submitted confirmation
+ * Render emergency sell submitted/completed confirmation
  */
-export function renderEmergencySellSubmitted(symbol: string, mint: string): Panel {
-  const lines: string[] = [
-    stat('Status', 'Submitted'),
-    stat('Token', symbol),
-    code(mint),
-    'Emergency sell order has been submitted.',
-    'You will be notified when it completes.',
-  ];
+export function renderEmergencySellSubmitted(symbol: string, mint: string, txHash?: string): Panel {
+  const lines: string[] = txHash
+    ? [
+        stat('Status', 'Completed'),
+        stat('Token', symbol),
+        code(mint),
+        'Emergency sell executed successfully.',
+      ]
+    : [
+        stat('Status', 'Submitted'),
+        stat('Token', symbol),
+        code(mint),
+        'Emergency sell order has been submitted.',
+        'You will be notified when it completes.',
+      ];
 
-  const buttons: Button[][] = [
-    [
-      urlBtn('Chart', dexscreenerChartUrl(mint)),
-      btn('Positions', CB.POSITIONS.OPEN),
-    ],
-    [homeBtn()],
-  ];
+  const buttons: Button[][] = txHash
+    ? [
+        [
+          urlBtn('View TX', solscanTxUrl(txHash)),
+          urlBtn('Chart', dexscreenerChartUrl(mint)),
+        ],
+        [
+          btn('Positions', CB.POSITIONS.OPEN),
+          homeBtn(),
+        ],
+      ]
+    : [
+        [
+          urlBtn('Chart', dexscreenerChartUrl(mint)),
+          btn('Positions', CB.POSITIONS.OPEN),
+        ],
+        [homeBtn()],
+      ];
 
   return panel('EMERGENCY SELL', lines, buttons);
 }

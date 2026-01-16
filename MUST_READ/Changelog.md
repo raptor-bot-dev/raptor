@@ -3,6 +3,16 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-16
+- **fix(bot): implement emergency sell service** (P1 critical audit fix)
+  - Added apps/bot/src/services/emergencySellService.ts
+  - Uses idKeyExitSell for idempotency (one emergency sell per position)
+  - Atomic budget reservation and execution tracking
+  - High slippage (15%) for faster emergency exits
+  - Proper position closing with EMERGENCY trigger
+- **docs: deprecate Max Buys/Hour in favor of cooldown_seconds**
+  - Max Buys/Hour was a design artifact never implemented in DB
+  - cooldown_seconds provides same rate-limiting with better properties
+  - Updated DESIGN.md, PROMPT.md, Project_status.md
 - refactor(bot): implement v3 terminal UI with autohunt-only panels
 - feat(ui): add panelKit.ts HTML renderer with width pad and linux joiners
 - feat(ui): add all core panels - Home, Settings, Positions, Withdraw, Help

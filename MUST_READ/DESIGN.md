@@ -112,9 +112,11 @@ Take Profit %
 
 Stop Loss %
 
-Max Buys/Hour
+Slippage bps
 
-Optional: Slippage bps
+NOTE: Max Buys/Hour is DEPRECATED - use cooldown_seconds instead.
+cooldown_seconds provides time-based rate limiting with better properties
+(deterministic, no reset logic). Example: cooldown_seconds=600 ≈ max 6 buys/hour.
 
 Template:
 🦖 <b>RAPTOR | SETTINGS</b>
@@ -124,13 +126,12 @@ Template:
 <b>Max Positions:</b> {maxPos}
 <b>Take Profit:</b> {tp}%
 <b>Stop Loss:</b> {sl}%
-<b>Max Buys/Hour:</b> {rate}
 <b>Slippage:</b> {slip} bps
 
 Buttons:
 Row 1: Edit Trade Size, Edit Max Positions
 Row 2: Edit TP, Edit SL
-Row 3: Edit Max Buys/Hr, Edit Slippage
+Row 3: Edit Slippage
 Row 4: Home
 
 Edit prompts (all identical pattern)

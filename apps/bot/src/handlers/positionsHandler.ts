@@ -27,6 +27,7 @@ import {
   getPositionById,
   getOrCreateAutoStrategy,
 } from '@raptor/shared';
+import { executeEmergencySell as executeEmergencySellService } from '../services/emergencySellService.js';
 import { showHome } from './home.js';
 
 /**
@@ -196,7 +197,7 @@ async function showEmergencySellConfirm(ctx: MyContext, positionId: string): Pro
 
 /**
  * Execute emergency sell
- * This creates a sell job and marks the position as closing
+ * This executes an immediate sell with high slippage for fast exit
  */
 async function executeEmergencySell(ctx: MyContext, positionId: string): Promise<void> {
   const userId = ctx.from?.id;
@@ -217,24 +218,36 @@ async function executeEmergencySell(ctx: MyContext, positionId: string): Promise
       return;
     }
 
-    // TODO: Call the actual emergency sell service
-    // This would:
-    // 1. Generate idempotency key: `sell:${positionId}:emergency`
-    // 2. Lock the position
-    // 3. Update status to CLOSING_EMERGENCY
-    // 4. Create a SELL job
-    // 5. Return confirmation
+    // Show processing state immediately
+    await ctx.answerCallbackQuery('Processing emergency sell...');
 
-    // For now, show the submitted panel
-    const panel = renderEmergencySellSubmitted(
-      position.token_symbol || 'Unknown',
-      position.token_mint
-    );
-    await ctx.editMessageText(panel.text, panel.opts);
-    await ctx.answerCallbackQuery('Emergency sell submitted');
+    // Execute the emergency sell via service
+    const result = await executeEmergencySellService({
+      userId,
+      position,
+    });
+
+    if (result.success && result.txHash) {
+      // Show success panel
+      const panel = renderEmergencySellSubmitted(
+        position.token_symbol || 'Unknown',
+        position.token_mint,
+        result.txHash
+      );
+      await ctx.editMessageText(panel.text, panel.opts);
+    } else if (result.alreadyExecuted) {
+      // Already executed - show in-progress panel
+      const panel = renderEmergencySellInProgress(position.token_symbol || 'Unknown');
+      await ctx.editMessageText(panel.text, panel.opts);
+    } else {
+      // Show error panel
+      const panel = renderEmergencySellError(result.error || 'Failed to execute emergency sell');
+      await ctx.editMessageText(panel.text, panel.opts);
+    }
   } catch (error) {
     console.error('Error executing emergency sell:', error);
-    const panel = renderEmergencySellError('Failed to submit sell order');
+    const errorMsg = error instanceof Error ? error.message : 'Failed to submit sell order';
+    const panel = renderEmergencySellError(errorMsg);
     await ctx.editMessageText(panel.text, panel.opts);
     await ctx.answerCallbackQuery('Error');
   }

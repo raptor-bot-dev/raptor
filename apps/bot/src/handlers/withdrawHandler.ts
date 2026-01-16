@@ -19,13 +19,22 @@ import {
 import { getUserWallets } from '@raptor/shared';
 import { processWithdrawal } from '../services/wallet.js';
 import { showHome } from './home.js';
+import {
+  BUFFER_SOL,
+  maxWithdraw,
+  validateSolAmount,
+  validatePercent,
+  computeSolFromPercent,
+  lamportsToSol,
+  isValidSolanaAddress,
+} from '../utils/withdrawMath.js';
 
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
 /**
- * Get Solana balance for an address
+ * Get Solana balance for an address (returns lamports)
  */
-async function getSolanaBalance(address: string): Promise<number> {
+async function getSolanaBalanceLamports(address: string): Promise<number> {
   if (!address) return 0;
   try {
     const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
@@ -35,8 +44,6 @@ async function getSolanaBalance(address: string): Promise<number> {
     return 0;
   }
 }
-
-const BUFFER_SOL = 0.01;
 
 /**
  * Handle withdraw:* callbacks
@@ -91,9 +98,9 @@ export async function showWithdrawHome(ctx: MyContext): Promise<void> {
     }
 
     const wallet = wallets[0];
-    const balanceLamports = await getSolanaBalance(wallet.solana_address || '');
-    const balanceSol = balanceLamports / 1e9;
-    const maxWithdrawSol = Math.max(0, balanceSol - BUFFER_SOL);
+    const balanceLamports = await getSolanaBalanceLamports(wallet.solana_address || '');
+    const balanceSol = lamportsToSol(balanceLamports);
+    const maxWithdrawSol = maxWithdraw(balanceSol);
 
     // Get destination from session pending withdrawal
     const destination = ctx.session?.pendingWithdrawal?.address || '';
@@ -157,15 +164,15 @@ async function showAmountSolPrompt(ctx: MyContext): Promise<void> {
     if (wallets.length === 0) return;
 
     const wallet = wallets[0];
-    const balanceLamports = await getSolanaBalance(wallet.solana_address || '');
-    const balanceSol = balanceLamports / 1e9;
-    const maxWithdraw = Math.max(0, balanceSol - BUFFER_SOL);
+    const balanceLamports = await getSolanaBalanceLamports(wallet.solana_address || '');
+    const balanceSol = lamportsToSol(balanceLamports);
+    const maxWithdrawSol = maxWithdraw(balanceSol);
 
     if (ctx.session) {
       ctx.session.step = SESSION_STEPS.AWAITING_WITHDRAWAL_AMOUNT;
     }
 
-    const panel = renderWithdrawSolPrompt(maxWithdraw);
+    const panel = renderWithdrawSolPrompt(maxWithdrawSol);
     await ctx.editMessageText(panel.text, panel.opts);
     await ctx.answerCallbackQuery();
   } catch (error) {
@@ -222,11 +229,11 @@ async function confirmWithdraw(ctx: MyContext): Promise<void> {
     }
 
     const wallet = wallets[0];
-    const balanceLamports = await getSolanaBalance(wallet.solana_address || '');
-    const balanceSol = balanceLamports / 1e9;
-    const maxWithdrawSol = Math.max(0, balanceSol - BUFFER_SOL);
+    const balanceLamports = await getSolanaBalanceLamports(wallet.solana_address || '');
+    const balanceSol = lamportsToSol(balanceLamports);
+    const maxWithdrawSol = maxWithdraw(balanceSol);
 
-    if (amountSol > maxWithdrawSol) {
+    if (!validateSolAmount(amountSol, balanceSol)) {
       const panel = renderWithdrawError(
         `Insufficient balance. Max withdraw: ${maxWithdrawSol.toFixed(4)} SOL`
       );
@@ -278,7 +285,7 @@ export async function handleWithdrawInput(
       case SESSION_STEPS.AWAITING_WITHDRAWAL_ADDRESS: {
         // Validate Solana address (basic check)
         const trimmed = input.trim();
-        if (trimmed.length < 32 || trimmed.length > 44) {
+        if (!isValidSolanaAddress(trimmed)) {
           await ctx.reply('Invalid address. Must be a valid Solana address.');
           return true;
         }
@@ -312,11 +319,11 @@ export async function handleWithdrawInput(
         }
 
         const wallet = wallets[0];
-        const balanceLamports = await getSolanaBalance(wallet.solana_address || '');
-        const balanceSol = balanceLamports / 1e9;
-        const maxWithdrawSol = Math.max(0, balanceSol - BUFFER_SOL);
+        const balanceLamports = await getSolanaBalanceLamports(wallet.solana_address || '');
+        const balanceSol = lamportsToSol(balanceLamports);
+        const maxWithdrawSol = maxWithdraw(balanceSol);
 
-        if (amount > maxWithdrawSol) {
+        if (!validateSolAmount(amount, balanceSol)) {
           await ctx.reply(`Amount exceeds max withdraw: ${maxWithdrawSol.toFixed(4)} SOL`);
           return true;
         }
@@ -336,7 +343,7 @@ export async function handleWithdrawInput(
 
       case SESSION_STEPS.AWAITING_WITHDRAWAL_PERCENT: {
         const percent = parseFloat(input);
-        if (isNaN(percent) || percent < 1 || percent > 100) {
+        if (!validatePercent(percent)) {
           await ctx.reply('Invalid percent. Enter a value between 1 and 100.');
           return true;
         }
@@ -349,10 +356,9 @@ export async function handleWithdrawInput(
         }
 
         const walletPct = walletsPct[0];
-        const balanceLamportsPct = await getSolanaBalance(walletPct.solana_address || '');
-        const balanceSolPct = balanceLamportsPct / 1e9;
-        const maxWithdrawSolPct = Math.max(0, balanceSolPct - BUFFER_SOL);
-        const amountPct = (maxWithdrawSolPct * percent) / 100;
+        const balanceLamportsPct = await getSolanaBalanceLamports(walletPct.solana_address || '');
+        const balanceSolPct = lamportsToSol(balanceLamportsPct);
+        const amountPct = computeSolFromPercent(balanceSolPct, percent);
 
         if (amountPct <= 0) {
           await ctx.reply('Insufficient balance for withdrawal.');
