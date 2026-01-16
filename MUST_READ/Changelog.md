@@ -3,6 +3,17 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-16
+- **feat(bot): add priority fee and MEV protection settings** (cb35d21)
+  - Add Priority Fee setting to Settings UI (0.0001 - 0.01 SOL)
+  - Add MEV Protection toggle (Jito) - ON by default
+  - Uses chain_settings table for per-chain priority_sol and anti_mev_enabled
+  - New callbacks: settings:edit_priority, settings:toggle_mev
+- **fix(bot): arm/disarm autohunt bugs**
+  - Re-validate settings in confirmArm() before enabling
+  - Error handling in confirmDisarm() now updates UI on failure
+- **fix(bot): shorten divider and add more bot menu commands** (d8f4dd8)
+  - Shortened divider from 20 to 16 chars
+  - Added /hunt, /positions, /wallet, /settings commands
 - **fix(bot): implement emergency sell service** (P1 critical audit fix)
   - Added apps/bot/src/services/emergencySellService.ts
   - Uses idKeyExitSell for idempotency (one emergency sell per position)

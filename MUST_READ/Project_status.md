@@ -28,6 +28,19 @@ Single source of truth for current progress. Keep it brief.
   - Atomic budget reservation and execution tracking
   - High slippage (15%) for faster execution
   - Proper position closing and notification creation
+- **Priority Fee setting added to Settings UI** (2026-01-16):
+  - Manual input field: 0.0001 - 0.01 SOL
+  - Uses chain_settings.priority_sol (per-chain)
+  - Edit Priority button in Settings panel
+- **MEV Protection toggle added to Settings UI** (2026-01-16):
+  - Toggle button shows MEV: ON/OFF
+  - Uses chain_settings.anti_mev_enabled (defaults to true)
+  - Jito bundles enabled when ON
+- **Arm/disarm autohunt bugs fixed** (2026-01-16):
+  - Re-validation in confirmArm() before enabling
+  - Error handling in confirmDisarm() updates UI on failure
+- **Bot menu commands expanded** (d8f4dd8):
+  - /hunt, /positions, /wallet, /settings for direct panel access
 - `pnpm -w lint && pnpm -w build` passes
 
 ## Design Notes
@@ -51,6 +64,8 @@ Single source of truth for current progress. Keep it brief.
 - Emergency sell implemented with idempotency. ✅
 
 ## Where we left off last
-- 2026-01-16: Audit completed, Emergency Sell service implemented.
-- All P1 critical issues resolved.
-- Ready for deployment testing.
+- 2026-01-16: Priority Fee and MEV Protection settings added to UI.
+- Arm/disarm autohunt bugs fixed.
+- Bot menu commands expanded for direct panel access.
+- Ready for deployment: `fly deploy -a raptor-bot`
+- Machine upgrade pending: `fly machine update d8d1d66be2e208 --vm-memory 1024 -a raptor-bot`

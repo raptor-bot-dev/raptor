@@ -65,6 +65,15 @@ Centralized callback IDs per PROMPT.md specification:
 ### 1.2 SETTINGS Panel
 **File:** `apps/bot/src/ui/panels/settings.ts` ✅
 
+**Settings fields (v3.6):**
+- Trade Size (SOL)
+- Max Positions (1-2)
+- Take Profit (%)
+- Stop Loss (%)
+- Slippage (bps)
+- Priority Fee (SOL) - NEW
+- MEV Protection (ON/OFF) - NEW
+
 ### 1.3 ARM/DISARM Confirm Panels
 **File:** `apps/bot/src/ui/panels/hunt.ts` ✅
 
