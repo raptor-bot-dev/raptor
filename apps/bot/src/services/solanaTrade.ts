@@ -21,6 +21,7 @@ import {
   recordTrade,
   recordFee,
   applyBuyFeeDecimal,
+  getTokenInfo,
 } from '@raptor/shared';
 
 const logger = createLogger('SolanaTrade');
@@ -125,12 +126,15 @@ export async function executeSolanaBuy(
     });
 
     // 6. Record trade in database (single source of truth)
+    const pumpToken = await getTokenInfo(tokenMint).catch(() => null);
+    const tokenSymbol = pumpToken?.symbol || 'UNKNOWN';
+
     await recordTrade({
       tg_id: tgId,
       chain: 'sol',
       mode: 'snipe',
       token_address: tokenMint,
-      token_symbol: 'UNKNOWN',  // TODO: fetch metadata
+      token_symbol: tokenSymbol,
       type: 'BUY',
       amount_in: solAmount.toString(),
       amount_out: result.amountOut.toString(),
