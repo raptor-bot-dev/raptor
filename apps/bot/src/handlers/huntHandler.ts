@@ -157,6 +157,14 @@ async function confirmArm(ctx: MyContext): Promise<void> {
   try {
     const strategy = await getOrCreateAutoStrategy(userId, 'sol');
 
+    // Re-validate settings before arming (in case changed since showing panel)
+    if (!strategy.max_per_trade_sol || strategy.max_per_trade_sol <= 0) {
+      const errorPanel = renderArmError('Trade size not set. Configure in Settings first.');
+      await ctx.editMessageText(errorPanel.text, errorPanel.opts);
+      await ctx.answerCallbackQuery('Settings required');
+      return;
+    }
+
     // Enable the strategy
     await updateStrategy(strategy.id, { enabled: true });
 
@@ -189,6 +197,8 @@ async function confirmDisarm(ctx: MyContext): Promise<void> {
     await ctx.answerCallbackQuery('Autohunt disarmed');
   } catch (error) {
     console.error('Error disarming:', error);
-    await ctx.answerCallbackQuery('Error disarming');
+    const errorPanel = renderArmError('Failed to disarm. Please try again.');
+    await ctx.editMessageText(errorPanel.text, errorPanel.opts);
+    await ctx.answerCallbackQuery('Error');
   }
 }

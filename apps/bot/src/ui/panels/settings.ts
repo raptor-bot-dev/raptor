@@ -21,6 +21,8 @@ export interface SettingsData {
   takeProfitPercent: number;
   stopLossPercent: number;
   slippageBps: number;
+  prioritySol: number; // Priority fee in SOL (validator tip)
+  antiMevEnabled: boolean; // MEV protection via Jito
 }
 
 /**
@@ -38,12 +40,19 @@ export interface SettingsData {
  * <b>Slippage:</b> {slip} bps
  */
 export function renderSettings(data: SettingsData): Panel {
+  // Format priority fee for display
+  const priorityDisplay = data.prioritySol >= 0.001
+    ? `${data.prioritySol} SOL`
+    : `${(data.prioritySol * 1000).toFixed(1)} mSOL`;
+
   const lines: string[] = [
     stat('Trade Size', `${data.tradeSize} SOL`),
     stat('Max Positions', `${data.maxPositions}`),
     stat('Take Profit', `${data.takeProfitPercent}%`),
     stat('Stop Loss', `${data.stopLossPercent}%`),
     stat('Slippage', `${data.slippageBps} bps`),
+    stat('Priority Fee', priorityDisplay),
+    stat('MEV Protection', data.antiMevEnabled ? 'ON (Jito)' : 'OFF'),
   ];
 
   const buttons: Button[][] = [
@@ -57,6 +66,10 @@ export function renderSettings(data: SettingsData): Panel {
     ],
     [
       btn('Edit Slippage', CB.SETTINGS.EDIT_SLIPPAGE),
+      btn('Edit Priority', CB.SETTINGS.EDIT_PRIORITY),
+    ],
+    [
+      btn(data.antiMevEnabled ? 'MEV: ON' : 'MEV: OFF', CB.SETTINGS.TOGGLE_MEV),
     ],
     [homeBtn()],
   ];
@@ -146,6 +159,22 @@ export function renderEditSlippage(currentValue: number): Panel {
     `${currentValue} bps`,
     'basis points',
     '1000'
+  );
+}
+
+/**
+ * Render priority fee edit prompt
+ */
+export function renderEditPriority(currentValue: number): Panel {
+  const currentDisplay = currentValue >= 0.001
+    ? `${currentValue} SOL`
+    : `${(currentValue * 1000).toFixed(1)} mSOL`;
+
+  return renderSettingsEditPrompt(
+    'Priority Fee',
+    currentDisplay,
+    'SOL (0.0001 - 0.01)',
+    '0.0005'
   );
 }
 

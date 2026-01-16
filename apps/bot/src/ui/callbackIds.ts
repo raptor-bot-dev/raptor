@@ -30,6 +30,8 @@ export const CB = {
     EDIT_TP: 'settings:edit_tp',
     EDIT_SL: 'settings:edit_sl',
     EDIT_SLIPPAGE: 'settings:edit_slippage',
+    EDIT_PRIORITY: 'settings:edit_priority',
+    TOGGLE_MEV: 'settings:toggle_mev',
     BACK_HOME: 'settings:back_home',
   },
 
@@ -136,6 +138,7 @@ export const SESSION_STEPS = {
   AWAITING_TP_PERCENT: 'awaiting_tp_percent',
   AWAITING_SL_PERCENT: 'awaiting_sl_percent',
   AWAITING_SLIPPAGE_BPS: 'awaiting_slippage_bps',
+  AWAITING_PRIORITY_SOL: 'awaiting_priority_sol',
 
   // Withdraw flow
   AWAITING_WITHDRAWAL_AMOUNT: 'awaiting_withdrawal_amount',

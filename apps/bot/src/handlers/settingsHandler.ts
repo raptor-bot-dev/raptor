@@ -12,10 +12,16 @@ import {
   renderEditTakeProfit,
   renderEditStopLoss,
   renderEditSlippage,
+  renderEditPriority,
   renderSettingsUpdated,
   type SettingsData,
 } from '../ui/panels/settings.js';
-import { getOrCreateAutoStrategy, updateStrategy } from '@raptor/shared';
+import {
+  getOrCreateAutoStrategy,
+  updateStrategy,
+  getOrCreateChainSettings,
+  updateChainSettings,
+} from '@raptor/shared';
 import { showHome } from './home.js';
 
 /**
@@ -51,6 +57,14 @@ export async function handleSettingsCallbacks(ctx: MyContext, data: string): Pro
       await showEditSlippage(ctx);
       break;
 
+    case CB.SETTINGS.EDIT_PRIORITY:
+      await showEditPriority(ctx);
+      break;
+
+    case CB.SETTINGS.TOGGLE_MEV:
+      await toggleMev(ctx);
+      break;
+
     default:
       console.warn(`Unknown settings callback: ${data}`);
       await ctx.answerCallbackQuery('Unknown action');
@@ -65,7 +79,11 @@ export async function showSettings(ctx: MyContext): Promise<void> {
   if (!userId) return;
 
   try {
-    const strategy = await getOrCreateAutoStrategy(userId, 'sol');
+    // Fetch strategy and chain settings in parallel
+    const [strategy, chainSettings] = await Promise.all([
+      getOrCreateAutoStrategy(userId, 'sol'),
+      getOrCreateChainSettings(userId, 'sol'),
+    ]);
 
     const settingsData: SettingsData = {
       tradeSize: strategy.max_per_trade_sol ?? 0.1,
@@ -73,6 +91,8 @@ export async function showSettings(ctx: MyContext): Promise<void> {
       takeProfitPercent: strategy.take_profit_percent ?? 50,
       stopLossPercent: strategy.stop_loss_percent ?? 20,
       slippageBps: strategy.slippage_bps ?? 1000,
+      prioritySol: chainSettings.priority_sol ?? 0.0005,
+      antiMevEnabled: chainSettings.anti_mev_enabled ?? true,
     };
 
     const panel = renderSettings(settingsData);
@@ -85,7 +105,9 @@ export async function showSettings(ctx: MyContext): Promise<void> {
     }
   } catch (error) {
     console.error('Error showing settings:', error);
-    await ctx.answerCallbackQuery('Error loading settings');
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery('Error loading settings');
+    }
   }
 }
 
@@ -206,6 +228,56 @@ async function showEditSlippage(ctx: MyContext): Promise<void> {
 }
 
 /**
+ * Show priority fee edit prompt
+ */
+async function showEditPriority(ctx: MyContext): Promise<void> {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  try {
+    const chainSettings = await getOrCreateChainSettings(userId, 'sol');
+    const panel = renderEditPriority(chainSettings.priority_sol ?? 0.0005);
+
+    if (ctx.session) {
+      ctx.session.step = SESSION_STEPS.AWAITING_PRIORITY_SOL;
+    }
+
+    await ctx.editMessageText(panel.text, panel.opts);
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('Error:', error);
+    await ctx.answerCallbackQuery('Error');
+  }
+}
+
+/**
+ * Toggle MEV protection on/off
+ */
+async function toggleMev(ctx: MyContext): Promise<void> {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  try {
+    // Get current setting
+    const chainSettings = await getOrCreateChainSettings(userId, 'sol');
+    const newValue = !chainSettings.anti_mev_enabled;
+
+    // Update setting
+    await updateChainSettings({
+      userId,
+      chain: 'sol',
+      antiMevEnabled: newValue,
+    });
+
+    // Refresh settings panel
+    await showSettings(ctx);
+  } catch (error) {
+    console.error('Error toggling MEV:', error);
+    await ctx.answerCallbackQuery('Error');
+  }
+}
+
+/**
  * Handle settings input from text messages
  * Called from message handler when session step matches
  */
@@ -280,6 +352,22 @@ export async function handleSettingsInput(
         await updateStrategy(strategy.id, { slippage_bps: slip });
         field = 'Slippage';
         newValue = `${slip} bps`;
+        break;
+      }
+
+      case SESSION_STEPS.AWAITING_PRIORITY_SOL: {
+        const priority = parseFloat(input);
+        if (isNaN(priority) || priority < 0.0001 || priority > 0.01) {
+          await ctx.reply('Invalid value. Enter SOL between 0.0001 and 0.01.');
+          return true;
+        }
+        await updateChainSettings({
+          userId,
+          chain: 'sol',
+          prioritySol: priority,
+        });
+        field = 'Priority Fee';
+        newValue = priority >= 0.001 ? `${priority} SOL` : `${(priority * 1000).toFixed(1)} mSOL`;
         break;
       }
 

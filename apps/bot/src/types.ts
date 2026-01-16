@@ -41,6 +41,7 @@ export interface SessionData {
     | 'awaiting_tp_percent'
     | 'awaiting_sl_percent'
     | 'awaiting_slippage_bps'
+    | 'awaiting_priority_sol'
     | CustomStrategyStep
     | null;
   chainSettingsTarget?: string;  // v3.5: Target chain for settings input
