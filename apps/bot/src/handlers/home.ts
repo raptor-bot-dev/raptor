@@ -94,6 +94,13 @@ export async function showHome(ctx: MyContext): Promise<void> {
 
     const panel = renderHome(homeData);
 
+    // v3.5: Debug logging to verify buttons are generated
+    console.log('[DEBUG] Home panel reply_markup:',
+      panel.opts.reply_markup
+        ? JSON.stringify(panel.opts.reply_markup.inline_keyboard?.map(row => row.map(btn => btn.text)))
+        : 'NO BUTTONS'
+    );
+
     // Edit or reply based on context
     if (ctx.callbackQuery) {
       await ctx.editMessageText(panel.text, panel.opts);

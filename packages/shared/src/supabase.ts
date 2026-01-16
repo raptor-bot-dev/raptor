@@ -1763,7 +1763,7 @@ export async function getUserOpenPositions(userId: number, chain?: Chain): Promi
   let query = supabase
     .from('positions')
     .select('*')
-    .eq('user_id', userId)
+    .eq('tg_id', userId)  // Fix: positions table uses tg_id, not user_id
     .eq('status', 'OPEN');
 
   if (chain) {
@@ -1783,7 +1783,7 @@ export async function getClosedPositions(userId: number, chain?: Chain): Promise
   let query = supabase
     .from('positions')
     .select('*')
-    .eq('user_id', userId)
+    .eq('tg_id', userId)  // Fix: positions table uses tg_id, not user_id
     .eq('status', 'CLOSED');
 
   if (chain) {

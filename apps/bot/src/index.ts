@@ -2,27 +2,9 @@ import { Bot, session, GrammyError, HttpError } from 'grammy';
 import { run, sequentialize } from '@grammyjs/runner';
 import type { MyContext, SessionData } from './types.js';
 import { startCommand } from './commands/start.js';
-import { depositCommand } from './commands/deposit.js';
-import { withdrawCommand } from './commands/withdraw.js';
-import { statusCommand } from './commands/status.js';
-import { positionsCommand } from './commands/positions.js';
-import { settingsCommand } from './commands/settings.js';
 import { helpCommand } from './commands/help.js';
-import { snipeCommand } from './commands/snipe.js';
-import { sellCommand } from './commands/sell.js';
-import { chainsCommand } from './commands/chains.js';
-// v2.2 new commands
-import { menuCommand } from './commands/menu.js';
-import { walletCommand } from './commands/wallet.js';
-import { balanceCommand } from './commands/balance.js';
-import { huntCommand } from './commands/hunt.js';
-import { historyCommand } from './commands/history.js';
-import { scoreCommand } from './commands/score.js';
-import { strategyCommand } from './commands/strategy.js';
-import { gasCommand } from './commands/gas.js';
-import { slippageCommand } from './commands/slippage.js';
-// v2.3 self-custodial
-import { backupCommand } from './commands/backup.js';
+// v3.5: Import showHome to redirect legacy commands
+import { showHome } from './handlers/home.js';
 import { handleCallbackQuery } from './handlers/callbacks.js';
 import { handleTextMessage } from './handlers/messages.js';
 import { depositMonitor } from './services/depositMonitor.js';
@@ -114,27 +96,30 @@ bot.use(sequentialize((ctx) => ctx.from?.id.toString()));
 // Rate limiting middleware - SECURITY: Prevent DoS and abuse
 bot.use(rateLimitMiddleware());
 
-// Register commands
+// v3.5: Register only v3 commands per DESIGN.md
 bot.command('start', startCommand);
-bot.command('menu', menuCommand);  // v2.2 main hub
-bot.command('wallet', walletCommand);  // v2.2 wallet management
-bot.command('balance', balanceCommand);  // v2.2 quick balance check
-bot.command('hunt', huntCommand);  // v2.2 auto-hunt settings
-bot.command('history', historyCommand);  // v2.2 trade history
-bot.command('score', scoreCommand);  // v2.2 token analysis
-bot.command('strategy', strategyCommand);  // v2.2 trading strategy
-bot.command('gas', gasCommand);  // v2.2 per-chain gas
-bot.command('slippage', slippageCommand);  // v2.2 per-chain slippage
-bot.command('deposit', depositCommand);
-bot.command('withdraw', withdrawCommand);
-bot.command('status', statusCommand);
-bot.command('positions', positionsCommand);
-bot.command('settings', settingsCommand);
 bot.command('help', helpCommand);
-bot.command('snipe', snipeCommand);
-bot.command('sell', sellCommand);
-bot.command('chains', chainsCommand);
-bot.command('backup', backupCommand);  // v2.3 private key backup
+
+// v3.5: Redirect legacy commands to v3 Home panel
+// Users who type old commands get redirected gracefully
+bot.command('menu', async (ctx) => showHome(ctx));
+bot.command('wallet', async (ctx) => showHome(ctx));
+bot.command('balance', async (ctx) => showHome(ctx));
+bot.command('hunt', async (ctx) => showHome(ctx));
+bot.command('history', async (ctx) => showHome(ctx));
+bot.command('positions', async (ctx) => showHome(ctx));
+bot.command('settings', async (ctx) => showHome(ctx));
+bot.command('withdraw', async (ctx) => showHome(ctx));
+bot.command('deposit', async (ctx) => showHome(ctx));
+bot.command('snipe', async (ctx) => showHome(ctx));
+bot.command('sell', async (ctx) => showHome(ctx));
+bot.command('status', async (ctx) => showHome(ctx));
+bot.command('backup', async (ctx) => showHome(ctx));
+bot.command('score', async (ctx) => showHome(ctx));
+bot.command('strategy', async (ctx) => showHome(ctx));
+bot.command('gas', async (ctx) => showHome(ctx));
+bot.command('slippage', async (ctx) => showHome(ctx));
+bot.command('chains', async (ctx) => showHome(ctx));
 
 // Handle callback queries (inline button presses)
 bot.on('callback_query:data', handleCallbackQuery);
@@ -160,27 +145,10 @@ bot.catch((err) => {
 // Start the bot
 console.log('🦅 RAPTOR Bot starting...');
 
-// v3.4.2: Set bot commands for the menu (added missing commands)
+// v3.5: Simplified menu commands - only /start and /help per DESIGN.md
 bot.api.setMyCommands([
-  { command: 'menu', description: '🏠 Main menu' },
-  { command: 'wallet', description: '💳 Wallet management' },
-  { command: 'balance', description: '💰 Check balances' },
-  { command: 'sell', description: '💰 Sell tokens' },
-  { command: 'positions', description: '📊 View positions' },
-  { command: 'snipe', description: '🎯 Snipe a token' },
-  { command: 'hunt', description: '🦅 Hunt settings' },
-  { command: 'score', description: '🔍 Analyze token' },
-  { command: 'history', description: '📜 Trade history' },
-  { command: 'deposit', description: '📥 Deposit funds' },
-  { command: 'withdraw', description: '📤 Withdraw funds' },
-  { command: 'strategy', description: '📈 Trading strategy' },
-  { command: 'settings', description: '⚙️ User settings' },
-  { command: 'gas', description: '⛽ Gas settings' },
-  { command: 'slippage', description: '📉 Slippage settings' },
-  { command: 'chains', description: '🔗 Chain selection' },
-  { command: 'backup', description: '🔐 Export private keys' },
-  { command: 'status', description: '📡 Bot status' },
-  { command: 'help', description: '❓ Help & guides' },
+  { command: 'start', description: 'Home - Dashboard and controls' },
+  { command: 'help', description: 'Help and quick tips' },
 ]).catch((err) => {
   console.error('Failed to set bot commands:', err);
 });

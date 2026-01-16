@@ -215,13 +215,10 @@ export async function handleCallbackQuery(ctx: MyContext) {
     }
 
     // === NAVIGATION ===
-    if (data === 'back_to_menu' || data === 'menu') {
-      await showMenu(ctx);
-      return;
-    }
-
-    if (data === 'back_to_start') {
-      await showStart(ctx);
+    // v3.5: Redirect legacy navigation callbacks to v3 Home panel
+    if (data === 'back_to_menu' || data === 'menu' || data === 'back_to_start') {
+      const { showHome } = await import('./home.js');
+      await showHome(ctx);
       return;
     }
 
