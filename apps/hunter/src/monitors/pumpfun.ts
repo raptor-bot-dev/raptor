@@ -17,6 +17,8 @@ export interface PumpFunEvent {
   bondingCurve: string;
   creator: string;
   timestamp: number;
+  /** True if token was created in mayhem mode (November 2025 pump.fun update) */
+  isMayhemMode: boolean;
 }
 
 export type PumpFunEventHandler = (event: PumpFunEvent) => Promise<void>;
@@ -296,6 +298,14 @@ export class PumpFunMonitor {
       const uriLen = createData.readUInt32LE(offset);
       offset += 4;
       const uri = createData.slice(offset, offset + uriLen).toString('utf8');
+      offset += uriLen;
+
+      // Try to parse mayhem mode flag (November 2025 pump.fun update)
+      // If there's more data after uri, the next byte is is_mayhem_mode
+      let isMayhemMode = false;
+      if (offset < createData.length) {
+        isMayhemMode = createData.readUInt8(offset) === 1;
+      }
 
       // Extract addresses
       const mint = accountKeys[createAccounts[0]]?.toBase58() || '';
@@ -312,6 +322,7 @@ export class PumpFunMonitor {
         bondingCurve,
         creator,
         timestamp: tx.blockTime || Math.floor(Date.now() / 1000),
+        isMayhemMode,
       };
     } catch (error) {
       console.error('[PumpFunMonitor] Fetch error:', error);

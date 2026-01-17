@@ -931,12 +931,12 @@ export class SolanaExecutor {
 
       // v3.5: For pump.fun, Jito integration would require modifying the PumpFunClient
       // to return unsigned transactions. For now, pump.fun sends directly.
-      // The priority fee is handled by pump.fun's internal compute budget.
       const result = await client.buy({
         mint,
         solAmount: lamports,
         minTokensOut: 0n, // Will use slippageBps to calculate
         slippageBps,
+        priorityFeeSol: options?.priorityFeeSol,
       });
 
       console.log(`[SolanaExecutor] pump.fun buy successful: ${result.signature}`);
@@ -1251,6 +1251,7 @@ export class SolanaExecutor {
         tokenAmount: tokensRaw,
         minSolOut: 0n, // Will use slippageBps to calculate
         slippageBps,
+        priorityFeeSol: options?.priorityFeeSol,
       });
 
       console.log(`[SolanaExecutor] pump.fun sell successful: ${result.signature}`);

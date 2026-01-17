@@ -41,6 +41,11 @@ Single source of truth for current progress. Keep it brief.
   - Error handling in confirmDisarm() updates UI on failure
 - **Bot menu commands expanded** (d8f4dd8):
   - /hunt, /positions, /wallet, /settings for direct panel access
+- **Hunter/Executor audit completed** (2026-01-17):
+  - Priority fee now passed to PumpFunClient buy/sell (was hardcoded)
+  - Mayhem mode tokens filtered out in OpportunityLoop
+  - Unused API functions removed (getRecentTrades, parsePumpFunTrade, parseCreateEvent, parseTradeEvent)
+  - PumpFun docs added to Reference_docs.md
 - `pnpm -w lint && pnpm -w build` passes
 
 ## Design Notes
@@ -64,8 +69,9 @@ Single source of truth for current progress. Keep it brief.
 - Emergency sell implemented with idempotency. ✅
 
 ## Where we left off last
-- 2026-01-16: Priority Fee and MEV Protection settings added to UI.
-- Arm/disarm autohunt bugs fixed.
-- Bot menu commands expanded for direct panel access.
+- 2026-01-17: Hunter/Executor audit completed.
+- Priority fee bug fixed (now uses chain_settings.priority_sol for pump.fun trades).
+- Mayhem mode filter added to hunter (skips low-quality launches).
+- Dead code removed, PumpFun docs added to Reference_docs.md.
 - Ready for deployment: `fly deploy -a raptor-bot`
 - Machine upgrade pending: `fly machine update d8d1d66be2e208 --vm-memory 1024 -a raptor-bot`

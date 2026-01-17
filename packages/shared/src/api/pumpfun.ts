@@ -70,18 +70,6 @@ export interface PumpFunToken {
   associatedBondingCurve: string;
 }
 
-export interface PumpFunTrade {
-  signature: string;
-  mint: string;
-  solAmount: number;
-  tokenAmount: number;
-  isBuy: boolean;
-  user: string;
-  timestamp: number;
-  virtualSolReserves: number;
-  virtualTokenReserves: number;
-}
-
 /**
  * Get token info from PumpFun
  */
@@ -131,34 +119,6 @@ export async function getTokenInfo(
 export async function isPumpFunToken(mint: string): Promise<boolean> {
   const token = await getTokenInfo(mint);
   return token !== null;
-}
-
-/**
- * Get recent trades for a token
- */
-export async function getRecentTrades(
-  mint: string,
-  limit = 20
-): Promise<PumpFunTrade[]> {
-  try {
-    const response = await fetch(
-      `${PUMPFUN_API}/trades/latest?mint=${mint}&limit=${limit}`,
-      {
-        headers: PUMPFUN_HEADERS,
-        signal: AbortSignal.timeout(5000),
-      }
-    );
-
-    if (!response.ok) {
-      return [];
-    }
-
-    const data = await response.json() as Array<Record<string, unknown>>;
-    return data.map(parsePumpFunTrade);
-  } catch (error) {
-    console.error('[PumpFun] Trades fetch error:', error);
-    return [];
-  }
 }
 
 /**
@@ -319,23 +279,6 @@ function parsePumpFunToken(
 
     bondingCurve: String(data.bonding_curve || ''),
     associatedBondingCurve: String(data.associated_bonding_curve || ''),
-  };
-}
-
-/**
- * Parse PumpFun trade data
- */
-function parsePumpFunTrade(data: Record<string, unknown>): PumpFunTrade {
-  return {
-    signature: String(data.signature || ''),
-    mint: String(data.mint || ''),
-    solAmount: Number(data.sol_amount || 0) / 1e9,
-    tokenAmount: Number(data.token_amount || 0) / 1e6,
-    isBuy: Boolean(data.is_buy),
-    user: String(data.user || ''),
-    timestamp: Number(data.timestamp || 0),
-    virtualSolReserves: Number(data.virtual_sol_reserves || 0) / 1e9,
-    virtualTokenReserves: Number(data.virtual_token_reserves || 0) / 1e6,
   };
 }
 

@@ -63,16 +63,6 @@ export interface PumpFunTokenCreate {
   timestamp: number;
 }
 
-export interface PumpFunTrade {
-  mint: string;
-  solAmount: bigint;
-  tokenAmount: bigint;
-  isBuy: boolean;
-  user: string;
-  timestamp: number;
-  bondingCurveComplete: boolean;
-}
-
 /**
  * Calculate amount of tokens received for SOL input on bonding curve
  * Uses constant product formula: x * y = k
@@ -199,41 +189,6 @@ export function decodeBondingCurveState(data: Buffer): BondingCurveState {
     complete,
     creator,
   };
-}
-
-/**
- * Parse a CreateEvent from transaction logs
- */
-export function parseCreateEvent(logs: string[]): PumpFunTokenCreate | null {
-  // Look for the create instruction log
-  const createLog = logs.find(
-    (log) => log.includes('Program log: Create') || log.includes('Instruction: Create')
-  );
-
-  if (!createLog) {
-    return null;
-  }
-
-  // In production, you'd parse the actual event data from logs
-  // This is a placeholder that would need the actual log format
-  return null;
-}
-
-/**
- * Parse a TradeEvent from transaction logs
- */
-export function parseTradeEvent(logs: string[]): PumpFunTrade | null {
-  // Look for the trade instruction log
-  const tradeLog = logs.find(
-    (log) => log.includes('Program log: Trade') || log.includes('Instruction: Buy') || log.includes('Instruction: Sell')
-  );
-
-  if (!tradeLog) {
-    return null;
-  }
-
-  // In production, you'd parse the actual event data from logs
-  return null;
 }
 
 /**
@@ -423,6 +378,7 @@ export interface PumpFunBuyParams {
   solAmount: bigint;
   minTokensOut: bigint;
   slippageBps?: number;
+  priorityFeeSol?: number;
 }
 
 export interface PumpFunSellParams {
@@ -430,6 +386,7 @@ export interface PumpFunSellParams {
   tokenAmount: bigint;
   minSolOut: bigint;
   slippageBps?: number;
+  priorityFeeSol?: number;
 }
 
 export interface PumpFunTradeResult {
@@ -484,9 +441,9 @@ export class PumpFunClient {
    * Note: pump.fun uses Token-2022 program for all tokens
    */
   async buy(params: PumpFunBuyParams): Promise<PumpFunTradeResult> {
-    const { mint, solAmount, minTokensOut, slippageBps = 500 } = params;
+    const { mint, solAmount, minTokensOut, slippageBps = 500, priorityFeeSol } = params;
 
-    console.log(`[PumpFunClient] Buying with ${lamportsToSol(solAmount)} SOL`);
+    console.log(`[PumpFunClient] Buying with ${lamportsToSol(solAmount)} SOL, priorityFee: ${priorityFeeSol ?? 'default'} SOL`);
 
     // Derive PDAs - use Token-2022 for pump.fun tokens
     const [bondingCurve] = deriveBondingCurvePDA(mint);
@@ -534,11 +491,17 @@ export class PumpFunClient {
     const transaction = new Transaction();
 
     // Add priority fee for faster inclusion
+    // Convert priorityFeeSol to microLamports/CU: (SOL * LAMPORTS_PER_SOL / CU) * 1e6
+    // With 200k CU: microLamports = priorityFeeSol * 5_000_000_000
+    const computeUnits = 200000;
+    const microLamports = priorityFeeSol
+      ? Math.floor(priorityFeeSol * LAMPORTS_PER_SOL * 1_000_000 / computeUnits)
+      : 100000; // Default ~0.00002 SOL
     transaction.add(
-      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 })
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports })
     );
     transaction.add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 })
+      ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnits })
     );
 
     // Check if user token account exists, if not create it
@@ -610,9 +573,9 @@ export class PumpFunClient {
    * Note: pump.fun uses Token-2022 program for all tokens
    */
   async sell(params: PumpFunSellParams): Promise<PumpFunTradeResult> {
-    const { mint, tokenAmount, minSolOut, slippageBps = 500 } = params;
+    const { mint, tokenAmount, minSolOut, slippageBps = 500, priorityFeeSol } = params;
 
-    console.log(`[PumpFunClient] Selling ${tokenAmount} tokens`);
+    console.log(`[PumpFunClient] Selling ${tokenAmount} tokens, priorityFee: ${priorityFeeSol ?? 'default'} SOL`);
 
     // Derive PDAs - use Token-2022 for pump.fun tokens
     const [bondingCurve] = deriveBondingCurvePDA(mint);
@@ -658,12 +621,17 @@ export class PumpFunClient {
     // Build transaction
     const transaction = new Transaction();
 
-    // Add priority fee
+    // Add priority fee for faster inclusion
+    // Convert priorityFeeSol to microLamports/CU: (SOL * LAMPORTS_PER_SOL / CU) * 1e6
+    const computeUnits = 200000;
+    const microLamports = priorityFeeSol
+      ? Math.floor(priorityFeeSol * LAMPORTS_PER_SOL * 1_000_000 / computeUnits)
+      : 100000; // Default ~0.00002 SOL
     transaction.add(
-      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 })
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports })
     );
     transaction.add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 })
+      ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnits })
     );
 
     // Build sell instruction

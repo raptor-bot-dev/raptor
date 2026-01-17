@@ -63,6 +63,14 @@ export class OpportunityLoop {
   private async handleNewToken(event: PumpFunEvent): Promise<void> {
     if (!this.running) return;
 
+    // Skip mayhem mode tokens (low quality launches per November 2025 pump.fun update)
+    if (event.isMayhemMode) {
+      console.log(
+        `[OpportunityLoop] Skipping mayhem mode token: ${event.symbol} (${event.mint.slice(0, 8)}...)`
+      );
+      return;
+    }
+
     try {
       // 1. Create/upsert opportunity
       const opportunity = await upsertOpportunity({

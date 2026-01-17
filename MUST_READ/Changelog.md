@@ -2,6 +2,28 @@
 
 Keep this log short and append-only. Use ISO dates.
 
+## 2026-01-17
+- **fix(executor): pass priorityFeeSol to PumpFunClient buy/sell**
+  - Was hardcoded to 100000 microLamports (~0.00002 SOL)
+  - Now uses chain_settings.priority_sol from user preferences
+  - Affects both buy and sell transactions on pump.fun bonding curve
+- **feat(hunter): add mayhem mode filter**
+  - Parse `is_mayhem_mode` from pump.fun Create instruction
+  - Skip mayhem mode tokens in OpportunityLoop (low quality launches)
+  - Added `isMayhemMode` field to PumpFunEvent interface
+- **refactor(shared): remove unused PumpFun API functions**
+  - Removed `getRecentTrades()` (never called)
+  - Removed `PumpFunTrade` interface (only used by removed function)
+  - Removed `parsePumpFunTrade()` (only used by removed function)
+- **refactor(executor): remove dead code from pumpFun.ts**
+  - Removed `parseCreateEvent()` (returned null)
+  - Removed `parseTradeEvent()` (returned null)
+  - Removed `PumpFunTrade` interface (only used by removed function)
+- **docs: add PumpFun protocol reference to Reference_docs.md**
+  - Bonding curve parameters and graduation threshold
+  - Key 2025 protocol updates (volume accumulators, fee config, creator vault, mayhem mode)
+  - Third-party API references
+
 ## 2026-01-16
 - **feat(bot): add priority fee and MEV protection settings** (cb35d21)
   - Add Priority Fee setting to Settings UI (0.0001 - 0.01 SOL)
