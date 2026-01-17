@@ -256,29 +256,62 @@ export class PumpFunMonitor {
         commitment: 'confirmed',
       });
 
-      if (!tx || tx.meta?.err) return null;
+      if (!tx) {
+        console.debug(`[PumpFunMonitor] TX not found: ${signature.slice(0, 20)}...`);
+        return null;
+      }
+      if (tx.meta?.err) {
+        console.debug(`[PumpFunMonitor] TX has error: ${signature.slice(0, 20)}...`);
+        return null;
+      }
 
       const message = tx.transaction.message;
-      const accountKeys = message.staticAccountKeys || [];
-      const instructions = message.compiledInstructions || [];
+
+      // Handle both versioned (v0) and legacy transactions
+      // Versioned: staticAccountKeys, compiledInstructions
+      // Legacy: accountKeys, instructions
+      const isVersioned = 'staticAccountKeys' in message;
+      const accountKeys = isVersioned
+        ? (message as { staticAccountKeys: PublicKey[] }).staticAccountKeys
+        : (message as { accountKeys: PublicKey[] }).accountKeys || [];
+
+      // Get instructions - handle both versioned and legacy format
+      type LegacyInstruction = { programIdIndex: number; accounts: number[]; data: string };
+      type VersionedInstruction = { programIdIndex: number; accountKeyIndexes: number[]; data: Uint8Array };
+
+      const rawInstructions = isVersioned
+        ? (message as { compiledInstructions: VersionedInstruction[] }).compiledInstructions || []
+        : (message as { instructions: LegacyInstruction[] }).instructions || [];
+
+      console.debug(`[PumpFunMonitor] TX ${signature.slice(0, 12)}... versioned=${isVersioned}, ${rawInstructions.length} ix, ${accountKeys.length} accounts`);
 
       // Find pump.fun Create instruction
       let createData: Buffer | null = null;
       let createAccounts: number[] = [];
 
-      for (const ix of instructions) {
+      for (const ix of rawInstructions) {
         const programId = accountKeys[ix.programIdIndex];
         if (programId?.toBase58() === PROGRAM_IDS.PUMP_FUN) {
-          const data = Buffer.from(ix.data);
+          // Handle data format: Uint8Array for versioned, base58 string for legacy
+          const data = isVersioned
+            ? Buffer.from((ix as VersionedInstruction).data)
+            : Buffer.from((ix as LegacyInstruction).data, 'base64');
+
           if (data.slice(0, 8).equals(CREATE_DISCRIMINATOR)) {
             createData = data;
-            createAccounts = [...ix.accountKeyIndexes];
+            // Handle account indexes: accountKeyIndexes for versioned, accounts for legacy
+            createAccounts = isVersioned
+              ? [...(ix as VersionedInstruction).accountKeyIndexes]
+              : [...(ix as LegacyInstruction).accounts];
             break;
           }
         }
       }
 
-      if (!createData || createAccounts.length < 3) return null;
+      if (!createData || createAccounts.length < 3) {
+        console.debug(`[PumpFunMonitor] No Create instruction found in TX ${signature.slice(0, 12)}... (createData: ${!!createData}, accounts: ${createAccounts.length})`);
+        return null;
+      }
 
       // Parse instruction data
       let offset = 8;
