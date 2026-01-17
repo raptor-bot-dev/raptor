@@ -50,7 +50,7 @@ export function renderSettings(data: SettingsData): Panel {
     stat('Max Positions', `${data.maxPositions}`),
     stat('Take Profit', `${data.takeProfitPercent}%`),
     stat('Stop Loss', `${data.stopLossPercent}%`),
-    stat('Slippage', `${data.slippageBps} bps`),
+    stat('Slippage', `${data.slippageBps / 100}%`),
     stat('Priority Fee', priorityDisplay),
     stat('MEV Protection', data.antiMevEnabled ? 'ON (Jito)' : 'OFF'),
   ];
@@ -152,13 +152,14 @@ export function renderEditStopLoss(currentValue: number): Panel {
 
 /**
  * Render slippage edit prompt
+ * Note: currentValue is in bps, display as %
  */
 export function renderEditSlippage(currentValue: number): Panel {
   return renderSettingsEditPrompt(
     'Slippage',
-    `${currentValue} bps`,
-    'basis points',
-    '1000'
+    `${currentValue / 100}%`,
+    'percentage (1-1000)',
+    '10'
   );
 }
 

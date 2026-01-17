@@ -16,6 +16,8 @@ import { getUserBalances, userHasWallet } from '@raptor/shared';
 import { sendOptionsKeyboard, CHAIN_EMOJI, CHAIN_NAME } from '../utils/keyboards.js';
 import { formatSendToAddress, escapeMarkdownV2, LINE, formatWalletName } from '../utils/formatters.js';
 import { confirmDeleteWallet, cancelDeleteWallet } from '../commands/wallet.js';
+import { handleSettingsInput } from './settingsHandler.js';
+import { SESSION_STEPS } from '../ui/callbackIds.js';
 
 // Regex patterns for address detection
 const SOLANA_ADDRESS_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -316,6 +318,15 @@ async function handleSessionFlow(ctx: MyContext, text: string): Promise<boolean>
       await ctx.reply(`Sell tip set to ${value} SOL\n\nUse /menu to continue.`);
       return true;
     }
+
+    // v5: Handle v3 autohunt settings panel inputs
+    case SESSION_STEPS.AWAITING_TRADE_SIZE:
+    case SESSION_STEPS.AWAITING_MAX_POSITIONS:
+    case SESSION_STEPS.AWAITING_TP_PERCENT:
+    case SESSION_STEPS.AWAITING_SL_PERCENT:
+    case SESSION_STEPS.AWAITING_SLIPPAGE_BPS:
+    case SESSION_STEPS.AWAITING_PRIORITY_SOL:
+      return await handleSettingsInput(ctx, ctx.session.step!, text);
 
     // v3.4: Handle custom buy amount input
     case 'awaiting_custom_buy_amount': {

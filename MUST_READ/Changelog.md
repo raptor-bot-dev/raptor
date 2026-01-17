@@ -3,6 +3,20 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-17
+- **fix(bot): settings panel text input not responding**
+  - Added missing v3 autohunt settings session steps to messages.ts handleSessionFlow()
+  - Now routes AWAITING_TRADE_SIZE, AWAITING_MAX_POSITIONS, AWAITING_TP_PERCENT,
+    AWAITING_SL_PERCENT, AWAITING_SLIPPAGE_BPS, AWAITING_PRIORITY_SOL to handleSettingsInput()
+  - Settings panel now properly updates values when user enters text
+- **fix(bot): slippage now uses percentage instead of bps**
+  - Display: shows "10%" instead of "1000 bps"
+  - Input: accepts 1-1000% (converted to bps internally)
+  - Better UX for high volatility launches that need 100%+ slippage
+- **fix(hunter): pass tgId to executor for MEV/priority settings**
+  - Hunter execution loop was not passing user ID to executor
+  - Now passes `tgId: job.user_id` to `executeBuyWithKeypair` and `executeSellWithKeypair`
+  - Executor now fetches user's chain_settings for priority_sol and anti_mev_enabled
+  - Enables Jito MEV protection and custom priority fees for autohunt trades
 - **fix(executor): pass priorityFeeSol to PumpFunClient buy/sell**
   - Was hardcoded to 100000 microLamports (~0.00002 SOL)
   - Now uses chain_settings.priority_sol from user preferences

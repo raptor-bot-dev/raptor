@@ -46,6 +46,21 @@ Single source of truth for current progress. Keep it brief.
   - Mayhem mode tokens filtered out in OpportunityLoop
   - Unused API functions removed (getRecentTrades, parsePumpFunTrade, parseCreateEvent, parseTradeEvent)
   - PumpFun docs added to Reference_docs.md
+- **RPC migrated from Helius to QuickNode** (2026-01-17):
+  - Helius free tier was rate-limiting (HTTP 429)
+  - QuickNode free tier: 10M credits, 15 RPS
+  - Secrets updated on raptor-hunter and raptor-bot
+- **Settings panel text input fixed** (2026-01-17):
+  - messages.ts was missing cases for v3 settings session steps
+  - Now routes to handleSettingsInput() for all settings edits
+- **Slippage changed to percentage** (2026-01-17):
+  - Display: "10%" instead of "1000 bps"
+  - Input: accepts 1-1000% (converted to bps internally)
+  - Better UX for high volatility launches
+- **Hunter now passes tgId to executor** (2026-01-17):
+  - ExecutionLoop passes `tgId: job.user_id` to buy/sell calls
+  - Enables user's priority_sol and anti_mev_enabled settings
+  - Jito MEV protection now active for autohunt trades
 - `pnpm -w lint && pnpm -w build` passes
 
 ## Design Notes
@@ -69,9 +84,12 @@ Single source of truth for current progress. Keep it brief.
 - Emergency sell implemented with idempotency. ✅
 
 ## Where we left off last
-- 2026-01-17: Hunter/Executor audit completed.
-- Priority fee bug fixed (now uses chain_settings.priority_sol for pump.fun trades).
-- Mayhem mode filter added to hunter (skips low-quality launches).
-- Dead code removed, PumpFun docs added to Reference_docs.md.
-- Ready for deployment: `fly deploy -a raptor-bot`
-- Machine upgrade pending: `fly machine update d8d1d66be2e208 --vm-memory 1024 -a raptor-bot`
+- 2026-01-17 (late session): Full MEV/priority fee audit completed.
+- RPC switched from Helius to QuickNode (rate limiting fixed).
+- Settings panel text input now works (missing session step cases fixed).
+- Slippage UI now uses % instead of bps (1-1000% range).
+- Hunter execution loop now passes tgId to executor.
+- Jito MEV protection and user priority fees now active for autohunt.
+- Ready for deployment:
+  - `fly deploy -a raptor-bot`
+  - `fly deploy -a raptor-hunter`

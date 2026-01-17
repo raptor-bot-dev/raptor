@@ -344,14 +344,16 @@ export async function handleSettingsInput(
       }
 
       case SESSION_STEPS.AWAITING_SLIPPAGE_BPS: {
-        const slip = parseInt(input, 10);
-        if (isNaN(slip) || slip < 100 || slip > 5000) {
-          await ctx.reply('Invalid value. Enter basis points between 100 and 5000.');
+        // Accept percentage input (1-1000%), store as bps (*100)
+        const slipPercent = parseFloat(input);
+        if (isNaN(slipPercent) || slipPercent < 1 || slipPercent > 1000) {
+          await ctx.reply('Invalid value. Enter percentage between 1 and 1000.');
           return true;
         }
-        await updateStrategy(strategy.id, { slippage_bps: slip });
+        const slipBps = Math.round(slipPercent * 100);
+        await updateStrategy(strategy.id, { slippage_bps: slipBps });
         field = 'Slippage';
-        newValue = `${slip} bps`;
+        newValue = `${slipPercent}%`;
         break;
       }
 

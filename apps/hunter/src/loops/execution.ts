@@ -338,11 +338,14 @@ export class ExecutionLoop {
       const amountSol = job.payload.amount_sol || strategy.max_per_trade_sol;
       const slippageBps = job.payload.slippage_bps || strategy.slippage_bps;
 
+      // Pass tgId to executor so it can fetch chain_settings for:
+      // - priority_sol (validator tip)
+      // - anti_mev_enabled (Jito bundles)
       const result = await solanaExecutor.executeBuyWithKeypair(
         job.payload.mint,
         amountSol,
         keypair,
-        { slippageBps }
+        { slippageBps, tgId: job.user_id }
       );
 
       return {
@@ -402,11 +405,14 @@ export class ExecutionLoop {
       const tokensToSell = position.size_tokens * (sellPercent / 100);
       const slippageBps = job.payload.slippage_bps || strategy.slippage_bps;
 
+      // Pass tgId to executor so it can fetch chain_settings for:
+      // - priority_sol (validator tip)
+      // - anti_mev_enabled (Jito bundles)
       const result = await solanaExecutor.executeSellWithKeypair(
         job.payload.mint,
         tokensToSell,
         keypair,
-        { slippageBps }
+        { slippageBps, tgId: job.user_id }
       );
 
       if (!result.success) {
