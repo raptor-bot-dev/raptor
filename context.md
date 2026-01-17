@@ -2,109 +2,84 @@
 
 **Date:** 2026-01-17
 **Branch:** `main`
-**Status:** Ready for deployment - all fixes complete
+**Status:** Deployed and armed - monitoring for first trade
 
 ---
 
 ## What Was Done This Session
 
-### 1. RPC Migration (Helius -> QuickNode)
-- Helius free tier was rate-limiting WebSocket (HTTP 429)
-- Migrated to QuickNode free tier (10M credits, 15 RPS)
-- Updated secrets on raptor-hunter and raptor-bot via Fly.io
+### 1. Token Parsing Fix (CRITICAL)
+- **Problem:** 100% of detected tokens failed to parse
+- **Root Cause:** PumpFunMonitor only handled versioned (v0) transactions
+- **Fix:** Added support for both versioned AND legacy transaction formats
+  - Versioned: `staticAccountKeys`, `compiledInstructions`, Uint8Array data
+  - Legacy: `accountKeys`, `instructions`, base64 string data
+- **File:** `apps/hunter/src/monitors/pumpfun.ts`
 
-### 2. Settings Panel Text Input Fixed
-- **Problem:** Settings wouldn't update when user entered values
-- **Root Cause:** `messages.ts` missing cases for v3 session steps
-- **Fix:** Added routing to `handleSettingsInput()` for:
-  - AWAITING_TRADE_SIZE
-  - AWAITING_MAX_POSITIONS
-  - AWAITING_TP_PERCENT
-  - AWAITING_SL_PERCENT
-  - AWAITING_SLIPPAGE_BPS
-  - AWAITING_PRIORITY_SOL
+### 2. Circuit Breaker Reset
+- Had 8 consecutive failures (threshold: 5)
+- `circuit_open_until` was blocking all trades
+- Reset via SQL: `UPDATE safety_controls SET circuit_open_until = NULL, consecutive_failures = 0`
 
-### 3. Slippage UX Improved
-- Changed from bps to percentage display/input
-- Range: 1-1000% (for high volatility launches)
-- Stored internally as bps (multiply by 100)
+### 3. Settings Panel Text Input Fixed
+- `messages.ts` missing cases for v3 session steps
+- Added routing to `handleSettingsInput()` for all settings edits
 
-### 4. MEV/Priority Fee Audit
-- Full audit of Jito and priority fee implementation
-- **Found bug:** Hunter wasn't passing tgId to executor
-- **Fixed:** Added `tgId: job.user_id` to buy/sell calls
-- User's priority_sol and anti_mev_enabled now active
+### 4. Slippage UX Changed to Percentage
+- Display: "10%" instead of "1000 bps"
+- Input: accepts 1-1000% (converted to bps internally)
+
+### 5. MEV/Priority Fee Audit
+- Hunter now passes `tgId: job.user_id` to executor
+- Enables user's priority_sol and anti_mev_enabled settings
 
 ---
 
 ## Current State
 
 - **Build:** `pnpm -w lint && pnpm -w build` passes
-- **RPC:** QuickNode free tier (secrets deployed)
-- **Bot:** Settings input working, slippage in %
-- **Hunter:** Passes tgId, MEV protection active
+- **Deployed:** Both apps deployed to Fly.io
+- **User:** Armed autohunt with 1 SOL funded wallet
+- **Circuit Breaker:** Reset and open
 
 ---
 
-## Deployment Commands
-
-```bash
-fly deploy -a raptor-bot
-fly deploy -a raptor-hunter
-```
-
----
-
-## Key Files Changed
+## Key Files Changed This Session
 
 | File | Change |
 |------|--------|
-| `apps/bot/src/handlers/messages.ts` | Added v3 settings session step routing |
+| `apps/hunter/src/monitors/pumpfun.ts` | Versioned + legacy tx parsing |
+| `apps/bot/src/handlers/messages.ts` | Settings session step routing |
 | `apps/bot/src/handlers/settingsHandler.ts` | Slippage % input conversion |
 | `apps/bot/src/ui/panels/settings.ts` | Slippage % display |
 | `apps/hunter/src/loops/execution.ts` | Pass tgId to executor |
 
 ---
 
-## MEV Protection Flow
+## Commits This Session
 
-```
-User Settings (Telegram)
-    ↓
-chain_settings (priority_sol, anti_mev_enabled)
-    ↓
-Hunter ExecutionLoop → { tgId: job.user_id }
-    ↓
-SolanaExecutor → fetches user's chain_settings
-    ↓
-Jito bundle (Jupiter) or priority fee (pump.fun)
-```
+1. `e5cb4c4` - fix(bot): settings input routing, slippage %, hunter MEV/priority
+2. `bb35ea2` - fix(hunter): handle both versioned and legacy tx parsing
 
 ---
 
-## User Action Required
+## Monitoring
 
-- Fund wallet with SOL to start trading
-- Wallet address: check Telegram bot Home panel
+Check hunter logs for successful token parsing:
+```
+[PumpFunMonitor] TX abc123... versioned=false, 5 ix, 12 accounts
+[PumpFunMonitor] Token: SYMBOL (mint_address)
+```
 
----
-
-## Smoke Test Checklist
-
-| Test | Expected | Status |
-|------|----------|--------|
-| Settings edit | Enter value, shows confirmation | [ ] |
-| Slippage display | Shows "10%" not "1000 bps" | [ ] |
-| Priority fee | Saves 0.0001 - 0.01 SOL | [ ] |
-| MEV toggle | ON/OFF toggles | [ ] |
-| Hunter WebSocket | Connected to QuickNode | [ ] |
-| Autohunt buy | Uses user's priority/MEV | [ ] |
+If still seeing "Failed to parse", the issue may be:
+1. RPC returning null (timing - increase retry delay)
+2. pump.fun changed Create instruction format (check discriminator)
 
 ---
 
 ## Fly.io Apps
 
-| App | Status | Action |
-|-----|--------|--------|
-| raptor-bot | needs deploy | `fly deploy -a raptor-bot` |
-| raptor-hunter | needs deploy | `fly deploy -a raptor-hunter` |
+| App | Status |
+|-----|--------|
+| raptor-bot | deployed |
+| raptor-hunter | deployed |

@@ -61,6 +61,13 @@ Single source of truth for current progress. Keep it brief.
   - ExecutionLoop passes `tgId: job.user_id` to buy/sell calls
   - Enables user's priority_sol and anti_mev_enabled settings
   - Jito MEV protection now active for autohunt trades
+- **Token parsing fixed for versioned+legacy tx** (2026-01-17):
+  - PumpFunMonitor was only handling versioned transactions (v0)
+  - Now supports both legacy and versioned transaction formats
+  - Fixed 100% token parse failure rate
+- **Circuit breaker reset** (2026-01-17):
+  - Had 8 consecutive failures blocking all trades
+  - Reset to allow execution
 - `pnpm -w lint && pnpm -w build` passes
 
 ## Design Notes
@@ -84,12 +91,8 @@ Single source of truth for current progress. Keep it brief.
 - Emergency sell implemented with idempotency. ✅
 
 ## Where we left off last
-- 2026-01-17 (late session): Full MEV/priority fee audit completed.
-- RPC switched from Helius to QuickNode (rate limiting fixed).
-- Settings panel text input now works (missing session step cases fixed).
-- Slippage UI now uses % instead of bps (1-1000% range).
-- Hunter execution loop now passes tgId to executor.
-- Jito MEV protection and user priority fees now active for autohunt.
-- Ready for deployment:
-  - `fly deploy -a raptor-bot`
-  - `fly deploy -a raptor-hunter`
+- 2026-01-17 (latest): Token parsing fix deployed.
+- Fixed PumpFunMonitor to handle both versioned and legacy transactions.
+- Circuit breaker reset (was blocking all trades due to 8 consecutive failures).
+- User armed autohunt with funded wallet (1 SOL).
+- Monitoring live for first successful trade execution.

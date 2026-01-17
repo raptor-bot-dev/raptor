@@ -3,6 +3,15 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-17
+- **fix(hunter): handle both versioned and legacy tx parsing**
+  - PumpFunMonitor was only handling versioned transactions (v0)
+  - Now correctly handles legacy transactions as well
+  - Versioned: staticAccountKeys, compiledInstructions, Uint8Array data
+  - Legacy: accountKeys, instructions, base64 string data
+  - This was causing 100% of token detections to fail parsing
+- **fix(db): reset circuit breaker** (manual intervention)
+  - Circuit breaker had 8 consecutive failures (threshold: 5)
+  - Reset circuit_open_until and consecutive_failures to allow trades
 - **fix(bot): settings panel text input not responding**
   - Added missing v3 autohunt settings session steps to messages.ts handleSessionFlow()
   - Now routes AWAITING_TRADE_SIZE, AWAITING_MAX_POSITIONS, AWAITING_TP_PERCENT,
