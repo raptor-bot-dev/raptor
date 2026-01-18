@@ -3,6 +3,11 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **fix(hunter): add pump.pro create discriminator** (15746be)
+  - pump.pro uses new discriminator: `[147,241,123,100,244,132,174,118]`
+  - PumpFunMonitor now checks all 3: legacy create, create_v2, pump.pro
+  - Fixes 100% token parse failure on pump.pro transactions
+  - Also reset circuit breaker (190 consecutive failures → 0)
 - **fix(bot): snipe mode panel errors** (5761fb9)
   - Remove checkmark emoji from buttons (violates panelKit no-emoji rule)
   - Use "[x] Speed" / "[x] Quality" for selected state instead

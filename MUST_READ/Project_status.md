@@ -143,7 +143,11 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-18 (latest): **Snipe mode & production bug fixes deployed**
+- 2026-01-18 (latest): **pump.pro discriminator fix deployed**
+  - P0: Added pump.pro create discriminator `[147,241,123,100,244,132,174,118]`
+  - P0: Reset circuit breaker (was 190 consecutive failures)
+  - Tokens from pump.pro can now be detected and sniped
+- 2026-01-18 (earlier): **Snipe mode & production bug fixes deployed**
   - P1: Snipe mode button emoji error fixed - changed "Speed ✓" to "[x] Speed"
   - P1: Snipe mode "message not modified" error fixed - early return when unchanged
   - P0: BigInt underflow in pumpFun.ts fixed - validation before BigInt ops
