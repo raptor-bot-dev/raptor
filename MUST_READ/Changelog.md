@@ -3,6 +3,9 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **fix(bot): prevent snipe mode 'message not modified' error** (5e4ca98)
+  - Clicking already-selected mode no longer shows "Error" toast
+  - Now shows friendly "Already set to Speed/Quality" message
 - **fix(tpsl): standardize on uuid_id and fix critical RPC bugs** (cf9cb34)
   - P0: Migration 015 - All RPC functions now use `uuid_id` (was INTEGER `id`)
   - P0: Backfill NULL `uuid_id` values + add NOT NULL constraint
