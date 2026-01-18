@@ -192,12 +192,26 @@ export class TpSlMonitorLoop {
           continue;
         }
 
-        // Compute trigger prices
-        const { tpPrice, slPrice } = computeTpSlPrices(
-          position.entry_price,
-          strategy.take_profit_percent,
-          strategy.stop_loss_percent
-        );
+        // Phase B audit fix: Use stored TP/SL prices when available
+        // Position prices are computed once at entry and are immutable
+        // Only fall back to strategy computation for legacy positions without stored prices
+        let tpPrice: number;
+        let slPrice: number;
+
+        if (position.tp_price != null && position.sl_price != null) {
+          // Use stored prices (preferred - immutable at entry)
+          tpPrice = Number(position.tp_price);
+          slPrice = Number(position.sl_price);
+        } else {
+          // Fall back to strategy computation for legacy positions
+          const computed = computeTpSlPrices(
+            position.entry_price,
+            strategy.take_profit_percent,
+            strategy.stop_loss_percent
+          );
+          tpPrice = computed.tpPrice;
+          slPrice = computed.slPrice;
+        }
 
         const trailActivationPrice = strategy.trailing_enabled
           ? computeTrailActivationPrice(

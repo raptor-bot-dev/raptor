@@ -17,6 +17,8 @@ import { depositMonitor } from './services/depositMonitor.js';
 import { rateLimitMiddleware } from './middleware/rateLimit.js';
 // v3.1 Trade monitor service
 import { startMonitorRefreshLoop, stopMonitorRefreshLoop } from './services/tradeMonitor.js';
+// v3.1 Notification poller (DB → Telegram delivery)
+import { createNotificationPoller } from './services/notifications.js';
 import { solanaExecutor } from '@raptor/executor/solana';
 import { shouldWrapTelegramText, wrapTelegramMarkdown, clampTelegramText } from './utils/panelWrap.js';
 
@@ -174,6 +176,11 @@ startMonitorRefreshLoop(bot as any, solanaExecutor).catch((err) => {
   console.error('Failed to start trade monitor loop:', err);
 });
 
+// Start notification poller (delivers DB notifications to Telegram)
+const notificationPoller = createNotificationPoller(bot as any);
+notificationPoller.start();
+console.log('✅ Notification poller started');
+
 console.log('✅ RAPTOR Bot is running');
 
 // Graceful shutdown
@@ -181,6 +188,8 @@ const stopRunner = async () => {
   console.log('Shutting down...');
   // P1-3 FIX: Stop trade monitor refresh loop
   stopMonitorRefreshLoop();
+  // Stop notification poller
+  notificationPoller.stop();
   await depositMonitor.stop();
   if (runner.isRunning()) {
     runner.stop();

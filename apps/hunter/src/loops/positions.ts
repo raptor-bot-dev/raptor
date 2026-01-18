@@ -85,6 +85,12 @@ export class PositionMonitorLoop {
    */
   private async checkExitConditions(position: PositionV31): Promise<void> {
     try {
+      // Phase B audit fix: Skip if already triggered by TP/SL engine
+      // This prevents duplicate exit jobs when both monitors run in parallel
+      if (position.trigger_state && position.trigger_state !== 'MONITORING') {
+        return;
+      }
+
       // Get strategy for exit parameters
       const strategy = await getStrategy(position.strategy_id);
       if (!strategy) {
@@ -206,22 +212,29 @@ export class PositionMonitorLoop {
         `[PositionMonitorLoop] Created ${trigger} exit job for position ${position.id}`
       );
 
-      // Create notification
+      // Create notification (Phase B audit fix: use correct notification types)
+      const pnlPercent = position.entry_price > 0
+        ? ((currentPrice - position.entry_price) / position.entry_price) * 100
+        : 0;
+
       await createNotification({
         userId: position.user_id,
         type:
           trigger === 'TP'
-            ? 'TAKE_PROFIT'
+            ? 'TP_HIT'
             : trigger === 'SL'
-              ? 'STOP_LOSS'
+              ? 'SL_HIT'
               : trigger === 'TRAIL'
-                ? 'TRAILING_STOP'
-                : 'MAX_HOLD',
+                ? 'TRAILING_STOP_HIT'
+                : 'POSITION_CLOSED',
         payload: {
-          position_id: position.id,
-          token: position.token_symbol,
+          positionId: position.id,
+          tokenSymbol: position.token_symbol || 'Unknown',
           trigger,
-          price: currentPrice,
+          triggerPrice: currentPrice,
+          pnlPercent,
+          solReceived: 0, // Updated after sell completes
+          txHash: '',     // Updated after sell completes
         },
       });
     } catch (error) {

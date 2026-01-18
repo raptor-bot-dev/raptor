@@ -245,15 +245,24 @@ export class ExitQueue extends EventEmitter {
         priority: job.priority,
       });
 
-      // Create notification
+      // Create notification with payload that matches formatter expectations
+      // FIX: Use tokenSymbol, pnlPercent, solReceived, txHash keys
+      const pnlPercent = position.entry_price > 0
+        ? ((job.triggerPrice - position.entry_price) / position.entry_price) * 100
+        : 0;
+
       await createNotification({
         userId: job.userId,
         type: this.triggerToNotificationType(job.trigger),
         payload: {
-          position_id: job.positionId,
-          token: position.token_symbol,
+          positionId: job.positionId,
+          tokenSymbol: position.token_symbol || 'Unknown',
           trigger: job.trigger,
-          price: job.triggerPrice,
+          triggerPrice: job.triggerPrice,
+          pnlPercent: pnlPercent,
+          // These will be updated by execution loop after sell completes
+          solReceived: 0,
+          txHash: '',
         },
       });
 
@@ -294,21 +303,22 @@ export class ExitQueue extends EventEmitter {
 
   /**
    * Map trigger to notification type
+   * FIX: Use correct NotificationType values that formatter expects
    */
   private triggerToNotificationType(
     trigger: ExitTrigger
-  ): 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'MAX_HOLD' | 'EMERGENCY_SELL' | 'TRADE_DONE' {
+  ): 'TP_HIT' | 'SL_HIT' | 'TRAILING_STOP_HIT' | 'POSITION_CLOSED' | 'TRADE_DONE' {
     switch (trigger) {
       case 'TP':
-        return 'TAKE_PROFIT';
+        return 'TP_HIT';
       case 'SL':
-        return 'STOP_LOSS';
+        return 'SL_HIT';
       case 'TRAIL':
-        return 'TRAILING_STOP';
+        return 'TRAILING_STOP_HIT';
       case 'MAXHOLD':
-        return 'MAX_HOLD';
+        return 'POSITION_CLOSED';
       case 'EMERGENCY':
-        return 'EMERGENCY_SELL';
+        return 'POSITION_CLOSED';
       default:
         return 'TRADE_DONE';
     }

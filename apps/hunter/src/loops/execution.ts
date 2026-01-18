@@ -21,6 +21,11 @@ import {
   getPositionById,
   loadSolanaKeypair,
   applySellFeeDecimal,
+  // TP/SL state machine functions (Phase B audit fix)
+  markPositionExecuting,
+  markTriggerCompleted,
+  markTriggerFailed,
+  getOpportunityById,
   type TradeJob,
   type Strategy,
   type EncryptedData,
@@ -173,6 +178,12 @@ export class ExecutionLoop {
         return;
       }
 
+      // 4a. For SELL actions: Mark position as EXECUTING before trade
+      // This is part of the TP/SL state machine (Phase B audit fix)
+      if (job.action === 'SELL' && job.payload.position_id) {
+        await markPositionExecuting(job.payload.position_id);
+      }
+
       // 4. Execute the trade
       let result;
       if (job.action === 'BUY') {
@@ -196,6 +207,11 @@ export class ExecutionLoop {
       if (result.success) {
         // 6. Create/close position
         if (job.action === 'BUY') {
+          // Get opportunity for bonding_curve (Phase B audit fix)
+          const opportunity = job.opportunity_id
+            ? await getOpportunityById(job.opportunity_id)
+            : null;
+
           await createPositionV31({
             userId: job.user_id,
             strategyId: job.strategy_id,
@@ -207,6 +223,10 @@ export class ExecutionLoop {
             entryCostSol: job.payload.amount_sol || 0,
             entryPrice: result.price || 0,
             sizeTokens: result.tokensReceived || 0,
+            // TP/SL engine fields (Phase B audit fix)
+            tpPercent: strategy.take_profit_percent,
+            slPercent: strategy.stop_loss_percent,
+            bondingCurve: opportunity?.bonding_curve || undefined,
           });
         } else if (job.payload.position_id) {
           await closePositionV31({
@@ -218,6 +238,8 @@ export class ExecutionLoop {
             realizedPnlSol: result.pnlSol || 0,
             realizedPnlPercent: result.pnlPercent || 0,
           });
+          // TP/SL state machine: Mark trigger as completed (Phase B audit fix)
+          await markTriggerCompleted(job.payload.position_id);
         }
 
         // 7. Set cooldown
@@ -254,6 +276,11 @@ export class ExecutionLoop {
       } else {
         // Handle failure
         const retryable = isRetryableError(result.errorCode);
+
+        // TP/SL state machine: Mark trigger as failed for SELL jobs (Phase B audit fix)
+        if (job.action === 'SELL' && job.payload.position_id) {
+          await markTriggerFailed(job.payload.position_id, result.error);
+        }
 
         await createNotification({
           userId: job.user_id,

@@ -1815,6 +1815,7 @@ export async function getPositionById(positionId: string): Promise<PositionV31 |
 
 /**
  * Create a new position
+ * FIX: Use tg_id (not user_id), set trigger_state, tp_price, sl_price, bonding_curve
  */
 export async function createPositionV31(position: {
   userId: number;
@@ -1829,11 +1830,23 @@ export async function createPositionV31(position: {
   entryCostSol: number;
   entryPrice: number;
   sizeTokens: number;
+  // TP/SL engine fields (Phase B audit fix)
+  tpPercent?: number;
+  slPercent?: number;
+  bondingCurve?: string;
 }): Promise<PositionV31> {
+  // Compute TP/SL prices at creation time (immutable for position lifetime)
+  const tpPrice = position.tpPercent && position.entryPrice > 0
+    ? position.entryPrice * (1 + position.tpPercent / 100)
+    : null;
+  const slPrice = position.slPercent && position.entryPrice > 0
+    ? position.entryPrice * (1 - position.slPercent / 100)
+    : null;
+
   const { data, error } = await supabase
     .from('positions')
     .insert({
-      user_id: position.userId,
+      tg_id: position.userId,  // FIX: was user_id, table uses tg_id
       strategy_id: position.strategyId,
       opportunity_id: position.opportunityId || null,
       chain: position.chain,
@@ -1848,6 +1861,11 @@ export async function createPositionV31(position: {
       current_price: position.entryPrice,
       status: 'OPEN',
       opened_at: new Date().toISOString(),
+      // TP/SL engine fields (Phase B audit fix)
+      trigger_state: 'MONITORING',
+      tp_price: tpPrice,
+      sl_price: slPrice,
+      bonding_curve: position.bondingCurve || null,
     })
     .select()
     .single();
@@ -1916,8 +1934,78 @@ export async function closePositionV31(params: {
 }
 
 // ============================================================================
+// TP/SL Engine State Machine Functions (Phase B Audit Fix)
+// ============================================================================
+
+/**
+ * Mark a position as executing (TRIGGERED → EXECUTING)
+ * Called before sending the sell transaction
+ */
+export async function markPositionExecuting(positionId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('mark_position_executing', {
+    p_position_id: positionId,
+  });
+
+  if (error) {
+    console.error('[markPositionExecuting] Error:', error);
+    return false;
+  }
+  return data === true;
+}
+
+/**
+ * Mark a trigger as completed (EXECUTING → COMPLETED)
+ * Called after successful sell execution
+ */
+export async function markTriggerCompleted(positionId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('mark_trigger_completed', {
+    p_position_id: positionId,
+  });
+
+  if (error) {
+    console.error('[markTriggerCompleted] Error:', error);
+    return false;
+  }
+  return data === true;
+}
+
+/**
+ * Mark a trigger as failed (EXECUTING → FAILED)
+ * Called after failed sell execution, allows retry
+ */
+export async function markTriggerFailed(positionId: string, errorMsg?: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('mark_trigger_failed', {
+    p_position_id: positionId,
+    p_error: errorMsg || null,
+  });
+
+  if (error) {
+    console.error('[markTriggerFailed] Error:', error);
+    return false;
+  }
+  return data === true;
+}
+
+// ============================================================================
 // Opportunity Functions
 // ============================================================================
+
+/**
+ * Get an opportunity by ID
+ */
+export async function getOpportunityById(opportunityId: string): Promise<OpportunityV31 | null> {
+  const { data, error } = await supabase
+    .from('opportunities')
+    .select('*')
+    .eq('id', opportunityId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data as OpportunityV31;
+}
 
 /**
  * Create or update an opportunity
