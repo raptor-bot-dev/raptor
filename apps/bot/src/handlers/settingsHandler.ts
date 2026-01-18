@@ -344,10 +344,11 @@ export async function handleSettingsInput(
       }
 
       case SESSION_STEPS.AWAITING_SLIPPAGE_BPS: {
-        // Accept percentage input (1-1000%), store as bps (*100)
+        // Accept percentage input (1-99%), store as bps (*100)
+        // Note: 100% slippage = accept 0 output, so cap at 99%
         const slipPercent = parseFloat(input);
-        if (isNaN(slipPercent) || slipPercent < 1 || slipPercent > 1000) {
-          await ctx.reply('Invalid value. Enter percentage between 1 and 1000.');
+        if (isNaN(slipPercent) || slipPercent < 1 || slipPercent > 99) {
+          await ctx.reply('Invalid value. Enter percentage between 1 and 99.');
           return true;
         }
         const slipBps = Math.round(slipPercent * 100);

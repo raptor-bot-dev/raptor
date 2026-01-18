@@ -441,9 +441,12 @@ export class PumpFunClient {
    * Note: pump.fun uses Token-2022 program for all tokens
    */
   async buy(params: PumpFunBuyParams): Promise<PumpFunTradeResult> {
-    const { mint, solAmount, minTokensOut, slippageBps = 500, priorityFeeSol } = params;
+    // Clamp slippage to 99% max (9900 bps) to prevent negative minTokens calculation
+    // At 100% slippage, minTokens = 0 which is valid but useless
+    const effectiveSlippageBps = Math.min(params.slippageBps ?? 500, 9900);
+    const { mint, solAmount, minTokensOut, priorityFeeSol } = params;
 
-    console.log(`[PumpFunClient] Buying with ${lamportsToSol(solAmount)} SOL, priorityFee: ${priorityFeeSol ?? 'default'} SOL`);
+    console.log(`[PumpFunClient] Buying with ${lamportsToSol(solAmount)} SOL, slippage: ${effectiveSlippageBps}bps, priorityFee: ${priorityFeeSol ?? 'default'} SOL`);
 
     // Derive PDAs - use Token-2022 for pump.fun tokens
     const [bondingCurve] = deriveBondingCurvePDA(mint);
@@ -482,10 +485,10 @@ export class PumpFunClient {
       state.virtualTokenReserves
     );
 
-    // Apply slippage
+    // Apply slippage (using clamped effectiveSlippageBps)
     const minTokens = minTokensOut > 0n
       ? minTokensOut
-      : (expectedTokens * BigInt(10000 - slippageBps)) / 10000n;
+      : (expectedTokens * BigInt(10000 - effectiveSlippageBps)) / 10000n;
 
     // Build transaction
     const transaction = new Transaction();
@@ -573,9 +576,11 @@ export class PumpFunClient {
    * Note: pump.fun uses Token-2022 program for all tokens
    */
   async sell(params: PumpFunSellParams): Promise<PumpFunTradeResult> {
-    const { mint, tokenAmount, minSolOut, slippageBps = 500, priorityFeeSol } = params;
+    // Clamp slippage to 99% max (9900 bps) to prevent negative minSol calculation
+    const effectiveSlippageBps = Math.min(params.slippageBps ?? 500, 9900);
+    const { mint, tokenAmount, minSolOut, priorityFeeSol } = params;
 
-    console.log(`[PumpFunClient] Selling ${tokenAmount} tokens, priorityFee: ${priorityFeeSol ?? 'default'} SOL`);
+    console.log(`[PumpFunClient] Selling ${tokenAmount} tokens, slippage: ${effectiveSlippageBps}bps, priorityFee: ${priorityFeeSol ?? 'default'} SOL`);
 
     // Derive PDAs - use Token-2022 for pump.fun tokens
     const [bondingCurve] = deriveBondingCurvePDA(mint);
@@ -613,10 +618,10 @@ export class PumpFunClient {
       state.virtualTokenReserves
     );
 
-    // Apply slippage
+    // Apply slippage (using clamped effectiveSlippageBps)
     const minSol = minSolOut > 0n
       ? minSolOut
-      : (expectedSol * BigInt(10000 - slippageBps)) / 10000n;
+      : (expectedSol * BigInt(10000 - effectiveSlippageBps)) / 10000n;
 
     // Build transaction
     const transaction = new Transaction();
