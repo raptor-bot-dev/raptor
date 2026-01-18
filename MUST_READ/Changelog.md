@@ -3,6 +3,15 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **fix(shared): handle object errors in parseError** (d25ae0d)
+  - Supabase errors are plain objects (not Error instances) thrown via `if (error) throw error;`
+  - parseError was calling String(error) → "[object Object]" instead of real message
+  - Now extracts .message, .error, or .details from object errors
+  - Fixes unhelpful error messages in job failure logs
+- **fix(hunter): add job staleness check to ExecutionLoop** (d1b86f3)
+  - Jobs older than 60 seconds are CANCELED (not FAILED) to avoid tripping circuit breaker
+  - Pump.fun token launch windows expire quickly; stale jobs are useless
+  - Fixes circuit breaker getting repeatedly tripped by old jobs failing
 - **fix(hunter): relax scoring hard stops for pump.pro tokens**
   - pump.fun API returning HTTP 530 for pump.pro tokens AND Metaplex metadata doesn't exist
   - Temporarily changed metadata rules from hard stops to soft failures:

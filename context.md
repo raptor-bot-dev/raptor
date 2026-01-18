@@ -2,11 +2,41 @@
 
 **Date:** 2026-01-18
 **Branch:** `main`
-**Status:** Phase B Complete - Production Bug Fixes Deployed
+**Status:** pump.pro Execution Debugging - Circuit Breaker Issue
 
 ---
 
-## Latest: Snipe Mode & Production Bug Fixes (2026-01-18)
+## Latest: pump.pro Token Support (2026-01-18 afternoon)
+
+### Current Blocker
+**Circuit breaker keeps tripping** - jobs are being created but failing during execution.
+
+### What's Working
+| Component | Status |
+|-----------|--------|
+| Token detection (WebSocket) | ✅ pump.pro discriminator recognized |
+| Metadata fetch | ✅ API → on-chain → fallback |
+| Scoring | ✅ Relaxed rules pass pump.pro |
+| Job creation | ✅ OpportunityLoop creates jobs |
+| Staleness check | ✅ Jobs > 60s canceled, not failed |
+| Error messages | ✅ parseError extracts real messages |
+
+### What Needs Investigation
+- Actual execution errors causing circuit breaker trips
+- With parseError fix, FAILED jobs should now have real error messages
+
+### Commits (This Session)
+- `d1b86f3` - fix(hunter): add job staleness check (60s TTL)
+- `d25ae0d` - fix(shared): handle object errors in parseError
+
+### Tomorrow's First Steps
+1. Reset circuit breaker
+2. Check FAILED jobs for actual error messages
+3. Investigate: wallet balance? bonding curve address? RPC errors?
+
+---
+
+## Previous: Snipe Mode & Production Bug Fixes (2026-01-18)
 
 ### What Was Fixed
 
@@ -125,7 +155,7 @@ btn('[x] Speed', CB.SETTINGS.SET_SNIPE_MODE_SPEED)
 
 - **Database**: Migrations 014 + 015 applied
 - **Bot**: v85 - Snipe mode fixes deployed
-- **Hunter**: v84 - uuid_id standardization deployed
+- **Hunter**: v95 - pump.pro support + staleness check + parseError fix
 - **Feature Flags**:
   - `TPSL_ENGINE_ENABLED=true` (shadow mode)
   - `LEGACY_POSITION_MONITOR=true` (parallel operation)

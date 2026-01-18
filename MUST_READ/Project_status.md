@@ -143,7 +143,15 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-18 (latest): **pump.pro on-chain metadata fallback deployed**
+- 2026-01-18 (latest): **pump.pro execution debugging - circuit breaker still tripping**
+  - P0: Fixed parseError to handle object errors (Supabase errors were showing as `[object Object]`)
+  - P0: Added job staleness check (60s TTL) - stale jobs now CANCELED instead of FAILED
+  - Jobs are being created successfully for pump.pro tokens
+  - Scoring passes (relaxed rules allow unknown holdings through)
+  - **BLOCKER**: Circuit breaker keeps tripping - need to investigate actual execution errors
+  - Next step: Check FAILED jobs for real error messages (parseError fix should help)
+  - Hunter deployed at v95
+- 2026-01-18 (earlier): **pump.pro on-chain metadata fallback deployed**
   - P0: pump.fun API returning HTTP 530 for all pump.pro tokens
   - P0: Added on-chain Metaplex Metadata Account fetch as fallback
   - P0: Tokens now get proper name/symbol/uri even when API is down
