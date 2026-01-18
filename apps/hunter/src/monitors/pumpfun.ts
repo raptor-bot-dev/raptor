@@ -126,12 +126,13 @@ export class PumpFunMonitor {
   }
 
   /**
-   * Subscribe to pump.fun program logs
+   * Subscribe to pump.fun and pump.pro program logs
    */
   private subscribe(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-    const message = {
+    // Subscribe to classic pump.fun program
+    const pumpFunMessage = {
       jsonrpc: '2.0',
       id: 1,
       method: 'logsSubscribe',
@@ -140,9 +141,21 @@ export class PumpFunMonitor {
         { commitment: 'confirmed' },
       ],
     };
+    this.ws.send(JSON.stringify(pumpFunMessage));
+    console.log('[PumpFunMonitor] Subscribed to pump.fun (classic) logs');
 
-    this.ws.send(JSON.stringify(message));
-    console.log('[PumpFunMonitor] Subscribed to pump.fun logs');
+    // Subscribe to pump.pro program (upgraded pump.fun, late 2025)
+    const pumpProMessage = {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'logsSubscribe',
+      params: [
+        { mentions: [PROGRAM_IDS.PUMP_PRO] },
+        { commitment: 'confirmed' },
+      ],
+    };
+    this.ws.send(JSON.stringify(pumpProMessage));
+    console.log('[PumpFunMonitor] Subscribed to pump.pro logs');
   }
 
   /**
@@ -180,9 +193,10 @@ export class PumpFunMonitor {
     try {
       const message = JSON.parse(data);
 
-      // Subscription confirmation
-      if (message.result !== undefined && message.id === 1) {
-        console.log(`[PumpFunMonitor] Subscription ID: ${message.result}`);
+      // Subscription confirmation (id 1 = pump.fun, id 2 = pump.pro)
+      if (message.result !== undefined && (message.id === 1 || message.id === 2)) {
+        const program = message.id === 1 ? 'pump.fun' : 'pump.pro';
+        console.log(`[PumpFunMonitor] ${program} subscription ID: ${message.result}`);
         return;
       }
 
@@ -208,11 +222,15 @@ export class PumpFunMonitor {
     signature: string,
     logs: string[]
   ): Promise<void> {
-    // Look for Create instruction
+    // Look for Create instruction in both pump.fun and pump.pro programs
     const isCreate = logs.some(
       (log) =>
         log.includes('Program log: Instruction: Create') ||
+        // Classic pump.fun
         (log.includes('Program 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P') &&
+          logs.some((l) => l.includes('InitializeMint'))) ||
+        // pump.pro (upgraded pump.fun)
+        (log.includes('Program proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u') &&
           logs.some((l) => l.includes('InitializeMint')))
     );
 
@@ -306,9 +324,11 @@ export class PumpFunMonitor {
       console.log(`[PumpFunMonitor] Program IDs: ${programIds.join(', ')}`);
 
       const foundDiscriminators: string[] = [];
+      const pumpProgramIds = [PROGRAM_IDS.PUMP_FUN, PROGRAM_IDS.PUMP_PRO];
       for (const ix of rawInstructions) {
         const programId = accountKeys[ix.programIdIndex];
-        if (programId?.toBase58() === PROGRAM_IDS.PUMP_FUN) {
+        const programIdStr = programId?.toBase58();
+        if (pumpProgramIds.includes(programIdStr)) {
           // Handle data format: Uint8Array for versioned, base58 string for legacy
           const data = isVersioned
             ? Buffer.from((ix as VersionedInstruction).data)
@@ -316,7 +336,7 @@ export class PumpFunMonitor {
 
           // Log discriminator for debugging
           const disc = data.slice(0, 8);
-          foundDiscriminators.push(`[${Array.from(disc).join(',')}]`);
+          foundDiscriminators.push(`[${Array.from(disc).join(',')}] (${programIdStr === PROGRAM_IDS.PUMP_PRO ? 'pump.pro' : 'pump.fun'})`);
 
           // Check for both legacy create and current create_v2
           if (disc.equals(CREATE_DISCRIMINATOR) || disc.equals(CREATE_V2_DISCRIMINATOR)) {
@@ -325,6 +345,7 @@ export class PumpFunMonitor {
             createAccounts = isVersioned
               ? [...(ix as VersionedInstruction).accountKeyIndexes]
               : [...(ix as LegacyInstruction).accounts];
+            console.log(`[PumpFunMonitor] Found Create instruction from ${programIdStr === PROGRAM_IDS.PUMP_PRO ? 'pump.pro' : 'pump.fun'}`);
             break;
           }
         }

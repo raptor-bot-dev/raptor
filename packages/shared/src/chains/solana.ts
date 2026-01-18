@@ -10,6 +10,7 @@ export const SPL_TOKEN_DECIMALS = 6; // Most SPL tokens use 6 decimals
 // Known program IDs
 export const PROGRAM_IDS = {
   PUMP_FUN: '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P',
+  PUMP_PRO: 'proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u', // pump.pro (upgraded pump.fun, late 2025)
   PUMP_FUN_GLOBAL: '4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf', // Global state
   PUMP_FUN_FEE: 'CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM', // Fee recipient
   PUMP_FUN_EVENT_AUTHORITY: 'Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1', // Event authority
