@@ -28,6 +28,8 @@ export type PumpFunEventHandler = (event: PumpFunEvent) => Promise<void>;
 const CREATE_DISCRIMINATOR = Buffer.from([24, 30, 200, 40, 5, 28, 7, 119]);
 // Current (2025+): sha256("global:create_v2")[0..8]
 const CREATE_V2_DISCRIMINATOR = Buffer.from([214, 144, 76, 236, 95, 139, 49, 180]);
+// pump.pro (2026+): sha256("global:create")[0..8] on new program
+const CREATE_PRO_DISCRIMINATOR = Buffer.from([147, 241, 123, 100, 244, 132, 174, 118]);
 
 export class PumpFunMonitor {
   private rpcUrl: string;
@@ -338,8 +340,8 @@ export class PumpFunMonitor {
           const disc = data.slice(0, 8);
           foundDiscriminators.push(`[${Array.from(disc).join(',')}] (${programIdStr === PROGRAM_IDS.PUMP_PRO ? 'pump.pro' : 'pump.fun'})`);
 
-          // Check for both legacy create and current create_v2
-          if (disc.equals(CREATE_DISCRIMINATOR) || disc.equals(CREATE_V2_DISCRIMINATOR)) {
+          // Check for legacy create, create_v2, and pump.pro create
+          if (disc.equals(CREATE_DISCRIMINATOR) || disc.equals(CREATE_V2_DISCRIMINATOR) || disc.equals(CREATE_PRO_DISCRIMINATOR)) {
             createData = data;
             // Handle account indexes: accountKeyIndexes for versioned, accounts for legacy
             createAccounts = isVersioned
