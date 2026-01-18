@@ -59,7 +59,7 @@ async function main() {
   }
 
   // Initialize loops
-  const opportunityLoop = new OpportunityLoop();
+  const opportunityLoop = new OpportunityLoop(autoExecuteEnabled);
   const executionLoop = new ExecutionLoop(workerId, autoExecuteEnabled);
   const maintenanceLoop = new MaintenanceLoop();
 

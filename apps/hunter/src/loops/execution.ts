@@ -175,6 +175,7 @@ export class ExecutionLoop {
         tokenMint: job.payload.mint,
         amountSol: job.payload.amount_sol || 0,
         idempotencyKey: job.idempotency_key,
+        allowRetry: job.attempts > 0,
       });
 
       if (!reservation.allowed) {

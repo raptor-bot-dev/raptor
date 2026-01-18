@@ -2,6 +2,19 @@
 
 Scope: Autohunt pipeline A-Z (UI -> strategy persistence -> opportunity intake -> scoring/filters -> trade jobs -> execution -> notifications).
 
+## Status Update (post pump.pro metadata issues)
+- Social metadata hard stops are relaxed to soft scoring (URI/Twitter/website/image are not hard stops).
+- Creator holdings <=10% is bypassed when holdings are unknown (allows pump.pro timing issues).
+- Snipe mode still sets metadata timeout, but no forced full fetch (speed can skip more often).
+
+## Status Update (post-implementation)
+- Retryable jobs can reuse FAILED executions via `p_allow_retry` (Migration 016).
+- OpportunityLoop now scores per snipe mode (speed vs quality) and avoids early COMPLETED.
+- Auto-execute disabled now prevents job creation (marks QUALIFIED only).
+- Token allowlist enforced when configured.
+- Legacy hunt callbacks route to new Arm/Disarm + Settings panels.
+- Settings slippage copy aligned to 1-99%; snipe mode UI normalized to speed/quality.
+
 ## Flow Map (A-Z)
 1) User edits autohunt settings (trade size, TP/SL, slippage, priority, snipe mode).
    - UI: `raptor/apps/bot/src/ui/panels/settings.ts`
@@ -28,99 +41,145 @@ Scope: Autohunt pipeline A-Z (UI -> strategy persistence -> opportunity intake -
 ## Key Findings (by severity)
 
 ### P0 - Logic/Consistency
-1) **Legacy hunt UI still active and inconsistent with current strategy settings.**
+1) **Retryable autohunt jobs cannot actually retry.**
+   - ExecutionLoop marks executions as FAILED even when the job is retryable.
+   - `reserve_trade_budget` blocks any retry once an execution is FAILED ("Already executed").
+   - Result: retryable jobs are re-queued but immediately rejected on the next attempt.
+   - Files: `raptor/apps/hunter/src/loops/execution.ts`, `raptor/packages/database/migrations/009_manual_trade_fix.sql`
+
+2) **Legacy hunt UI still active and inconsistent with current strategy settings.**
    - Legacy callbacks (`menu_hunt`, `hunt_chain_*`, etc.) still route to `raptor/apps/bot/src/commands/hunt.ts`.
    - That flow uses `hunt_settings` (user_settings) with different defaults (minScore=23, snipeMode=balanced) and a different field model (maxPositionSize vs max_positions).
    - Risk: users can update old panels and drift from strategy-based settings used by autohunt execution.
    - Files: `raptor/apps/bot/src/handlers/callbacks.ts`, `raptor/apps/bot/src/commands/hunt.ts`, `raptor/packages/shared/src/supabase.ts`
 
-2) **Opportunity status mislabels duplicates as failures.**
+3) **Opportunity lifecycle is inconsistent (duplicates and early COMPLETED).**
    - In `raptor/apps/hunter/src/loops/opportunities.ts`, duplicate job creation is treated as failure (jobsCreated stays 0).
    - This sets opportunity status to REJECTED even though jobs already exist, and prevents `complete_opportunity_if_terminal` from resolving the opportunity.
+   - Opportunities are marked COMPLETED immediately after job creation, so DB outcome updates never run (they require status EXECUTING).
    - Files: `raptor/apps/hunter/src/loops/opportunities.ts`, `raptor/packages/database/migrations/006_v31_complete.sql`
 
 ### P1 - Functional Gaps
-3) **Strategy allowlist is never enforced.**
+4) **AUTO_EXECUTE_ENABLED does not gate job creation.**
+   - `OpportunityLoop` still creates jobs even when auto-execute is disabled (env flag).
+   - Jobs may accumulate and execute later unexpectedly.
+   - Files: `raptor/apps/hunter/src/index.ts`, `raptor/apps/hunter/src/loops/opportunities.ts`
+
+5) **Strategy allowlist is never enforced.**
    - `strategyMatchesOpportunity` ignores `token_allowlist` entirely.
    - Users expecting allowlist-only autohunt will still buy anything that passes scoring.
    - File: `raptor/apps/hunter/src/loops/opportunities.ts`
 
-4) **Min liquidity filter is effectively no-op for pump.fun.**
+6) **Min liquidity filter is effectively no-op for pump.fun.**
    - `opportunity.initial_liquidity_sol` is never populated for pump.fun creates, so min_liquidity checks are skipped.
    - File: `raptor/apps/hunter/src/loops/opportunities.ts` + `raptor/packages/shared/src/supabase.ts`
 
-5) **Snipe mode is per-user but globally aggregated.**
+7) **Snipe mode is per-user but globally aggregated.**
    - `getMostThoroughSnipeMode()` chooses the slowest mode across all enabled strategies.
    - A single “quality” user forces 2s metadata waits for all “speed” users.
    - File: `raptor/apps/hunter/src/loops/opportunities.ts`
 
+8) **Global quality gate is relaxed for pump.pro testing.**
+   - Social metadata rules and holdings checks are no longer hard stops.
+   - This allows trades without socials or verified holdings when metadata is missing.
+   - File: `raptor/apps/hunter/src/scoring/rules.ts`
+
 ### P2 - Design/UX Mismatches
-6) **Priority fee source mismatch.**
+9) **Priority fee source mismatch.**
    - Autohunt jobs store `priority_fee_lamports` (strategy), but ExecutionLoop ignores it and uses `chain_settings.priority_sol` via tgId.
    - User-facing priority control in Settings updates `chain_settings`, not strategy.
    - Potential confusion and stale strategy field.
    - Files: `raptor/apps/hunter/src/loops/opportunities.ts`, `raptor/apps/hunter/src/loops/execution.ts`, `raptor/apps/bot/src/handlers/settingsHandler.ts`
 
-7) **Slippage UI mismatch.**
+10) **Slippage UI mismatch.**
    - UI prompt says “1-1000%”, handler rejects >99%.
    - File: `raptor/apps/bot/src/ui/panels/settings.ts`, `raptor/apps/bot/src/handlers/settingsHandler.ts`
 
-8) **Global min-score floor is implicit.**
+11) **Global min-score floor is implicit.**
    - `scoreOpportunity` uses `MIN_QUALIFICATION_SCORE = 23`, so user `min_score < 23` never takes effect.
-   - Legacy UI still displays “score /35” while scoring weights sum to 58.
+   - Legacy UI still displays “score /35” while scoring weights sum to 63.
    - Files: `raptor/apps/hunter/src/scoring/scorer.ts`, `raptor/apps/bot/src/commands/hunt.ts`
 
-9) **AUTO_EXECUTE_ENABLED does not gate job creation.**
-   - `OpportunityLoop` still creates jobs even when auto-execute is disabled (env flag).
-   - Jobs may accumulate and execute later unexpectedly.
-   - Files: `raptor/apps/hunter/src/index.ts`, `raptor/apps/hunter/src/loops/opportunities.ts`
+12) **Snipe mode UI is inconsistent with stored values.**
+   - New Settings only exposes speed/quality, but legacy hunt can set balanced.
+   - Settings display treats any non-speed as “Quality”, masking “balanced”.
+   - Files: `raptor/apps/bot/src/ui/panels/settings.ts`, `raptor/apps/bot/src/commands/hunt.ts`
 
 ## Fix Plan (no code changes yet)
 
 ### P0 - Unify autohunt settings surface
-1) Retire legacy hunt settings UI or route legacy callbacks to new panels.
+1) Fix retryable job idempotency.
+   - Ensure retryable trade jobs can reuse their execution record.
+   - Option A: For retryable failures, keep execution status non-terminal (do not set FAILED).
+   - Option B: Allow `reserve_trade_budget` to reopen a FAILED execution when the job is retrying.
+   - Files: `raptor/apps/hunter/src/loops/execution.ts`, `raptor/packages/database/migrations/009_manual_trade_fix.sql`
+
+2) Retire legacy hunt settings UI or route legacy callbacks to new panels.
    - Option A: Remove `menu_hunt` legacy flow and forward to `CB.HUNT.*`/Settings.
    - Option B: Keep legacy UI but fully sync all fields both ways (not recommended).
    - Files: `raptor/apps/bot/src/handlers/callbacks.ts`, `raptor/apps/bot/src/commands/hunt.ts`
 
-2) Treat duplicate trade jobs as already-created (not failure).
+3) Fix opportunity lifecycle and dedupe handling.
    - If duplicate key, increment “created” count or mark status as COMPLETED/ALREADY_QUEUED.
    - Use `scoring.hardStopReason` in `status_reason` when hard stops occur.
+   - Keep opportunities in EXECUTING until jobs are terminal; let DB function set outcome.
    - File: `raptor/apps/hunter/src/loops/opportunities.ts`
 
 ### P1 - Close functional gaps
-3) Enforce `token_allowlist` if non-empty.
+4) Gate job creation when auto-execute is disabled.
+   - If `AUTO_EXECUTE_ENABLED` is false, skip job creation and mark opportunities as QUALIFIED only.
+   - Files: `raptor/apps/hunter/src/index.ts`, `raptor/apps/hunter/src/loops/opportunities.ts`
+
+5) Enforce `token_allowlist` if non-empty.
    - Only match strategies when mint is in allowlist, or explicitly document if not supported.
    - File: `raptor/apps/hunter/src/loops/opportunities.ts`
 
-4) Either compute initial liquidity for pump.fun or drop the min_liquidity filter.
+6) Either compute initial liquidity for pump.fun or drop the min_liquidity filter.
    - If keeping it, populate `initial_liquidity_sol` at detection time or from bonding-curve state.
    - Files: `raptor/apps/hunter/src/loops/opportunities.ts`, `raptor/apps/hunter/src/monitors/pumpfun.ts`
 
-5) Per-user snipe mode behavior.
+7) Per-user snipe mode behavior.
    - Option A: Partition scoring by snipe mode (per-user metadata fetch).
    - Option B: Remove “speed” in multi-user contexts and document quality-only behavior.
    - File: `raptor/apps/hunter/src/loops/opportunities.ts`
 
+8) Decide if relaxed quality gate is acceptable for pump.pro testing.
+   - Option A: Keep relaxed until pump.pro metadata stabilizes.
+   - Option B: Re-enable hard stops and block tokens without socials/holdings.
+   - File: `raptor/apps/hunter/src/scoring/rules.ts`
+
 ### P2 - UX alignment and cleanup
-6) Align priority fee behavior.
+9) Align priority fee behavior.
    - Either pass job payload priority to executor OR remove strategy priority to avoid confusion.
    - Files: `raptor/apps/hunter/src/loops/execution.ts`, `raptor/apps/bot/src/handlers/settingsHandler.ts`
 
-7) Fix slippage range mismatch in settings.
+10) Fix slippage range mismatch in settings.
    - Align prompt text and validation range.
    - Files: `raptor/apps/bot/src/ui/panels/settings.ts`, `raptor/apps/bot/src/handlers/settingsHandler.ts`
 
-8) Make global min-score floor explicit.
+11) Make global min-score floor explicit.
    - Expose the floor in UI or adjust `MIN_QUALIFICATION_SCORE` to match user range.
    - Update legacy UI or remove it.
    - Files: `raptor/apps/hunter/src/scoring/scorer.ts`, `raptor/apps/bot/src/commands/hunt.ts`
 
-9) Gate job creation when auto-execute is disabled.
-   - If `AUTO_EXECUTE_ENABLED` is false, skip job creation or mark opportunity as QUALIFIED only.
-   - Files: `raptor/apps/hunter/src/index.ts`, `raptor/apps/hunter/src/loops/opportunities.ts`
+12) Align snipe mode UI with stored values.
+   - Either remove “balanced” from legacy flows or surface it in Settings.
+   - Files: `raptor/apps/bot/src/ui/panels/settings.ts`, `raptor/apps/bot/src/commands/hunt.ts`
 
 ## Implementation Plan (detailed tasks + owners)
+
+### P0.0 Retryable job idempotency
+Owner: Hunter agent + DB agent
+Tasks:
+- Ensure retryable jobs can re-use the same execution record.
+  - Option A: If a job is retryable, do not set execution status to FAILED; keep it RESERVE/SUBMITTED and update on success or final failure.
+  - Option B: Update `reserve_trade_budget` to allow reopening a FAILED execution when the trade job is retrying.
+- Decide which layer owns this behavior (ExecutionLoop vs RPC).
+Files:
+- `raptor/apps/hunter/src/loops/execution.ts`
+- `raptor/packages/database/migrations/009_manual_trade_fix.sql`
+Acceptance:
+- Retryable jobs execute more than once and do not immediately fail with “Already executed”.
 
 ### P0.1 Unify autohunt settings (single source of truth)
 Owner: Bot agent
@@ -144,14 +203,25 @@ Tasks:
 - Make `createBuyJob()` return a result (created / deduped / failed).
   - If Supabase returns existing job (duplicate idempotency key), treat as `deduped` and count as created.
 - Adjust opportunity status rules:
-  - If at least one job created/deduped, set status to EXECUTING (not REJECTED).
-  - If all matching strategies were deduped, optionally check if existing jobs are terminal and set COMPLETED.
+  - If at least one job created/deduped, keep status as EXECUTING (do not mark COMPLETED early).
+  - If all matching strategies were deduped, check existing jobs and set COMPLETED only when terminal.
 - Add `status_reason` for rejections using `scoring.hardStopReason` or “score below minimum.”
 Files:
 - `raptor/apps/hunter/src/loops/opportunities.ts`
 - `raptor/packages/shared/src/supabase.ts` (optional helper to query jobs by opportunity)
 Acceptance:
 - Duplicate token events never mark opportunities as REJECTED when jobs already exist.
+- Opportunities do not bypass DB outcome updates.
+
+### P1.0 Gate job creation when auto-execute is disabled
+Owner: Hunter agent
+Tasks:
+- If `AUTO_EXECUTE_ENABLED` is false, skip job creation and mark opportunities as QUALIFIED with reason.
+- Prevent backlog of jobs that execute unexpectedly later.
+Files:
+- `raptor/apps/hunter/src/loops/opportunities.ts`
+Acceptance:
+- Monitor-only mode does not create trade_jobs.
 
 ### P1.1 Enforce token allowlist
 Owner: Hunter agent
@@ -191,6 +261,16 @@ Files:
 Acceptance:
 - Speed users are not forced into quality delays by other users.
 
+### P1.4 Decide relaxed quality gate behavior (pump.pro)
+Owner: Hunter agent
+Tasks:
+- Confirm whether relaxed rules are intentional for testing.
+- If not, re-enable hard stops for socials and holdings.
+Files:
+- `raptor/apps/hunter/src/scoring/rules.ts`
+Acceptance:
+- Policy matches current testing goals (relaxed vs strict).
+
 ### P2.1 Align priority fee source of truth
 Owner: Hunter agent + Bot agent
 Tasks (Option A: chain_settings only):
@@ -227,15 +307,16 @@ Files:
 Acceptance:
 - User min_score behaves as expected with no hidden global floor.
 
-### P2.4 Gate job creation when AUTO_EXECUTE is disabled
-Owner: Hunter agent
+### P2.4 Align snipe mode UI with stored values
+Owner: Bot agent
 Tasks:
-- If `AUTO_EXECUTE_ENABLED` is false, skip job creation and mark opportunities as QUALIFIED with reason.
-- Prevent backlog of jobs that execute unexpectedly later.
+- Remove “balanced” from legacy flows or surface it in the Settings panel.
+- If legacy is removed, ensure Settings is the only source.
 Files:
-- `raptor/apps/hunter/src/loops/opportunities.ts`
+- `raptor/apps/bot/src/ui/panels/settings.ts`
+- `raptor/apps/bot/src/commands/hunt.ts`
 Acceptance:
-- Monitor-only mode does not create trade_jobs.
+- Snipe mode shown in UI matches the stored value.
 
 ## Documentation Updates
 Owner: Docs agent

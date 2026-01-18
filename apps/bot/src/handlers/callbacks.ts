@@ -214,6 +214,19 @@ export async function handleCallbackQuery(ctx: MyContext) {
       return; // Handled by new router
     }
 
+    // v4.4: Route legacy hunt callbacks to new autohunt panels
+    if (
+      data === 'back_to_hunt' ||
+      data === 'menu_hunt' ||
+      data === 'hunt' ||
+      data.startsWith('hunt_')
+    ) {
+      const { showHunt } = await import('./huntHandler.js');
+      await showHunt(ctx);
+      await ctx.answerCallbackQuery('Hunt settings moved to Settings');
+      return;
+    }
+
     // === NAVIGATION ===
     // v3.5: Redirect legacy navigation callbacks to v3 Home panel
     if (data === 'back_to_menu' || data === 'menu' || data === 'back_to_start') {

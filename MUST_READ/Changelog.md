@@ -3,6 +3,20 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **fix(db): allow retryable auto jobs to reuse executions**
+  - Added migration 016 to extend `reserve_trade_budget` with `p_allow_retry`
+  - FAILED executions can be reused for retryable trade job attempts
+  - Prevents immediate "Already executed" failures on queued retries
+- **fix(hunter): per-user snipe scoring + opportunity lifecycle cleanup**
+  - Score/metadata fetch now runs per snipe mode (speed vs quality) in parallel
+  - Opportunities stay EXECUTING until DB terminal state (no early COMPLETED)
+  - Auto-execute disabled blocks job creation (records QUALIFIED only)
+  - Enforce `token_allowlist` when present
+  - Remove unused `priority_fee_lamports` from job payloads (chain_settings remains source)
+- **fix(bot): legacy hunt callbacks redirect to new panels**
+  - All `hunt_*` callbacks open new Arm/Disarm flow and Settings
+  - Snipe mode UI normalized to speed/quality (balanced treated as quality)
+  - Slippage prompt text aligned to 1-99% validation
 - **fix(shared): handle object errors in parseError** (d25ae0d)
   - Supabase errors are plain objects (not Error instances) thrown via `if (error) throw error;`
   - parseError was calling String(error) → "[object Object]" instead of real message

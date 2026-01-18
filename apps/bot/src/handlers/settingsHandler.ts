@@ -97,6 +97,7 @@ export async function showSettings(ctx: MyContext): Promise<void> {
       getOrCreateAutoStrategy(userId, 'sol'),
       getOrCreateChainSettings(userId, 'sol'),
     ]);
+    const snipeMode = strategy.snipe_mode === 'speed' ? 'speed' : 'quality';
 
     const settingsData: SettingsData = {
       tradeSize: strategy.max_per_trade_sol ?? 0.1,
@@ -106,7 +107,7 @@ export async function showSettings(ctx: MyContext): Promise<void> {
       slippageBps: strategy.slippage_bps ?? 1000,
       prioritySol: chainSettings.priority_sol ?? 0.0005,
       antiMevEnabled: chainSettings.anti_mev_enabled ?? true,
-      snipeMode: strategy.snipe_mode ?? 'quality',
+      snipeMode,
     };
 
     const panel = renderSettings(settingsData);
@@ -273,7 +274,7 @@ async function showSnipeMode(ctx: MyContext): Promise<void> {
 
   try {
     const strategy = await getOrCreateAutoStrategy(userId, 'sol');
-    const mode = strategy.snipe_mode ?? 'quality';
+    const mode = strategy.snipe_mode === 'speed' ? 'speed' : 'quality';
     const panel = renderSnipeModeSelection(mode);
 
     await ctx.editMessageText(panel.text, panel.opts);

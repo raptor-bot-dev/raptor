@@ -1552,6 +1552,7 @@ export async function updateStrategy(
 /**
  * Reserve trade budget atomically
  * Checks all safety controls, limits, and cooldowns before reserving
+ * allowRetry: reuse FAILED executions for retryable job attempts
  */
 export async function reserveTradeBudget(params: {
   mode: TradeMode;
@@ -1562,6 +1563,7 @@ export async function reserveTradeBudget(params: {
   tokenMint: string;
   amountSol: number;
   idempotencyKey: string;
+  allowRetry?: boolean;
 }): Promise<ReserveBudgetResult> {
   const { data, error } = await supabase.rpc('reserve_trade_budget', {
     p_mode: params.mode,
@@ -1572,6 +1574,7 @@ export async function reserveTradeBudget(params: {
     p_token_mint: params.tokenMint,
     p_amount_sol: params.amountSol,
     p_idempotency_key: params.idempotencyKey,
+    p_allow_retry: params.allowRetry ?? false,
   });
 
   if (error) throw error;

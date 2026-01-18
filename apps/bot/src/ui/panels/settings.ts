@@ -23,7 +23,7 @@ export interface SettingsData {
   slippageBps: number;
   prioritySol: number; // Priority fee in SOL (validator tip)
   antiMevEnabled: boolean; // MEV protection via Jito
-  snipeMode: 'speed' | 'balanced' | 'quality';
+  snipeMode: 'speed' | 'quality';
 }
 
 /**
@@ -166,7 +166,7 @@ export function renderEditSlippage(currentValue: number): Panel {
   return renderSettingsEditPrompt(
     'Slippage',
     `${currentValue / 100}%`,
-    'percentage (1-1000)',
+    'percentage (1-99)',
     '10'
   );
 }
@@ -190,7 +190,7 @@ export function renderEditPriority(currentValue: number): Panel {
 /**
  * Render snipe mode selection panel
  */
-export function renderSnipeModeSelection(currentMode: 'speed' | 'balanced' | 'quality'): Panel {
+export function renderSnipeModeSelection(currentMode: 'speed' | 'quality'): Panel {
   const currentLabel = currentMode === 'speed' ? 'Speed' : 'Quality';
   const lines: string[] = [
     stat('Current', currentLabel),

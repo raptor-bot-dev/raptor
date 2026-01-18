@@ -94,6 +94,16 @@ Single source of truth for current progress. Keep it brief.
   - pumpFun.ts now validates BigInt operations to prevent underflow
   - Jupiter slippage clamped to 9900 bps (99%) max
   - Fixes RangeError crashes with high slippage settings
+- **Autohunt retry and lifecycle fixes** (2026-01-18):
+  - Retryable jobs can reuse executions (reserve_trade_budget allow-retry)
+  - OpportunityLoop uses per-mode scoring (speed vs quality)
+  - Opportunities remain EXECUTING until jobs are terminal
+  - Auto-execute disabled skips job creation (QUALIFIED only)
+  - Token allowlist now enforced when set
+- **Legacy hunt UI routed to new panels** (2026-01-18):
+  - Legacy hunt callbacks now open Arm/Disarm + Settings
+  - Snipe mode normalized to speed/quality in Settings
+  - Slippage prompt aligned to 1-99%
 - `pnpm -w lint && pnpm -w build` passes
 
 ## Design Notes
@@ -143,6 +153,11 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
+- 2026-01-18 (latest): **Autohunt retry + lifecycle updates ready for testing**
+  - Migration 016 adds `p_allow_retry` to reserve_trade_budget
+  - OpportunityLoop runs per-mode metadata scoring and avoids early COMPLETED
+  - Legacy hunt callbacks now route to new panels
+  - Settings slippage copy and snipe mode UI normalized
 - 2026-01-18 (latest): **pump.pro execution debugging - circuit breaker still tripping**
   - P0: Fixed parseError to handle object errors (Supabase errors were showing as `[object Object]`)
   - P0: Added job staleness check (60s TTL) - stale jobs now CANCELED instead of FAILED

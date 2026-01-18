@@ -35,7 +35,17 @@ export async function showHunt(ctx: MyContext): Promise<void> {
       // Already armed - show disarm confirmation
       const positions = await getUserOpenPositions(userId);
       const panel = renderDisarmConfirm(positions.length);
-      await ctx.reply(panel.text, panel.opts);
+      if (ctx.callbackQuery) {
+        try {
+          await ctx.editMessageText(panel.text, panel.opts);
+        } catch (error) {
+          if (!(error instanceof Error && error.message.includes('message is not modified'))) {
+            throw error;
+          }
+        }
+      } else {
+        await ctx.reply(panel.text, panel.opts);
+      }
     } else {
       // Not armed - show arm confirmation with settings
       if (!strategy.max_per_trade_sol || strategy.max_per_trade_sol <= 0) {
@@ -52,7 +62,17 @@ export async function showHunt(ctx: MyContext): Promise<void> {
       };
 
       const panel = renderArmConfirm(armData);
-      await ctx.reply(panel.text, panel.opts);
+      if (ctx.callbackQuery) {
+        try {
+          await ctx.editMessageText(panel.text, panel.opts);
+        } catch (error) {
+          if (!(error instanceof Error && error.message.includes('message is not modified'))) {
+            throw error;
+          }
+        }
+      } else {
+        await ctx.reply(panel.text, panel.opts);
+      }
     }
   } catch (error) {
     console.error('Error showing hunt:', error);
