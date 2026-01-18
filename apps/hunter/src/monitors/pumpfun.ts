@@ -7,6 +7,82 @@ import WebSocket from 'ws';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { SOLANA_CONFIG, PROGRAM_IDS, isValidSolanaAddress } from '@raptor/shared';
 
+// Metaplex Token Metadata Program ID
+const METAPLEX_METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+
+// pump.fun API response type (includes more fields than we were using)
+interface PumpFunApiResponse {
+  name?: string;
+  symbol?: string;
+  uri?: string;              // metadata JSON URI (IPFS/Arweave)
+  metadata_uri?: string;     // alternative field name
+  image_uri?: string;        // direct image URL (not metadata)
+  twitter?: string;
+  telegram?: string;
+  website?: string;
+  description?: string;
+}
+
+/**
+ * Fetch metadata URI from on-chain Metaplex Metadata Account
+ * This is a fallback when the pump.fun API is unavailable
+ */
+async function fetchOnChainMetadata(
+  connection: Connection,
+  mint: string
+): Promise<{ name: string; symbol: string; uri: string } | null> {
+  try {
+    const mintKey = new PublicKey(mint);
+
+    // Derive the Metadata PDA
+    const [metadataAccount] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from('metadata'),
+        METAPLEX_METADATA_PROGRAM_ID.toBuffer(),
+        mintKey.toBuffer(),
+      ],
+      METAPLEX_METADATA_PROGRAM_ID
+    );
+
+    const accountInfo = await connection.getAccountInfo(metadataAccount);
+    if (!accountInfo || accountInfo.data.length < 100) {
+      return null;
+    }
+
+    // Parse Metaplex Metadata v1 format
+    // Structure: 1 byte key + 32 bytes update authority + 32 bytes mint + variable length strings
+    const data = accountInfo.data;
+    let offset = 1 + 32 + 32; // Skip key, update_authority, mint
+
+    // Name: 4 bytes length prefix + string (max 32 chars, padded with nulls)
+    const nameLen = data.readUInt32LE(offset);
+    offset += 4;
+    const name = data.slice(offset, offset + Math.min(nameLen, 32)).toString('utf8').replace(/\0/g, '').trim();
+    offset += 32;
+
+    // Symbol: 4 bytes length prefix + string (max 10 chars, padded with nulls)
+    const symbolLen = data.readUInt32LE(offset);
+    offset += 4;
+    const symbol = data.slice(offset, offset + Math.min(symbolLen, 10)).toString('utf8').replace(/\0/g, '').trim();
+    offset += 10;
+
+    // URI: 4 bytes length prefix + string (max 200 chars)
+    const uriLen = data.readUInt32LE(offset);
+    offset += 4;
+    const uri = data.slice(offset, offset + Math.min(uriLen, 200)).toString('utf8').replace(/\0/g, '').trim();
+
+    if (uri.length > 0) {
+      console.log(`[PumpFunMonitor] On-chain metadata: ${name} (${symbol}), uri: ${uri.slice(0, 50)}...`);
+      return { name, symbol, uri };
+    }
+
+    return null;
+  } catch (error) {
+    console.log(`[PumpFunMonitor] On-chain metadata fetch failed:`, error);
+    return null;
+  }
+}
+
 export interface PumpFunEvent {
   signature: string;
   slot: number;
@@ -377,28 +453,49 @@ export class PumpFunMonitor {
       let isMayhemMode = false;
 
       if (isPumpPro) {
-        // pump.pro doesn't include metadata in instruction - fetch from API
+        // pump.pro doesn't include metadata in instruction - fetch from API or on-chain
         console.log(`[PumpFunMonitor] pump.pro token detected, fetching metadata for ${mint}`);
+
+        let apiSuccess = false;
+
+        // Try pump.fun API first
         try {
           const response = await fetch(`https://frontend-api.pump.fun/coins/${mint}`, {
             headers: { 'Accept': 'application/json' },
             signal: AbortSignal.timeout(3000),
           });
           if (response.ok) {
-            const metadata = await response.json() as { name?: string; symbol?: string; image_uri?: string };
-            name = metadata.name || 'Unknown';
-            symbol = metadata.symbol || 'UNK';
-            uri = metadata.image_uri || '';
-            console.log(`[PumpFunMonitor] pump.pro metadata: ${name} (${symbol})`);
+            const metadata = await response.json() as PumpFunApiResponse;
+            name = metadata.name || '';
+            symbol = metadata.symbol || '';
+            // Prefer uri/metadata_uri over image_uri (image_uri is just the image, not metadata JSON)
+            uri = metadata.uri || metadata.metadata_uri || '';
+            apiSuccess = name.length > 0 && symbol.length > 0 && uri.length > 0;
+            if (apiSuccess) {
+              console.log(`[PumpFunMonitor] pump.pro API metadata: ${name} (${symbol}), uri: ${uri.slice(0, 50)}...`);
+            } else {
+              console.log(`[PumpFunMonitor] pump.pro API incomplete: name=${name}, symbol=${symbol}, uri=${uri.slice(0, 30)}`);
+            }
           } else {
-            console.log(`[PumpFunMonitor] pump.pro API returned ${response.status}, using fallback`);
-            name = 'pump.pro Token';
-            symbol = 'PRO';
+            console.log(`[PumpFunMonitor] pump.pro API returned ${response.status}`);
           }
         } catch (apiErr) {
           console.log(`[PumpFunMonitor] pump.pro API fetch failed:`, apiErr);
-          name = 'pump.pro Token';
-          symbol = 'PRO';
+        }
+
+        // Fallback to on-chain Metaplex metadata if API failed
+        if (!apiSuccess) {
+          console.log(`[PumpFunMonitor] Trying on-chain metadata fetch for ${mint}`);
+          const onChainMeta = await fetchOnChainMetadata(this.connection, mint);
+          if (onChainMeta) {
+            name = onChainMeta.name;
+            symbol = onChainMeta.symbol;
+            uri = onChainMeta.uri;
+          } else {
+            // Final fallback - skip token if no metadata available
+            console.log(`[PumpFunMonitor] No metadata available for pump.pro token ${mint}, skipping`);
+            return null;
+          }
         }
       } else {
         // Classic pump.fun - parse inline metadata

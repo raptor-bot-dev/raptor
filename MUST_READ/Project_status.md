@@ -143,7 +143,12 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-18 (latest): **pump.pro discriminator fix deployed**
+- 2026-01-18 (latest): **pump.pro on-chain metadata fallback deployed**
+  - P0: pump.fun API returning HTTP 530 for all pump.pro tokens
+  - P0: Added on-chain Metaplex Metadata Account fetch as fallback
+  - P0: Tokens now get proper name/symbol/uri even when API is down
+  - Root cause: pump.fun API unavailable → empty uri → `has_metadata_uri` hard stop → score 0
+- 2026-01-18 (earlier): **pump.pro discriminator fix deployed**
   - P0: Added pump.pro create discriminator `[147,241,123,100,244,132,174,118]`
   - P0: Reset circuit breaker (was 190 consecutive failures)
   - Tokens from pump.pro can now be detected and sniped

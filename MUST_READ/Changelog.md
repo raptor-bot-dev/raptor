@@ -3,6 +3,12 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **fix(hunter): pump.pro on-chain metadata fallback**
+  - pump.fun API returning HTTP 530 (service unavailable) for pump.pro tokens
+  - Added fallback to fetch metadata from on-chain Metaplex Metadata Account
+  - Fixed PumpFunApiResponse type to check for uri/metadata_uri fields (not just image_uri)
+  - Tokens now get proper name/symbol/uri even when API is down
+  - Fixes 100% rejection rate ("score: 0") for pump.pro tokens
 - **fix(hunter): pump.pro API metadata fetch** (7e999bc)
   - pump.pro instructions don't include inline metadata like pump.fun
   - Detect pump.pro by discriminator, then fetch from frontend-api.pump.fun
