@@ -198,8 +198,9 @@ export function renderSnipeModeSelection(currentMode: 'speed' | 'balanced' | 'qu
     'Quality: Slower entry, best filtering (recommended).',
   ];
 
-  const speedLabel = currentMode === 'speed' ? 'Speed ✓' : 'Speed';
-  const qualityLabel = currentMode === 'speed' ? 'Quality' : 'Quality ✓';
+  // No emojis on buttons per CLAUDE.md - use [x] for selected
+  const speedLabel = currentMode === 'speed' ? '[x] Speed' : 'Speed';
+  const qualityLabel = currentMode === 'speed' ? 'Quality' : '[x] Quality';
 
   const buttons: Button[][] = [
     [
