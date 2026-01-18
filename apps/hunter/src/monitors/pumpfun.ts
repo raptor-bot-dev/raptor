@@ -271,9 +271,18 @@ export class PumpFunMonitor {
       // Versioned: staticAccountKeys, compiledInstructions
       // Legacy: accountKeys, instructions
       const isVersioned = 'staticAccountKeys' in message;
-      const accountKeys = isVersioned
-        ? (message as { staticAccountKeys: PublicKey[] }).staticAccountKeys
-        : (message as { accountKeys: PublicKey[] }).accountKeys || [];
+
+      // For versioned transactions, we need to include loaded addresses from ALTs
+      let accountKeys: PublicKey[];
+      if (isVersioned) {
+        const staticKeys = (message as { staticAccountKeys: PublicKey[] }).staticAccountKeys;
+        // Include addresses loaded from Address Lookup Tables
+        const loadedWritable = tx.meta?.loadedAddresses?.writable || [];
+        const loadedReadonly = tx.meta?.loadedAddresses?.readonly || [];
+        accountKeys = [...staticKeys, ...loadedWritable, ...loadedReadonly];
+      } else {
+        accountKeys = (message as { accountKeys: PublicKey[] }).accountKeys || [];
+      }
 
       // Get instructions - handle both versioned and legacy format
       type LegacyInstruction = { programIdIndex: number; accounts: number[]; data: string };
