@@ -3,6 +3,13 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **fix(executor): clamp slippage to 99% max to prevent negative minTokens**
+  - Settings handler now caps slippage input at 99% (was 1000%)
+  - pumpFun.ts buy/sell now clamp slippageBps to 9900 max defensively
+  - Root cause: User set 1000% slippage → 100000 bps → (10000-100000) = negative
+  - This caused RangeError in encodeBuyData for BigUInt64LE
+  - Fixed user's strategy slippage_bps from 100000 to 1500 (15%)
+  - Reset circuit breaker after 5+ consecutive failures from this bug
 - **fix(hunter): add create_v2 discriminator for pump.fun tokens**
   - pump.fun now uses `create_v2` instruction (not legacy `create`)
   - Legacy discriminator: `[24,30,200,40,5,28,7,119]` - sha256("global:create")[0..8]

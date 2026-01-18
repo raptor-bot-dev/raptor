@@ -98,9 +98,10 @@ Single source of truth for current progress. Keep it brief.
 - Emergency sell implemented with idempotency. ✅
 
 ## Where we left off last
-- 2026-01-18 (latest): Token parsing WORKING after create_v2 discriminator fix.
-- pump.fun uses `create_v2` instruction now (not legacy `create`)
-- Added CREATE_V2_DISCRIMINATOR for current pump.fun protocol
-- Tokens parsing successfully: `[PumpFunMonitor] Token: SYMBOL (mint)`
-- Autohunt shows "No enabled strategies" - user needs to arm strategy
+- 2026-01-18 (latest): Fixed slippage bug causing buy failures.
+- Root cause: User set 1000% slippage → 100000 bps → negative minTokens
+- Fix: Cap slippage at 99% in settings, clamp to 9900 bps in pumpFun.ts
+- Fixed user's strategy slippage from 100000 to 1500 (15%)
+- Reset circuit breaker after consecutive failures
+- Token parsing WORKING after create_v2 discriminator fix
 - Fly.io auto-deploys from GitHub pushes to `main` (documented in DEPLOYMENT.md)
