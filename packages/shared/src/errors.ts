@@ -112,7 +112,17 @@ export class TradeError extends Error {
  * Parse RPC/blockchain errors into ErrorCode
  */
 export function parseError(error: unknown): { code: ErrorCode; message: string } {
-  const message = error instanceof Error ? error.message : String(error);
+  // Handle various error types
+  let message: string;
+  if (error instanceof Error) {
+    message = error.message;
+  } else if (error && typeof error === 'object') {
+    // Handle Supabase errors and other object errors with .message property
+    const objError = error as { message?: string; error?: string; details?: string };
+    message = objError.message || objError.error || objError.details || JSON.stringify(error);
+  } else {
+    message = String(error);
+  }
   const lowerMessage = message.toLowerCase();
 
   // RPC errors
