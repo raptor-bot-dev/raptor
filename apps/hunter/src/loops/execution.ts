@@ -40,6 +40,7 @@ import { solanaExecutor } from '@raptor/executor';
 import type { Keypair } from '@solana/web3.js';
 
 const POLL_INTERVAL_MS = 1000;
+const MAX_JOB_AGE_SECONDS = 60; // Skip jobs older than 60 seconds (token launch window expired)
 
 export class ExecutionLoop {
   private running = false;
@@ -116,6 +117,21 @@ export class ExecutionLoop {
    */
   private async processJob(job: TradeJob): Promise<void> {
     console.log(`[ExecutionLoop] Processing job ${job.id} (${job.action})`);
+
+    // Check job staleness - skip jobs that are too old (token launch window expired)
+    const jobAgeSeconds = (Date.now() - new Date(job.created_at).getTime()) / 1000;
+    if (jobAgeSeconds > MAX_JOB_AGE_SECONDS) {
+      console.log(`[ExecutionLoop] Skipping stale job ${job.id} (age: ${Math.round(jobAgeSeconds)}s > ${MAX_JOB_AGE_SECONDS}s)`);
+      // Finalize as CANCELED (not FAILED) to avoid tripping circuit breaker
+      await finalizeJob({
+        jobId: job.id,
+        workerId: this.workerId,
+        status: 'CANCELED',
+        retryable: false,
+        error: `Job expired (${Math.round(jobAgeSeconds)}s old - token launch window closed)`,
+      });
+      return;
+    }
 
     // Track lease validity
     let leaseValid = true;
