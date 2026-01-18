@@ -26,61 +26,82 @@ interface PumpFunApiResponse {
 /**
  * Fetch metadata URI from on-chain Metaplex Metadata Account
  * This is a fallback when the pump.fun API is unavailable
+ * Retries up to 3 times with 500ms delay for newly created tokens
  */
 async function fetchOnChainMetadata(
   connection: Connection,
   mint: string
 ): Promise<{ name: string; symbol: string; uri: string } | null> {
-  try {
-    const mintKey = new PublicKey(mint);
+  const mintKey = new PublicKey(mint);
 
-    // Derive the Metadata PDA
-    const [metadataAccount] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from('metadata'),
-        METAPLEX_METADATA_PROGRAM_ID.toBuffer(),
-        mintKey.toBuffer(),
-      ],
-      METAPLEX_METADATA_PROGRAM_ID
-    );
+  // Derive the Metadata PDA
+  const [metadataAccount] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from('metadata'),
+      METAPLEX_METADATA_PROGRAM_ID.toBuffer(),
+      mintKey.toBuffer(),
+    ],
+    METAPLEX_METADATA_PROGRAM_ID
+  );
 
-    const accountInfo = await connection.getAccountInfo(metadataAccount);
-    if (!accountInfo || accountInfo.data.length < 100) {
-      return null;
+  // Retry up to 3 times with delay (metadata account might not be confirmed yet)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+
+      const accountInfo = await connection.getAccountInfo(metadataAccount);
+      if (!accountInfo) {
+        console.log(`[PumpFunMonitor] Metadata account not found (attempt ${attempt + 1}/3): ${metadataAccount.toBase58().slice(0, 12)}...`);
+        continue;
+      }
+
+      if (accountInfo.data.length < 100) {
+        console.log(`[PumpFunMonitor] Metadata account too small: ${accountInfo.data.length} bytes`);
+        return null;
+      }
+
+      // Parse Metaplex Metadata v1 format
+      // Structure: 1 byte key + 32 bytes update authority + 32 bytes mint + variable length strings
+      const data = accountInfo.data;
+      let offset = 1 + 32 + 32; // Skip key, update_authority, mint
+
+      // Name: 4 bytes length prefix + string (max 32 chars, padded with nulls)
+      const nameLen = data.readUInt32LE(offset);
+      offset += 4;
+      const name = data.slice(offset, offset + Math.min(nameLen, 32)).toString('utf8').replace(/\0/g, '').trim();
+      offset += 32;
+
+      // Symbol: 4 bytes length prefix + string (max 10 chars, padded with nulls)
+      const symbolLen = data.readUInt32LE(offset);
+      offset += 4;
+      const symbol = data.slice(offset, offset + Math.min(symbolLen, 10)).toString('utf8').replace(/\0/g, '').trim();
+      offset += 10;
+
+      // URI: 4 bytes length prefix + string (max 200 chars)
+      const uriLen = data.readUInt32LE(offset);
+      offset += 4;
+      const uri = data.slice(offset, offset + Math.min(uriLen, 200)).toString('utf8').replace(/\0/g, '').trim();
+
+      console.log(`[PumpFunMonitor] On-chain parsed: name="${name}" symbol="${symbol}" uri="${uri.slice(0, 50)}..."`);
+
+      if (uri.length > 0 && name.length > 0 && symbol.length > 0) {
+        console.log(`[PumpFunMonitor] On-chain metadata success: ${name} (${symbol})`);
+        return { name, symbol, uri };
+      }
+
+      // If we got data but URI is empty, that's a real empty URI, don't retry
+      if (uri.length === 0) {
+        console.log(`[PumpFunMonitor] On-chain metadata has empty URI`);
+        return null;
+      }
+    } catch (error) {
+      console.log(`[PumpFunMonitor] On-chain fetch error (attempt ${attempt + 1}/3):`, error);
     }
-
-    // Parse Metaplex Metadata v1 format
-    // Structure: 1 byte key + 32 bytes update authority + 32 bytes mint + variable length strings
-    const data = accountInfo.data;
-    let offset = 1 + 32 + 32; // Skip key, update_authority, mint
-
-    // Name: 4 bytes length prefix + string (max 32 chars, padded with nulls)
-    const nameLen = data.readUInt32LE(offset);
-    offset += 4;
-    const name = data.slice(offset, offset + Math.min(nameLen, 32)).toString('utf8').replace(/\0/g, '').trim();
-    offset += 32;
-
-    // Symbol: 4 bytes length prefix + string (max 10 chars, padded with nulls)
-    const symbolLen = data.readUInt32LE(offset);
-    offset += 4;
-    const symbol = data.slice(offset, offset + Math.min(symbolLen, 10)).toString('utf8').replace(/\0/g, '').trim();
-    offset += 10;
-
-    // URI: 4 bytes length prefix + string (max 200 chars)
-    const uriLen = data.readUInt32LE(offset);
-    offset += 4;
-    const uri = data.slice(offset, offset + Math.min(uriLen, 200)).toString('utf8').replace(/\0/g, '').trim();
-
-    if (uri.length > 0) {
-      console.log(`[PumpFunMonitor] On-chain metadata: ${name} (${symbol}), uri: ${uri.slice(0, 50)}...`);
-      return { name, symbol, uri };
-    }
-
-    return null;
-  } catch (error) {
-    console.log(`[PumpFunMonitor] On-chain metadata fetch failed:`, error);
-    return null;
   }
+
+  return null;
 }
 
 export interface PumpFunEvent {
