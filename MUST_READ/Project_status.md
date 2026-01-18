@@ -119,20 +119,27 @@ Single source of truth for current progress. Keep it brief.
 - [x] Phase 3: Exit queue with backpressure
 - [x] Phase 4: TpSlMonitorLoop integration
 - [x] Phase 5: Migration and testing
-- [x] **Phase 6: Audit fixes** (2026-01-18)
+- [x] **Phase 6: Audit fixes round 1** (2026-01-18)
   - NotificationPoller startup + type/payload fixes
   - Position creation tg_id fix + TP/SL field population
   - State machine RPC wrappers + execution transitions
   - Duplicate trigger prevention in legacy monitor
   - Stored TP/SL price usage
+- [x] **Phase 7: Audit fixes round 2 - uuid_id standardization** (2026-01-18)
+  - Migration 015: uuid_id NOT NULL, unique index, RPC functions use uuid_id
+  - All position operations use uuid_id consistently
+  - Post-sell notifications with real data (not trigger-time placeholders)
+  - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-18 (latest): **Audit fixes deployed** - All 6 critical bugs fixed
-  - P0: Notifications now delivered (poller started, types/payloads fixed)
-  - P0: Position creation fixed (tg_id, trigger_state, tp/sl prices, bonding_curve)
-  - P1: State machine now transitions properly (EXECUTING → COMPLETED/FAILED)
-  - P1: Duplicate triggers prevented (legacy monitor checks trigger_state)
-  - P2: Stored TP/SL prices used (immutable at entry)
+- 2026-01-18 (latest): **Audit fixes round 2 deployed** - uuid_id standardization complete
+  - P0: Migration 015 applied - All RPCs now use `uuid_id` (was INTEGER `id`)
+  - P0: `uuid_id` column now NOT NULL with unique index
+  - P1: TypeScript `PositionV31` interface includes `uuid_id` field
+  - P2: Notifications sent after sell completes (real txHash, pnlPercent, solReceived)
+  - P2: TRADE_DONE is BUY-only; SELL uses TP_HIT/SL_HIT/TRAILING_STOP_HIT/POSITION_CLOSED
+  - Legacy monitor uses atomic claim before exit jobs
+- Earlier: Audit fixes round 1 (NotificationPoller, tg_id, state machine)
 - Earlier: TP/SL Engine implementation complete (Phases 0-5)
 - pump.fun migrated most tokens to pump.pro program (`proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`)
 - Fly.io auto-deploys from GitHub pushes to `main` (documented in DEPLOYMENT.md)

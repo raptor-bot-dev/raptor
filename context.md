@@ -2,38 +2,40 @@
 
 **Date:** 2026-01-18
 **Branch:** `main`
-**Status:** Phase B - TP/SL Engine COMPLETE + Audit Fixes Deployed
+**Status:** Phase B - TP/SL Engine COMPLETE + Audit Fixes Round 2 Deployed
 
 ---
 
-## Latest: Audit Fixes (2026-01-18)
+## Latest: uuid_id Standardization (2026-01-18)
 
-### What Was Fixed
+### What Was Fixed (Round 2)
 
 | Issue | Severity | Fix |
 |-------|----------|-----|
-| Notifications never delivered | **P0** | Start NotificationPoller in bot/index.ts |
-| Notification types wrong | **P0** | TAKE_PROFIT → TP_HIT, STOP_LOSS → SL_HIT |
-| Notification payload mismatch | **P0** | Use tokenSymbol, pnlPercent, solReceived, txHash |
-| Position creation broken | **P0** | Use `tg_id` not `user_id` column |
-| TP/SL fields not populated | **P0** | Set trigger_state, tp_price, sl_price, bonding_curve |
-| State machine stuck | **P1** | Add markPositionExecuting/Completed/Failed calls |
-| Duplicate triggers possible | **P1** | Add trigger_state check to legacy monitor |
-| TP/SL prices recomputed | **P2** | Use stored position.tp_price/sl_price |
+| RPC functions use INTEGER `id` but receive UUID | **P0** | Migration 015 - All RPCs now use `uuid_id` |
+| `positions.uuid_id` can be NULL | **P0** | Backfill + NOT NULL constraint |
+| No unique index on `uuid_id` | **P0** | Added unique index |
+| `PositionV31` missing `uuid_id` field | **P1** | Added to TypeScript interface |
+| `markNotificationFailed` uses wrong columns | **P1** | Uses RPC with correct `delivery_error` column |
+| Trigger-time notifications have placeholder values | **P2** | Moved to post-sell with real data |
+| TRADE_DONE used for both BUY and SELL | **P2** | TRADE_DONE is BUY-only now |
 
-### Files Changed (Audit)
+### Files Changed (Round 2)
 
 | File | Changes |
 |------|---------|
-| `apps/bot/src/index.ts` | Start NotificationPoller + shutdown handler |
-| `apps/hunter/src/queues/exitQueue.ts` | Fix notification types and payload |
-| `packages/shared/src/supabase.ts` | Fix tg_id, add state wrappers, add getOpportunityById |
-| `apps/hunter/src/loops/execution.ts` | Call state transitions, pass TP/SL + bonding_curve |
-| `apps/hunter/src/loops/positions.ts` | Add trigger_state check, fix notification types |
-| `apps/hunter/src/loops/tpslMonitor.ts` | Use stored tp_price/sl_price |
+| `packages/database/migrations/015_tpsl_uuid_and_notifications.sql` | NEW - uuid_id fixes, RPC fixes |
+| `packages/shared/src/types.ts` | Add `uuid_id` to PositionV31 |
+| `packages/shared/src/supabase.ts` | Add triggerExitAtomically, fix closePositionV31 |
+| `apps/hunter/src/loops/tpslMonitor.ts` | Use uuid_id consistently |
+| `apps/hunter/src/queues/exitQueue.ts` | Remove trigger-time notifications |
+| `apps/hunter/src/loops/positions.ts` | Atomic claim before exit jobs |
+| `apps/hunter/src/loops/execution.ts` | Post-sell notifications |
+| `apps/bot/src/handlers/*.ts` | Use uuid_id throughout |
 
-### Commit
-`bbfdd53` - fix(tpsl): audit fixes for notification delivery and state machine
+### Commits
+- `cf9cb34` - fix(tpsl): standardize on uuid_id and fix critical RPC bugs
+- `bbfdd53` - fix(tpsl): audit fixes for notification delivery and state machine
 
 ---
 
@@ -55,7 +57,8 @@
 
 | File | Purpose |
 |------|---------|
-| `packages/database/migrations/014_tpsl_engine_state.sql` | trigger_state, atomic claim functions |
+| `packages/database/migrations/014_tpsl_engine_state.sql` | trigger_state column, atomic claim functions |
+| `packages/database/migrations/015_tpsl_uuid_and_notifications.sql` | uuid_id fixes, RPC fixes |
 | `apps/hunter/src/monitors/heliusWs.ts` | WebSocket with 30s heartbeat |
 | `apps/hunter/src/monitors/subscriptionManager.ts` | Token-scoped subscriptions |
 | `apps/hunter/src/queues/exitQueue.ts` | Priority queue with backpressure |
@@ -65,25 +68,30 @@
 
 ## Critical Patterns (from Audit)
 
-### Position Creation
+### Position ID Standard
+**Always use `uuid_id` (UUID) for position operations**, not the integer `id` column.
+
 ```typescript
-await createPositionV31({
+// Position creation returns uuid_id
+const position = await createPositionV31({
   userId: job.user_id,  // Maps to tg_id internally
   // ... other fields
-  tpPercent: strategy.take_profit_percent,
-  slPercent: strategy.stop_loss_percent,
-  bondingCurve: opportunity?.bonding_curve,
 });
+const positionId = position.uuid_id;  // Use this!
+
+// All operations use uuid_id
+await triggerExitAtomically(position.uuid_id, 'TP', triggerPrice);
+await closePositionV31({ positionId: position.uuid_id, ... });
 ```
 
 ### State Machine Calls (SELL jobs)
 ```typescript
 // Before sell
-await markPositionExecuting(positionId);
+await markPositionExecuting(positionId);  // uuid_id
 // On success (after closePositionV31)
-await markTriggerCompleted(positionId);
+await markTriggerCompleted(positionId);   // uuid_id
 // On failure
-await markTriggerFailed(positionId, error);
+await markTriggerFailed(positionId, error);  // uuid_id
 ```
 
 ### Notification Types
@@ -103,9 +111,9 @@ if (position.trigger_state && position.trigger_state !== 'MONITORING') {
 
 ## Deployment Status
 
-- **Database**: Migration 014 applied
+- **Database**: Migrations 014 + 015 applied
 - **Bot**: Deployed with NotificationPoller
-- **Hunter**: Deployed with audit fixes
+- **Hunter**: Deployed with uuid_id standardization
 - **Feature Flags**:
   - `TPSL_ENGINE_ENABLED=true` (shadow mode)
   - `LEGACY_POSITION_MONITOR=true` (parallel operation)
@@ -113,3 +121,28 @@ if (position.trigger_state && position.trigger_state !== 'MONITORING') {
 Build Status: **PASSING**
 
 Fly.io auto-deploys from GitHub pushes to `main`.
+
+---
+
+## Notification Patterns
+
+### After SELL completes (not at trigger time)
+```typescript
+// Post-sell notification with real data
+await createNotification({
+  userId: position.tg_id,
+  type: triggerToNotificationType(trigger),  // TP_HIT, SL_HIT, etc.
+  payload: {
+    tokenSymbol: position.token_symbol,
+    pnlPercent: result.pnlPercent,
+    solReceived: result.solReceived,  // Real value
+    txHash: result.txSig,             // Real tx signature
+    trigger,
+    positionId: position.uuid_id,
+  },
+});
+```
+
+### TRADE_DONE is BUY-only
+- BUY success → `TRADE_DONE` notification
+- SELL success → `TP_HIT`, `SL_HIT`, `TRAILING_STOP_HIT`, or `POSITION_CLOSED`

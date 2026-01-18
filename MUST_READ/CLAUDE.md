@@ -98,11 +98,13 @@ Not allowed without asking
 
 ### Non-Negotiable Design Patterns
 
-1. **Never execute in WS callback** - Queue exit jobs, don't block WebSocket processing
-2. **Atomic DB claims** - Use `trigger_exit_atomically()` for exactly-once triggering
-3. **Idempotency keys** - All exits must use `idKeyExitSell({positionId, trigger, sellPercent})`
-4. **Token-scoped subscriptions** - One WebSocket sub per token, many positions watch it
-5. **Backpressure** - ExitQueue limits concurrency to prevent executor overload
+1. **Always use `uuid_id`** - All position operations use UUID, not INTEGER `id`
+2. **Never execute in WS callback** - Queue exit jobs, don't block WebSocket processing
+3. **Atomic DB claims** - Use `trigger_exit_atomically()` for exactly-once triggering
+4. **Idempotency keys** - All exits must use `idKeyExitSell({positionId, trigger, sellPercent})`
+5. **Token-scoped subscriptions** - One WebSocket sub per token, many positions watch it
+6. **Backpressure** - ExitQueue limits concurrency to prevent executor overload
+7. **Post-sell notifications** - Send notifications after sell completes (not at trigger time)
 
 ### Trigger State Machine Rules
 
@@ -132,6 +134,21 @@ When multiple triggers fire simultaneously:
 3. TRAIL
 4. MAXHOLD (lowest priority)
 
+### Position ID Standard
+
+**Always use `uuid_id` (UUID) for position identification**, not the INTEGER `id` column.
+
+```typescript
+// Position creation returns uuid_id
+const position = await createPositionV31({ ... });
+const positionId = position.uuid_id;  // Use this everywhere!
+
+// All operations use uuid_id
+await triggerExitAtomically(position.uuid_id, 'TP', triggerPrice);
+await closePositionV31({ positionId: position.uuid_id, ... });
+await markPositionExecuting(position.uuid_id);
+```
+
 ### Position Creation Requirements
 
 Always populate these fields when creating positions via `createPositionV31()`:
@@ -155,6 +172,22 @@ Use correct notification types that match the formatter:
 - `'TRAIL'` trigger → `'TRAILING_STOP_HIT'` type
 - `'MAXHOLD'` / `'EMERGENCY'` → `'POSITION_CLOSED'` type
 
+**IMPORTANT:** `TRADE_DONE` is BUY-only. Never use it for SELL operations.
+
+### Notification Timing
+
+**Send notifications after sell completes**, not at trigger time:
+```typescript
+// WRONG: At trigger time (exitQueue.ts)
+await createNotification({ txHash: '', solReceived: 0 });  // Placeholder values!
+
+// RIGHT: After sell completes (execution.ts)
+await createNotification({
+  txHash: result.txSig,           // Real signature
+  solReceived: result.solReceived, // Real value
+});
+```
+
 ### Notification Payload Structure
 
 Use these keys (matching NotificationPoller formatter):
@@ -165,7 +198,7 @@ Use these keys (matching NotificationPoller formatter):
   solReceived: number,
   txHash: string,
   trigger: ExitTrigger,
-  positionId: string,
+  positionId: string,    // uuid_id, not integer id
 }
 ```
 

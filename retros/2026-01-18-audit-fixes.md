@@ -1,8 +1,10 @@
 # Retro: TP/SL Engine Audit Fixes
 
 **Date:** 2026-01-18
-**Session:** Phase B Audit Fixes
-**Commit:** `bbfdd53`
+**Session:** Phase B Audit Fixes (Round 1 + Round 2)
+**Commits:**
+- `bbfdd53` - Round 1: notification delivery and state machine
+- `cf9cb34` - Round 2: uuid_id standardization and RPC fixes
 
 ---
 
@@ -21,6 +23,17 @@ An audit of the TP/SL engine implementation revealed 6 critical bugs that would 
 | 5 | State machine stuck at TRIGGERED | **P1** | Positions never complete, no EXECUTING/COMPLETED state |
 | 6 | Duplicate triggers possible | **P1** | Legacy monitor could fire alongside TP/SL engine |
 | 7 | TP/SL prices recomputed | **P2** | Strategy changes could affect open positions |
+
+### Round 2 Bugs (cf9cb34)
+
+| # | Issue | Severity | Impact |
+|---|-------|----------|--------|
+| 8 | RPC functions use INTEGER `id` but receive UUID | **P0** | All TP/SL claims fail silently |
+| 9 | `positions.uuid_id` can be NULL | **P0** | Breaks uuid-based lookups |
+| 10 | No unique index on `uuid_id` | **P0** | Race conditions possible |
+| 11 | `PositionV31` missing `uuid_id` field | **P1** | Can't access uuid_id in TypeScript |
+| 12 | Trigger-time notifications have placeholder values | **P2** | Users see `txHash: ''`, `solReceived: 0` |
+| 13 | `TRADE_DONE` used for both BUY and SELL | **P2** | Confusing semantics |
 
 ---
 
@@ -86,6 +99,36 @@ if (position.trigger_state && position.trigger_state !== 'MONITORING') {
 
 **Fix:** Use stored prices when available, fall back to strategy for legacy positions.
 
+### 8. RPC Functions Use Wrong ID Type (Round 2)
+
+**Root Cause:** Migration 014 created functions like `trigger_exit_atomically(p_position_id UUID)` but the SQL body used `WHERE id = p_position_id`. The `id` column is INTEGER, causing silent type mismatch.
+
+**Fix:** Migration 015 recreates all RPC functions to use `WHERE uuid_id = p_position_id`.
+
+### 9-10. uuid_id Column Issues (Round 2)
+
+**Root Cause:** `uuid_id` column was nullable and had no unique index, allowing NULL values and potential duplicates.
+
+**Fix:** Migration 015 backfills NULLs, adds NOT NULL constraint, and creates unique index.
+
+### 11. Missing TypeScript Field (Round 2)
+
+**Root Cause:** `PositionV31` interface didn't include `uuid_id`, so TypeScript code couldn't access it.
+
+**Fix:** Add `uuid_id: string` to PositionV31 interface in types.ts.
+
+### 12. Trigger-Time Notifications (Round 2)
+
+**Root Cause:** exitQueue.ts created notifications at trigger time with placeholder values (`txHash: ''`, `solReceived: 0`).
+
+**Fix:** Remove trigger-time notification creation. Notifications are now created in execution.ts after sell completes with real values.
+
+### 13. TRADE_DONE Semantics (Round 2)
+
+**Root Cause:** `TRADE_DONE` was used for both BUY and SELL, making it ambiguous.
+
+**Fix:** `TRADE_DONE` is now BUY-only. SELL operations use specific trigger types: `TP_HIT`, `SL_HIT`, `TRAILING_STOP_HIT`, or `POSITION_CLOSED`.
+
 ---
 
 ## Files Changed
@@ -99,7 +142,25 @@ if (position.trigger_state && position.trigger_state !== 'MONITORING') {
 | `apps/hunter/src/loops/positions.ts` | +29/-6 | Trigger state check |
 | `apps/hunter/src/loops/tpslMonitor.ts` | +26/-5 | Stored prices |
 
-**Total:** +211/-18 lines
+**Round 1 Total:** +211/-18 lines
+
+### Round 2 Files
+
+| File | Lines Changed | Changes |
+|------|---------------|---------|
+| `packages/database/migrations/015_tpsl_uuid_and_notifications.sql` | +85 | NEW - uuid_id fixes, RPC fixes |
+| `packages/shared/src/types.ts` | +1 | Add uuid_id to PositionV31 |
+| `packages/shared/src/supabase.ts` | +40/-5 | Add triggerExitAtomically, fix closePositionV31 |
+| `apps/hunter/src/loops/tpslMonitor.ts` | +8/-5 | Use uuid_id |
+| `apps/hunter/src/queues/exitQueue.ts` | +3/-35 | Remove trigger-time notifications |
+| `apps/hunter/src/loops/positions.ts` | +15/-8 | Atomic claim |
+| `apps/hunter/src/loops/execution.ts` | +45/-12 | Post-sell notifications |
+| `apps/bot/src/handlers/buy.ts` | +2/-2 | Use uuid_id |
+| `apps/bot/src/handlers/positionsHandler.ts` | +5/-5 | Use uuid_id, tg_id |
+| `apps/bot/src/handlers/sell.ts` | +3/-3 | Use uuid_id |
+| `apps/bot/src/services/emergencySellService.ts` | +2/-2 | Use uuid_id |
+
+**Round 2 Total:** +547/-225 lines (12 files)
 
 ---
 
@@ -132,10 +193,17 @@ An external audit caught issues that would have been critical in production. Fre
 
 **Action:** Always audit critical paths before enabling in production.
 
+### 5. UUID vs Integer ID Confusion
+
+The positions table has both `id` (INTEGER, legacy primary key) and `uuid_id` (UUID, v3.1 standard). This caused the RPC type mismatch.
+
+**Action:** Document that `uuid_id` is the standard for all v3.1 operations. Consider deprecating INTEGER `id` in future.
+
 ---
 
 ## Verification Checklist
 
+### Round 1
 - [x] NotificationPoller starts and polls
 - [x] Notification types match formatter expectations
 - [x] Position creation succeeds with tg_id
@@ -143,6 +211,15 @@ An external audit caught issues that would have been critical in production. Fre
 - [x] State machine transitions: MONITORING → TRIGGERED → EXECUTING → COMPLETED
 - [x] Legacy monitor skips non-MONITORING positions
 - [x] Stored TP/SL prices used when available
+
+### Round 2
+- [x] `uuid_id` column is NOT NULL with unique index
+- [x] All RPC functions use `uuid_id` (not INTEGER `id`)
+- [x] `PositionV31.uuid_id` field exists in TypeScript
+- [x] `triggerExitAtomically()` wrapper works
+- [x] `closePositionV31()` uses uuid_id for lookups
+- [x] No trigger-time notifications (only post-sell)
+- [x] TRADE_DONE is BUY-only
 - [x] Build passes: `pnpm -w lint && pnpm -w build`
 
 ---

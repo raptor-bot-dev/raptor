@@ -3,6 +3,17 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **fix(tpsl): standardize on uuid_id and fix critical RPC bugs** (cf9cb34)
+  - P0: Migration 015 - All RPC functions now use `uuid_id` (was INTEGER `id`)
+  - P0: Backfill NULL `uuid_id` values + add NOT NULL constraint
+  - P0: Add unique index on `uuid_id` for race condition prevention
+  - P1: Add `uuid_id` field to PositionV31 TypeScript interface
+  - P1: Add `triggerExitAtomically()` wrapper in supabase.ts
+  - P1: Fix `closePositionV31()` to use `uuid_id` for lookups
+  - P2: Remove trigger-time notifications (moved to post-sell with real data)
+  - P2: TRADE_DONE is now BUY-only; SELL uses TP_HIT/SL_HIT/etc.
+  - Legacy monitor now uses atomic claim before creating exit jobs
+  - All handlers (buy, sell, positions) now use uuid_id consistently
 - **fix(tpsl): audit fixes for notification delivery and state machine** (bbfdd53)
   - P0: Start NotificationPoller in bot/index.ts (was never started - notifications never delivered)
   - P0: Fix notification type mapping: TAKE_PROFIT → TP_HIT, STOP_LOSS → SL_HIT
