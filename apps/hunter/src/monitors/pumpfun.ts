@@ -289,6 +289,7 @@ export class PumpFunMonitor {
       let createData: Buffer | null = null;
       let createAccounts: number[] = [];
 
+      const foundDiscriminators: string[] = [];
       for (const ix of rawInstructions) {
         const programId = accountKeys[ix.programIdIndex];
         if (programId?.toBase58() === PROGRAM_IDS.PUMP_FUN) {
@@ -297,7 +298,11 @@ export class PumpFunMonitor {
             ? Buffer.from((ix as VersionedInstruction).data)
             : Buffer.from((ix as LegacyInstruction).data, 'base64');
 
-          if (data.slice(0, 8).equals(CREATE_DISCRIMINATOR)) {
+          // Log discriminator for debugging
+          const disc = data.slice(0, 8);
+          foundDiscriminators.push(`[${Array.from(disc).join(',')}]`);
+
+          if (disc.equals(CREATE_DISCRIMINATOR)) {
             createData = data;
             // Handle account indexes: accountKeyIndexes for versioned, accounts for legacy
             createAccounts = isVersioned
@@ -306,6 +311,11 @@ export class PumpFunMonitor {
             break;
           }
         }
+      }
+
+      // Log found discriminators if no Create found
+      if (!createData && foundDiscriminators.length > 0) {
+        console.debug(`[PumpFunMonitor] pump.fun discriminators in TX: ${foundDiscriminators.join(', ')}`);
       }
 
       if (!createData || createAccounts.length < 3) {
