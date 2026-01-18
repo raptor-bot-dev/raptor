@@ -33,21 +33,15 @@
 
 - **Build:** `pnpm -w lint && pnpm -w build` passes
 - **Helius Secrets:** Deployed to Fly.io apps
-- **Code Fix:** Committed to GitHub, NOT YET DEPLOYED to Fly.io
+- **Code Fix:** Auto-deployed to Fly.io via GitHub integration
 
 ---
 
-## NEXT STEP: Deploy Code to Fly.io
+## Deployment
 
-The ALT fix is committed but needs to be deployed. Run:
+**Fly.io auto-deploys from GitHub pushes** - no manual deploy needed.
 
-```bash
-# Deploy hunter (contains the ALT fix)
-fly deploy -a raptor-hunter -c apps/hunter/fly.toml
-
-# Deploy bot (optional, no code changes this session)
-fly deploy -a raptor-bot -c apps/bot/fly.toml
-```
+Releases are triggered automatically when commits are pushed to `main`.
 
 ---
 

@@ -94,8 +94,8 @@ Single source of truth for current progress. Keep it brief.
 - Emergency sell implemented with idempotency. ✅
 
 ## Where we left off last
-- 2026-01-18 (latest): ALT fix committed, needs deploy.
+- 2026-01-18 (latest): ALT fix deployed via GitHub auto-deploy.
 - Fixed Address Lookup Table parsing for versioned transactions.
 - Helius paid plan configured via Fly.io secrets.
-- **NEEDS DEPLOY**: Run `fly deploy -a raptor-hunter -c apps/hunter/fly.toml`
-- After deploy, verify tokens are parsing: logs should show `Token: SYMBOL (mint)`
+- Fly.io auto-deploys from GitHub pushes to `main`.
+- Verify tokens are parsing: logs should show `Token: SYMBOL (mint)`

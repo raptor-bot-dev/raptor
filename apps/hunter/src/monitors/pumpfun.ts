@@ -23,8 +23,11 @@ export interface PumpFunEvent {
 
 export type PumpFunEventHandler = (event: PumpFunEvent) => Promise<void>;
 
-// pump.fun Create instruction discriminator
+// pump.fun Create instruction discriminators
+// Legacy: sha256("global:create")[0..8]
 const CREATE_DISCRIMINATOR = Buffer.from([24, 30, 200, 40, 5, 28, 7, 119]);
+// Current (2025+): sha256("global:create_v2")[0..8]
+const CREATE_V2_DISCRIMINATOR = Buffer.from([214, 144, 76, 236, 95, 139, 49, 180]);
 
 export class PumpFunMonitor {
   private rpcUrl: string;
@@ -311,7 +314,8 @@ export class PumpFunMonitor {
           const disc = data.slice(0, 8);
           foundDiscriminators.push(`[${Array.from(disc).join(',')}]`);
 
-          if (disc.equals(CREATE_DISCRIMINATOR)) {
+          // Check for both legacy create and current create_v2
+          if (disc.equals(CREATE_DISCRIMINATOR) || disc.equals(CREATE_V2_DISCRIMINATOR)) {
             createData = data;
             // Handle account indexes: accountKeyIndexes for versioned, accounts for legacy
             createAccounts = isVersioned
