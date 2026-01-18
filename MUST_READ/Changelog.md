@@ -3,6 +3,17 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **fix(tpsl): audit fixes for notification delivery and state machine** (bbfdd53)
+  - P0: Start NotificationPoller in bot/index.ts (was never started - notifications never delivered)
+  - P0: Fix notification type mapping: TAKE_PROFIT → TP_HIT, STOP_LOSS → SL_HIT
+  - P0: Fix payload structure to match formatter expectations (tokenSymbol, pnlPercent, etc.)
+  - P0: Fix createPositionV31 to use `tg_id` column (was using non-existent `user_id`)
+  - P0: Populate trigger_state, tp_price, sl_price, bonding_curve at position creation
+  - P1: Add markPositionExecuting, markTriggerCompleted, markTriggerFailed RPC wrappers
+  - P1: Call state transitions in execution.ts before/after sell transactions
+  - P1: Add trigger_state check to legacy positions.ts monitor (prevent duplicates)
+  - P2: Use stored position.tp_price/sl_price when available (not strategy recompute)
+  - Added getOpportunityById() to fetch bonding_curve from opportunity
 - **feat(hunter): begin TP/SL Engine implementation (Phase B)**
   - Hybrid architecture: Jupiter polling (3s) + Helius WebSocket activity hints
   - Trigger state machine: MONITORING → TRIGGERED → EXECUTING → COMPLETED

@@ -131,3 +131,49 @@ When multiple triggers fire simultaneously:
 2. TP
 3. TRAIL
 4. MAXHOLD (lowest priority)
+
+### Position Creation Requirements
+
+Always populate these fields when creating positions via `createPositionV31()`:
+- `tg_id` (NOT user_id - table uses tg_id column)
+- `trigger_state: 'MONITORING'`
+- `tp_price` / `sl_price` (computed from entry price + strategy percentages)
+- `bonding_curve` (from opportunity if available)
+
+### State Machine Transitions
+
+Call these functions in execution.ts for SELL jobs:
+1. **Before sell**: `markPositionExecuting(positionId)`
+2. **On success**: `markTriggerCompleted(positionId)` (after closePositionV31)
+3. **On failure**: `markTriggerFailed(positionId, errorMsg)`
+
+### Notification Type Mapping
+
+Use correct notification types that match the formatter:
+- `'TP'` trigger → `'TP_HIT'` type (not 'TAKE_PROFIT')
+- `'SL'` trigger → `'SL_HIT'` type (not 'STOP_LOSS')
+- `'TRAIL'` trigger → `'TRAILING_STOP_HIT'` type
+- `'MAXHOLD'` / `'EMERGENCY'` → `'POSITION_CLOSED'` type
+
+### Notification Payload Structure
+
+Use these keys (matching NotificationPoller formatter):
+```typescript
+{
+  tokenSymbol: string,   // not 'token'
+  pnlPercent: number,
+  solReceived: number,
+  txHash: string,
+  trigger: ExitTrigger,
+  positionId: string,
+}
+```
+
+### Duplicate Trigger Prevention
+
+Legacy monitors must check `trigger_state` before firing:
+```typescript
+if (position.trigger_state && position.trigger_state !== 'MONITORING') {
+  return; // Already triggered by TP/SL engine
+}
+```

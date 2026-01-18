@@ -2,109 +2,113 @@
 
 **Date:** 2026-01-18
 **Branch:** `main`
-**Status:** Phase B - TP/SL Engine implementation COMPLETE
+**Status:** Phase B - TP/SL Engine COMPLETE + Audit Fixes Deployed
 
 ---
 
-## Current Task: TP/SL Engine Implementation
+## Latest: Audit Fixes (2026-01-18)
 
-### Overview
-Implementing automatic position exits via TP/SL triggers with hybrid pricing architecture.
+### What Was Fixed
 
-### Architecture Decisions
-1. **Integrated approach** - New TpSlMonitorLoop in `apps/hunter` (not separate service)
-2. **Hybrid pricing** - Jupiter API (3s poll) + Helius WS for instant activity detection
-3. **Exactly-once semantics** - Atomic DB trigger claim + existing idempotency patterns
-4. **Feature-flagged migration** - Run parallel with legacy polling, gradual cutover
+| Issue | Severity | Fix |
+|-------|----------|-----|
+| Notifications never delivered | **P0** | Start NotificationPoller in bot/index.ts |
+| Notification types wrong | **P0** | TAKE_PROFIT → TP_HIT, STOP_LOSS → SL_HIT |
+| Notification payload mismatch | **P0** | Use tokenSymbol, pnlPercent, solReceived, txHash |
+| Position creation broken | **P0** | Use `tg_id` not `user_id` column |
+| TP/SL fields not populated | **P0** | Set trigger_state, tp_price, sl_price, bonding_curve |
+| State machine stuck | **P1** | Add markPositionExecuting/Completed/Failed calls |
+| Duplicate triggers possible | **P1** | Add trigger_state check to legacy monitor |
+| TP/SL prices recomputed | **P2** | Use stored position.tp_price/sl_price |
 
-### Implementation Phases
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 0 | Documentation updates | COMPLETE |
-| 1 | Database migration (trigger_state) | COMPLETE |
-| 2 | Helius WebSocket infrastructure | COMPLETE |
-| 3 | Exit queue with backpressure | COMPLETE |
-| 4 | TpSlMonitorLoop integration | COMPLETE |
-| 5 | Testing and verification | COMPLETE |
-
----
-
-## Files Created
-
-| File | Purpose |
-|------|---------|
-| `packages/database/migrations/014_tpsl_engine_state.sql` | trigger_state column, atomic claim function |
-| `packages/shared/src/tpsl.ts` | TriggerState type, computeTpSlPrices(), EXIT_PRIORITY |
-| `apps/hunter/src/monitors/heliusWs.ts` | Helius WebSocket manager with heartbeat |
-| `apps/hunter/src/monitors/subscriptionManager.ts` | Token-scoped subscription lifecycle |
-| `apps/hunter/src/queues/exitQueue.ts` | Exit queue with backpressure |
-| `apps/hunter/src/loops/tpslMonitor.ts` | Main TP/SL monitoring loop |
-
-## Files Updated
+### Files Changed (Audit)
 
 | File | Changes |
 |------|---------|
-| `packages/shared/src/types.ts` | Added TriggerState type, PositionV31 fields |
-| `packages/shared/src/index.ts` | Export tpsl module |
-| `packages/shared/src/config.ts` | Feature flag functions |
-| `apps/hunter/src/index.ts` | Conditional TP/SL and legacy loop startup |
-| `.env.fly` | TP/SL engine environment variables |
+| `apps/bot/src/index.ts` | Start NotificationPoller + shutdown handler |
+| `apps/hunter/src/queues/exitQueue.ts` | Fix notification types and payload |
+| `packages/shared/src/supabase.ts` | Fix tg_id, add state wrappers, add getOpportunityById |
+| `apps/hunter/src/loops/execution.ts` | Call state transitions, pass TP/SL + bonding_curve |
+| `apps/hunter/src/loops/positions.ts` | Add trigger_state check, fix notification types |
+| `apps/hunter/src/loops/tpslMonitor.ts` | Use stored tp_price/sl_price |
+
+### Commit
+`bbfdd53` - fix(tpsl): audit fixes for notification delivery and state machine
 
 ---
 
-## Deployment Instructions
+## TP/SL Engine Architecture
 
-### 1. Apply Database Migration
-Run the migration `014_tpsl_engine_state.sql` on Supabase before deploying.
+### Implementation Phases (All Complete)
 
-### 2. Feature Flags
-- `TPSL_ENGINE_ENABLED=false` - Keep disabled initially
-- `LEGACY_POSITION_MONITOR=true` - Keep legacy running
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 0 | Documentation updates | ✅ |
+| 1 | Database migration (trigger_state) | ✅ |
+| 2 | Helius WebSocket infrastructure | ✅ |
+| 3 | Exit queue with backpressure | ✅ |
+| 4 | TpSlMonitorLoop integration | ✅ |
+| 5 | Testing and verification | ✅ |
+| 6 | Audit fixes | ✅ |
 
-### 3. Gradual Cutover
-1. **Shadow Mode**: Set `TPSL_ENGINE_ENABLED=true` while keeping legacy enabled
-2. **Verify**: Monitor logs for trigger accuracy, compare timing
-3. **Cutover**: Set `LEGACY_POSITION_MONITOR=false` when confident
+### Key Files
 
----
-
-## Technical Notes
-
-### Helius WebSocket Requirements
-- 10-minute inactivity timer - MUST ping every 30 seconds
-- Endpoint: `wss://mainnet.helius-rpc.com/?api-key=<KEY>`
-- logsSubscribe supports only ONE pubkey per call
-
-### Trigger State Machine
-```
-MONITORING → TRIGGERED → EXECUTING → COMPLETED
-                                  ↘ FAILED
-```
-
-### Exit Priority (lower = higher priority)
-```
-EMERGENCY: 0
-SL: 10
-TP: 50
-TRAIL: 60
-MAXHOLD: 70
-MANUAL: 80
-```
-
-### Idempotency Key Format
-```
-RAPTOR:V3:EXIT:sol:SELL:<MINT>:pos:<POSITION_ID>:trg:<TRIGGER>:<HASH>
-```
+| File | Purpose |
+|------|---------|
+| `packages/database/migrations/014_tpsl_engine_state.sql` | trigger_state, atomic claim functions |
+| `apps/hunter/src/monitors/heliusWs.ts` | WebSocket with 30s heartbeat |
+| `apps/hunter/src/monitors/subscriptionManager.ts` | Token-scoped subscriptions |
+| `apps/hunter/src/queues/exitQueue.ts` | Priority queue with backpressure |
+| `apps/hunter/src/loops/tpslMonitor.ts` | Main orchestrator |
 
 ---
 
-## Build Verification
+## Critical Patterns (from Audit)
 
-Before deploying:
-```bash
-pnpm -w lint && pnpm -w build
+### Position Creation
+```typescript
+await createPositionV31({
+  userId: job.user_id,  // Maps to tg_id internally
+  // ... other fields
+  tpPercent: strategy.take_profit_percent,
+  slPercent: strategy.stop_loss_percent,
+  bondingCurve: opportunity?.bonding_curve,
+});
 ```
+
+### State Machine Calls (SELL jobs)
+```typescript
+// Before sell
+await markPositionExecuting(positionId);
+// On success (after closePositionV31)
+await markTriggerCompleted(positionId);
+// On failure
+await markTriggerFailed(positionId, error);
+```
+
+### Notification Types
+- `TP` → `TP_HIT` (not TAKE_PROFIT)
+- `SL` → `SL_HIT` (not STOP_LOSS)
+- `TRAIL` → `TRAILING_STOP_HIT`
+- `MAXHOLD`/`EMERGENCY` → `POSITION_CLOSED`
+
+### Trigger State Check (Legacy Monitor)
+```typescript
+if (position.trigger_state && position.trigger_state !== 'MONITORING') {
+  return; // Skip - already triggered
+}
+```
+
+---
+
+## Deployment Status
+
+- **Database**: Migration 014 applied
+- **Bot**: Deployed with NotificationPoller
+- **Hunter**: Deployed with audit fixes
+- **Feature Flags**:
+  - `TPSL_ENGINE_ENABLED=true` (shadow mode)
+  - `LEGACY_POSITION_MONITOR=true` (parallel operation)
 
 Build Status: **PASSING**
 

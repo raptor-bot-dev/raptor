@@ -3,7 +3,7 @@
 Single source of truth for current progress. Keep it brief.
 
 ## Current milestone
-**Phase B: TP/SL Engine (automatic position exits)** - IN PROGRESS
+**Phase B: TP/SL Engine (automatic position exits)** - COMPLETE (audit fixes deployed)
 
 **Phase A: Autohunt-only Telegram bot (minimal UX)** - COMPLETE
 
@@ -113,17 +113,26 @@ Single source of truth for current progress. Keep it brief.
 - Feature-flagged migration from legacy position monitor
 
 ### Phase B Implementation Status
-- [ ] Phase 0: Documentation updates
-- [ ] Phase 1: Database migration (trigger_state, tp_price, sl_price)
-- [ ] Phase 2: Helius WebSocket infrastructure
-- [ ] Phase 3: Exit queue with backpressure
-- [ ] Phase 4: TpSlMonitorLoop integration
-- [ ] Phase 5: Migration and testing
+- [x] Phase 0: Documentation updates
+- [x] Phase 1: Database migration (trigger_state, tp_price, sl_price)
+- [x] Phase 2: Helius WebSocket infrastructure
+- [x] Phase 3: Exit queue with backpressure
+- [x] Phase 4: TpSlMonitorLoop integration
+- [x] Phase 5: Migration and testing
+- [x] **Phase 6: Audit fixes** (2026-01-18)
+  - NotificationPoller startup + type/payload fixes
+  - Position creation tg_id fix + TP/SL field population
+  - State machine RPC wrappers + execution transitions
+  - Duplicate trigger prevention in legacy monitor
+  - Stored TP/SL price usage
 
 ## Where we left off last
-- 2026-01-18 (latest): Started TP/SL Engine implementation (Phase B)
-- Earlier: Added pump.pro program support
+- 2026-01-18 (latest): **Audit fixes deployed** - All 6 critical bugs fixed
+  - P0: Notifications now delivered (poller started, types/payloads fixed)
+  - P0: Position creation fixed (tg_id, trigger_state, tp/sl prices, bonding_curve)
+  - P1: State machine now transitions properly (EXECUTING → COMPLETED/FAILED)
+  - P1: Duplicate triggers prevented (legacy monitor checks trigger_state)
+  - P2: Stored TP/SL prices used (immutable at entry)
+- Earlier: TP/SL Engine implementation complete (Phases 0-5)
 - pump.fun migrated most tokens to pump.pro program (`proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`)
-- Hunter now subscribes to and parses both pump.fun and pump.pro logs
-- Fixed slippage bug (capped at 99%), reset circuit breaker
 - Fly.io auto-deploys from GitHub pushes to `main` (documented in DEPLOYMENT.md)
