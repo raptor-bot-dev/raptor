@@ -72,6 +72,16 @@ export function calculateBuyOutput(
   virtualSolReserves: bigint,
   virtualTokenReserves: bigint
 ): bigint {
+  // Defensive: validate inputs are positive
+  if (solAmountIn <= 0n || virtualSolReserves <= 0n || virtualTokenReserves <= 0n) {
+    console.warn('[calculateBuyOutput] Invalid input: all values must be positive', {
+      solAmountIn: solAmountIn.toString(),
+      virtualSolReserves: virtualSolReserves.toString(),
+      virtualTokenReserves: virtualTokenReserves.toString(),
+    });
+    return 0n;
+  }
+
   // Apply 1% fee
   const solAfterFee = (solAmountIn * 99n) / 100n;
 
@@ -80,6 +90,15 @@ export function calculateBuyOutput(
   const newSolReserves = virtualSolReserves + solAfterFee;
   const newTokenReserves = k / newSolReserves;
   const tokensOut = virtualTokenReserves - newTokenReserves;
+
+  // Defensive: ensure non-negative output (corrupted curve state could cause negative)
+  if (tokensOut < 0n) {
+    console.warn('[calculateBuyOutput] Calculation resulted in negative tokensOut, returning 0', {
+      tokensOut: tokensOut.toString(),
+      solAmountIn: solAmountIn.toString(),
+    });
+    return 0n;
+  }
 
   return tokensOut;
 }
@@ -92,11 +111,30 @@ export function calculateSellOutput(
   virtualSolReserves: bigint,
   virtualTokenReserves: bigint
 ): bigint {
+  // Defensive: validate inputs are positive
+  if (tokenAmountIn <= 0n || virtualSolReserves <= 0n || virtualTokenReserves <= 0n) {
+    console.warn('[calculateSellOutput] Invalid input: all values must be positive', {
+      tokenAmountIn: tokenAmountIn.toString(),
+      virtualSolReserves: virtualSolReserves.toString(),
+      virtualTokenReserves: virtualTokenReserves.toString(),
+    });
+    return 0n;
+  }
+
   // Constant product formula
   const k = virtualSolReserves * virtualTokenReserves;
   const newTokenReserves = virtualTokenReserves + tokenAmountIn;
   const newSolReserves = k / newTokenReserves;
   const solOut = virtualSolReserves - newSolReserves;
+
+  // Defensive: ensure non-negative output
+  if (solOut < 0n) {
+    console.warn('[calculateSellOutput] Calculation resulted in negative solOut, returning 0', {
+      solOut: solOut.toString(),
+      tokenAmountIn: tokenAmountIn.toString(),
+    });
+    return 0n;
+  }
 
   // Apply 1% fee
   const solAfterFee = (solOut * 99n) / 100n;
@@ -485,6 +523,14 @@ export class PumpFunClient {
       state.virtualTokenReserves
     );
 
+    // Fail early if calculation returned 0 (indicates corrupted bonding curve state)
+    if (expectedTokens <= 0n) {
+      throw new Error(
+        `Bonding curve calculation failed: expectedTokens=${expectedTokens}. ` +
+        `State may be corrupted or token may have graduated.`
+      );
+    }
+
     // Apply slippage (using clamped effectiveSlippageBps)
     const minTokens = minTokensOut > 0n
       ? minTokensOut
@@ -617,6 +663,14 @@ export class PumpFunClient {
       state.virtualSolReserves,
       state.virtualTokenReserves
     );
+
+    // Fail early if calculation returned 0 (indicates corrupted bonding curve state)
+    if (expectedSol <= 0n) {
+      throw new Error(
+        `Bonding curve calculation failed: expectedSol=${expectedSol}. ` +
+        `State may be corrupted or token may have graduated.`
+      );
+    }
 
     // Apply slippage (using clamped effectiveSlippageBps)
     const minSol = minSolOut > 0n

@@ -163,11 +163,16 @@ export class JupiterClient {
     // M-4: Check circuit breaker before making request
     this.checkCircuitBreaker();
 
+    // Clamp slippage to 99% max (9900 bps) to prevent:
+    // 1. Jupiter API ParseIntError overflow when value is too large
+    // 2. Negative calculations in downstream code
+    const effectiveSlippageBps = Math.max(0, Math.min(slippageBps, 9900));
+
     const params = new URLSearchParams({
       inputMint,
       outputMint,
       amount: amount.toString(),
-      slippageBps: slippageBps.toString(),
+      slippageBps: effectiveSlippageBps.toString(),
       onlyDirectRoutes: 'false',
       asLegacyTransaction: 'false',
     });

@@ -1405,7 +1405,7 @@ export async function getOrCreateAutoStrategy(userId: number, chain: Chain): Pro
   const baseDefaults = {
     enabled: false,
     auto_execute: true,
-    risk_profile: 'BALANCED',
+    risk_profile: 'BALANCED' as const,
     // Position limits
     max_positions: 2,
     max_per_trade_sol: 0.1,
@@ -1438,7 +1438,7 @@ export async function getOrCreateAutoStrategy(userId: number, chain: Chain): Pro
     token_denylist: [],
     deployer_denylist: [],
     // v4.3: Snipe mode
-    snipe_mode: 'quality',
+    snipe_mode: 'quality' as const,
   };
 
   // Check for existing AUTO strategy
