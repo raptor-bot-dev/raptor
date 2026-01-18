@@ -382,7 +382,7 @@ export async function executeManualBuy(params: {
       sizeTokens: result.amountOut,
     });
 
-    logger.info('Position created', { positionId: position.id });
+    logger.info('Position created', { positionId: position.uuid_id });
 
     // Step 12: Set cooldown (prevent immediate re-buy of same token)
     await setCooldown({
@@ -405,14 +405,14 @@ export async function executeManualBuy(params: {
         price: result.price,
         txHash: result.txHash,
         route: result.route,
-        positionId: position.id,
+        positionId: position.uuid_id,
       },
     });
 
     return {
       success: true,
       executionId,
-      positionId: position.id,
+      positionId: position.uuid_id,
       txHash: result.txHash,
       amountIn: amountSol,
       netAmount: result.amountIn,

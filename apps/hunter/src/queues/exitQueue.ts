@@ -7,8 +7,8 @@ import { EventEmitter } from 'events';
 import {
   createTradeJob,
   getStrategy,
-  getPositionById,
-  createNotification,
+  getPositionByUuid,
+  markPositionExecuting,
   type ExitJob,
   type ExitTrigger,
   EXIT_PRIORITY,
@@ -209,8 +209,8 @@ export class ExitQueue extends EventEmitter {
     );
 
     try {
-      // Get position and strategy for trade job creation
-      const position = await getPositionById(job.positionId);
+      // Get position and strategy for trade job creation (use uuid_id)
+      const position = await getPositionByUuid(job.positionId);
       if (!position) {
         throw new Error(`Position not found: ${job.positionId}`);
       }
@@ -220,6 +220,9 @@ export class ExitQueue extends EventEmitter {
         throw new Error(`Strategy not found: ${position.strategy_id}`);
       }
 
+      // Mark position as EXECUTING before creating trade job
+      await markPositionExecuting(job.positionId);
+
       // Calculate sell percent (leave moon bag if TP)
       let sellPercent = job.sellPercent;
       if (job.trigger === 'TP' && strategy.moon_bag_percent > 0) {
@@ -227,15 +230,16 @@ export class ExitQueue extends EventEmitter {
       }
 
       // Create trade job for ExecutionLoop
+      // Use tg_id for userId (actual DB column name)
       await createTradeJob({
         strategyId: position.strategy_id,
-        userId: job.userId,
+        userId: position.tg_id,
         chain: position.chain,
         action: 'SELL',
         idempotencyKey: job.idempotencyKey,
         payload: {
           mint: job.tokenMint,
-          position_id: job.positionId,
+          position_id: job.positionId,  // uuid_id
           sell_percent: sellPercent,
           slippage_bps: job.slippageBps,
           priority_fee_lamports: strategy.priority_fee_lamports,
@@ -245,26 +249,9 @@ export class ExitQueue extends EventEmitter {
         priority: job.priority,
       });
 
-      // Create notification with payload that matches formatter expectations
-      // FIX: Use tokenSymbol, pnlPercent, solReceived, txHash keys
-      const pnlPercent = position.entry_price > 0
-        ? ((job.triggerPrice - position.entry_price) / position.entry_price) * 100
-        : 0;
-
-      await createNotification({
-        userId: job.userId,
-        type: this.triggerToNotificationType(job.trigger),
-        payload: {
-          positionId: job.positionId,
-          tokenSymbol: position.token_symbol || 'Unknown',
-          trigger: job.trigger,
-          triggerPrice: job.triggerPrice,
-          pnlPercent: pnlPercent,
-          // These will be updated by execution loop after sell completes
-          solReceived: 0,
-          txHash: '',
-        },
-      });
+      // NOTE: Notifications are NOT created here at trigger time.
+      // They are created in execution.ts AFTER the sell completes
+      // with real solReceived and txHash values.
 
       // Mark completed
       queuedJob.status = 'completed';
@@ -298,29 +285,6 @@ export class ExitQueue extends EventEmitter {
       // Clean up
       this.processing.delete(job.idempotencyKey);
       this.completed.add(job.idempotencyKey);
-    }
-  }
-
-  /**
-   * Map trigger to notification type
-   * FIX: Use correct NotificationType values that formatter expects
-   */
-  private triggerToNotificationType(
-    trigger: ExitTrigger
-  ): 'TP_HIT' | 'SL_HIT' | 'TRAILING_STOP_HIT' | 'POSITION_CLOSED' | 'TRADE_DONE' {
-    switch (trigger) {
-      case 'TP':
-        return 'TP_HIT';
-      case 'SL':
-        return 'SL_HIT';
-      case 'TRAIL':
-        return 'TRAILING_STOP_HIT';
-      case 'MAXHOLD':
-        return 'POSITION_CLOSED';
-      case 'EMERGENCY':
-        return 'POSITION_CLOSED';
-      default:
-        return 'TRADE_DONE';
     }
   }
 

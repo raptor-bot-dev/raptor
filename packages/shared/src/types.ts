@@ -250,8 +250,9 @@ export interface Execution {
 
 /** Position (v3.1 updated) */
 export interface PositionV31 {
-  id: string;
-  user_id: number;
+  id: number;              // SERIAL primary key (legacy)
+  uuid_id: string;         // UUID for v3.1 TP/SL operations
+  tg_id: number;           // User's Telegram ID (DB column name)
   strategy_id: string;
   opportunity_id: string | null;
   chain: Chain;
@@ -308,7 +309,7 @@ export interface Notification {
   // Delivery
   delivered_at: string | null;
   delivery_attempts: number;
-  last_error: string | null;
+  delivery_error: string | null;  // DB column name (was last_error)
   next_attempt_at: string;
 
   // Claiming

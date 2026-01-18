@@ -18,7 +18,7 @@ import {
   isTradingPaused,
   isCircuitOpen,
   getActiveWallet,
-  getPositionById,
+  getPositionByUuid,
   loadSolanaKeypair,
   applySellFeeDecimal,
   // TP/SL state machine functions (Phase B audit fix)
@@ -29,6 +29,7 @@ import {
   type TradeJob,
   type Strategy,
   type EncryptedData,
+  type ExitTrigger,
   getJobClaimLimit,
   getJobLeaseDuration,
 } from '@raptor/shared';
@@ -252,17 +253,39 @@ export class ExecutionLoop {
         });
 
         // 8. Create notification
-        await createNotification({
-          userId: job.user_id,
-          type: 'TRADE_DONE',
-          payload: {
-            action: job.action,
-            mint: job.payload.mint,
-            amount_sol: job.payload.amount_sol,
-            tokens: result.tokensReceived,
-            tx_sig: result.txSig,
-          },
-        });
+        // BUY: TRADE_DONE notification
+        // SELL: TP/SL-specific notification with real solReceived and txHash
+        if (job.action === 'BUY') {
+          await createNotification({
+            userId: job.user_id,
+            type: 'TRADE_DONE',
+            payload: {
+              action: job.action,
+              mint: job.payload.mint,
+              amount_sol: job.payload.amount_sol,
+              tokens: result.tokensReceived,
+              tx_sig: result.txSig,
+            },
+          });
+        } else if (job.action === 'SELL' && job.payload.trigger) {
+          // TP/SL exit: Create notification with real data
+          const notificationType = this.triggerToNotificationType(
+            job.payload.trigger as ExitTrigger
+          );
+          await createNotification({
+            userId: job.user_id,
+            type: notificationType,
+            payload: {
+              positionId: job.payload.position_id,
+              tokenSymbol: job.payload.mint, // Will be enriched by formatter
+              trigger: job.payload.trigger,
+              triggerPrice: job.payload.trigger_price,
+              pnlPercent: result.pnlPercent || 0,
+              solReceived: result.tokensReceived || 0, // This is SOL received for SELL
+              txHash: result.txSig || '',
+            },
+          });
+        }
 
         // 9. Finalize job as DONE
         await finalizeJob({
@@ -419,7 +442,8 @@ export class ExecutionLoop {
         };
       }
 
-      const position = await getPositionById(job.payload.position_id);
+      // Use getPositionByUuid since position_id is now uuid_id
+      const position = await getPositionByUuid(job.payload.position_id);
       if (!position) {
         return {
           success: false,
@@ -496,6 +520,27 @@ export class ExecutionLoop {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Map exit trigger to notification type
+   */
+  private triggerToNotificationType(
+    trigger: ExitTrigger
+  ): 'TP_HIT' | 'SL_HIT' | 'TRAILING_STOP_HIT' | 'POSITION_CLOSED' {
+    switch (trigger) {
+      case 'TP':
+        return 'TP_HIT';
+      case 'SL':
+        return 'SL_HIT';
+      case 'TRAIL':
+        return 'TRAILING_STOP_HIT';
+      case 'MAXHOLD':
+      case 'EMERGENCY':
+      case 'MANUAL':
+      default:
+        return 'POSITION_CLOSED';
+    }
   }
 }
 

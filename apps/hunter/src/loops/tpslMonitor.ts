@@ -5,7 +5,7 @@
 
 import {
   getOpenPositions,
-  updatePositionPrice,
+  updatePositionPriceByUuid,
   getStrategy,
   supabase,
   type PositionV31,
@@ -165,14 +165,14 @@ export class TpSlMonitorLoop {
       // Get all open positions
       const positions = await getOpenPositions('sol');
 
-      // Track which positions we've seen
+      // Track which positions we've seen (use uuid_id for internal tracking)
       const currentPositionIds = new Set<string>();
 
       for (const position of positions) {
-        currentPositionIds.add(position.id);
+        currentPositionIds.add(position.uuid_id);
 
         // Skip if already monitoring and trigger state is MONITORING
-        const existing = this.monitoredPositions.get(position.id);
+        const existing = this.monitoredPositions.get(position.uuid_id);
         if (existing && position.trigger_state === 'MONITORING') {
           // Update position data (price might have changed externally)
           existing.position = position;
@@ -181,14 +181,14 @@ export class TpSlMonitorLoop {
 
         // Skip positions not in MONITORING state
         if (position.trigger_state !== 'MONITORING') {
-          this.removePosition(position.id);
+          this.removePosition(position.uuid_id);
           continue;
         }
 
         // Load strategy for trigger evaluation
         const strategy = await getStrategy(position.strategy_id);
         if (!strategy) {
-          console.warn(`[TpSlMonitorLoop] Strategy not found for position ${position.id}`);
+          console.warn(`[TpSlMonitorLoop] Strategy not found for position ${position.uuid_id}`);
           continue;
         }
 
@@ -229,7 +229,7 @@ export class TpSlMonitorLoop {
           trailActivationPrice,
         };
 
-        this.monitoredPositions.set(position.id, monitored);
+        this.monitoredPositions.set(position.uuid_id, monitored);
 
         // Track token -> positions mapping
         let tokenPositions = this.tokenToPositions.get(position.token_mint);
@@ -237,11 +237,11 @@ export class TpSlMonitorLoop {
           tokenPositions = new Set();
           this.tokenToPositions.set(position.token_mint, tokenPositions);
         }
-        tokenPositions.add(position.id);
+        tokenPositions.add(position.uuid_id);
 
         // Subscribe to WebSocket for this token
         this.subscriptionManager.addPosition(
-          position.id,
+          position.uuid_id,
           position.token_mint,
           position.bonding_curve || position.token_mint // Fallback to mint if no bonding curve
         );
@@ -383,10 +383,10 @@ export class TpSlMonitorLoop {
     this.stats.triggersEvaluated++;
 
     try {
-      // Update peak price tracking
+      // Update peak price tracking (use uuid_id for DB operations)
       const newPeak = Math.max(currentPrice, position.peak_price || 0);
       if (newPeak > (position.peak_price || 0)) {
-        await updatePositionPrice(position.id, currentPrice, newPeak);
+        await updatePositionPriceByUuid(position.uuid_id, currentPrice, newPeak);
         monitored.position.peak_price = newPeak;
       }
       this.stats.priceUpdates++;
@@ -410,8 +410,8 @@ export class TpSlMonitorLoop {
 
       this.stats.triggersDetected++;
 
-      // Attempt atomic trigger claim
-      const claimed = await this.claimTrigger(position.id, trigger, currentPrice);
+      // Attempt atomic trigger claim (use uuid_id for DB operations)
+      const claimed = await this.claimTrigger(position.uuid_id, trigger, currentPrice);
       if (!claimed) {
         // Another worker claimed it, or already triggered
         return;
@@ -419,7 +419,7 @@ export class TpSlMonitorLoop {
 
       console.log(
         `[TpSlMonitorLoop] Trigger ${trigger} fired for ${position.token_symbol} ` +
-          `at price ${currentPrice.toFixed(10)} (position: ${position.id.slice(0, 8)}...)`
+          `at price ${currentPrice.toFixed(10)} (position: ${position.uuid_id.slice(0, 8)}...)`
       );
 
       // Create exit job
@@ -431,15 +431,15 @@ export class TpSlMonitorLoop {
       const idempotencyKey = idKeyExitSell({
         chain: position.chain as 'sol',
         mint: position.token_mint,
-        positionId: position.id,
+        positionId: position.uuid_id,  // Use uuid_id for idempotency
         trigger,
         sellPercent,
       });
 
       const exitJob = createExitJob({
-        positionId: position.id,
+        positionId: position.uuid_id,      // Use uuid_id for DB operations
         tokenMint: position.token_mint,
-        userId: position.user_id,
+        userId: position.tg_id,            // Use tg_id (actual DB column)
         trigger,
         triggerPrice: currentPrice,
         idempotencyKey,
@@ -450,7 +450,7 @@ export class TpSlMonitorLoop {
       this.exitQueue.enqueue(exitJob);
 
       // Remove from monitoring (position is exiting)
-      this.removePosition(position.id);
+      this.removePosition(position.uuid_id);
     } catch (error) {
       console.error(
         `[TpSlMonitorLoop] Error evaluating position ${positionId}:`,

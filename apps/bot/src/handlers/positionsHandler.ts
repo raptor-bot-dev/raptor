@@ -24,7 +24,7 @@ import {
 } from '../ui/panels/emergencySell.js';
 import {
   getUserOpenPositions,
-  getPositionById,
+  getPositionByUuid,
   getOrCreateAutoStrategy,
 } from '@raptor/shared';
 import { executeEmergencySell as executeEmergencySellService } from '../services/emergencySellService.js';
@@ -89,9 +89,9 @@ export async function showPositionsList(ctx: MyContext): Promise<void> {
       return;
     }
 
-    // Map positions to list items
+    // Map positions to list items (use uuid_id as string identifier)
     const listItems: PositionListItem[] = positions.map((pos) => ({
-      id: pos.id,
+      id: pos.uuid_id,
       symbol: pos.token_symbol || 'Unknown',
       mint: pos.token_mint,
       entrySol: pos.entry_cost_sol,
@@ -122,9 +122,9 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
   if (!userId) return;
 
   try {
-    const position = await getPositionById(positionId);
+    const position = await getPositionByUuid(positionId);
 
-    if (!position || position.user_id !== userId) {
+    if (!position || position.tg_id !== userId) {
       const panel = renderPositionNotFound();
       await ctx.editMessageText(panel.text, panel.opts);
       await ctx.answerCallbackQuery('Position not found');
@@ -134,7 +134,7 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
     const strategy = await getOrCreateAutoStrategy(userId, 'sol');
 
     const detailData: PositionDetailData = {
-      id: position.id,
+      id: position.uuid_id,
       tokenName: position.token_name || position.token_symbol || 'Unknown',
       symbol: position.token_symbol || 'Unknown',
       mint: position.token_mint,
@@ -165,9 +165,9 @@ async function showEmergencySellConfirm(ctx: MyContext, positionId: string): Pro
   if (!userId) return;
 
   try {
-    const position = await getPositionById(positionId);
+    const position = await getPositionByUuid(positionId);
 
-    if (!position || position.user_id !== userId) {
+    if (!position || position.tg_id !== userId) {
       await ctx.answerCallbackQuery('Position not found');
       return;
     }
@@ -180,7 +180,7 @@ async function showEmergencySellConfirm(ctx: MyContext, positionId: string): Pro
     }
 
     const sellData: EmergencySellData = {
-      positionId: position.id,
+      positionId: position.uuid_id,
       symbol: position.token_symbol || 'Unknown',
       mint: position.token_mint,
       tokenBalance: position.size_tokens ?? 0,
@@ -204,9 +204,9 @@ async function executeEmergencySell(ctx: MyContext, positionId: string): Promise
   if (!userId) return;
 
   try {
-    const position = await getPositionById(positionId);
+    const position = await getPositionByUuid(positionId);
 
-    if (!position || position.user_id !== userId) {
+    if (!position || position.tg_id !== userId) {
       await ctx.answerCallbackQuery('Position not found');
       return;
     }

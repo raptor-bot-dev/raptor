@@ -5,10 +5,11 @@
 
 import {
   getOpenPositions,
-  updatePositionPrice,
+  updatePositionPriceByUuid,
   createTradeJob,
-  createNotification,
   getStrategy,
+  triggerExitAtomically,
+  markPositionExecuting,
   type PositionV31,
   type Strategy,
   type Chain,
@@ -95,7 +96,7 @@ export class PositionMonitorLoop {
       const strategy = await getStrategy(position.strategy_id);
       if (!strategy) {
         console.warn(
-          `[PositionMonitorLoop] Strategy not found for position ${position.id}`
+          `[PositionMonitorLoop] Strategy not found for position ${position.uuid_id}`
         );
         return;
       }
@@ -110,9 +111,9 @@ export class PositionMonitorLoop {
       const priceChange =
         ((currentPrice - position.entry_price) / position.entry_price) * 100;
 
-      // Update peak price tracking
+      // Update peak price tracking (use uuid_id)
       const newPeak = Math.max(currentPrice, position.peak_price || 0);
-      await updatePositionPrice(position.id, currentPrice, newPeak);
+      await updatePositionPriceByUuid(position.uuid_id, currentPrice, newPeak);
 
       // Check for exit triggers
       let trigger: ExitTrigger | null = null;
@@ -158,7 +159,7 @@ export class PositionMonitorLoop {
       }
     } catch (error) {
       console.error(
-        `[PositionMonitorLoop] Error checking position ${position.id}:`,
+        `[PositionMonitorLoop] Error checking position ${position.uuid_id}:`,
         error
       );
     }
@@ -166,6 +167,7 @@ export class PositionMonitorLoop {
 
   /**
    * Create an exit (sell) job for a position
+   * Uses atomic claim to prevent duplicate exits when running with TP/SL engine
    */
   private async createExitJob(
     position: PositionV31,
@@ -173,32 +175,51 @@ export class PositionMonitorLoop {
     trigger: ExitTrigger,
     currentPrice: number
   ): Promise<void> {
+    // Atomic claim: attempt to claim this trigger before creating exit job
+    // This prevents race conditions with the TP/SL engine
+    const claimResult = await triggerExitAtomically(
+      position.uuid_id,
+      trigger,
+      currentPrice
+    );
+
+    if (!claimResult.triggered) {
+      // Another worker (or TP/SL engine) already claimed this position
+      console.log(
+        `[PositionMonitorLoop] Atomic claim failed for ${position.uuid_id.slice(0, 8)}...: ${claimResult.reason}`
+      );
+      return;
+    }
+
     // Calculate sell percent (leave moon bag if TP)
     const sellPercent =
       trigger === 'TP' && strategy.moon_bag_percent > 0
         ? 100 - strategy.moon_bag_percent
         : 100;
 
-    // Generate idempotency key
+    // Generate idempotency key (use uuid_id)
     const idempotencyKey = idKeyExitSell({
       chain: position.chain as Chain,
       mint: position.token_mint,
-      positionId: position.id,
+      positionId: position.uuid_id,
       trigger,
       sellPercent,
     });
 
     try {
-      // Create sell job
+      // Mark position as EXECUTING
+      await markPositionExecuting(position.uuid_id);
+
+      // Create sell job (use uuid_id for position_id, tg_id for userId)
       await createTradeJob({
         strategyId: position.strategy_id,
-        userId: position.user_id,
+        userId: position.tg_id,
         chain: position.chain,
         action: 'SELL',
         idempotencyKey,
         payload: {
           mint: position.token_mint,
-          position_id: position.id,
+          position_id: position.uuid_id,  // Use uuid_id
           sell_percent: sellPercent,
           slippage_bps: strategy.slippage_bps,
           priority_fee_lamports: strategy.priority_fee_lamports,
@@ -209,34 +230,12 @@ export class PositionMonitorLoop {
       });
 
       console.log(
-        `[PositionMonitorLoop] Created ${trigger} exit job for position ${position.id}`
+        `[PositionMonitorLoop] Created ${trigger} exit job for position ${position.uuid_id.slice(0, 8)}...`
       );
 
-      // Create notification (Phase B audit fix: use correct notification types)
-      const pnlPercent = position.entry_price > 0
-        ? ((currentPrice - position.entry_price) / position.entry_price) * 100
-        : 0;
-
-      await createNotification({
-        userId: position.user_id,
-        type:
-          trigger === 'TP'
-            ? 'TP_HIT'
-            : trigger === 'SL'
-              ? 'SL_HIT'
-              : trigger === 'TRAIL'
-                ? 'TRAILING_STOP_HIT'
-                : 'POSITION_CLOSED',
-        payload: {
-          positionId: position.id,
-          tokenSymbol: position.token_symbol || 'Unknown',
-          trigger,
-          triggerPrice: currentPrice,
-          pnlPercent,
-          solReceived: 0, // Updated after sell completes
-          txHash: '',     // Updated after sell completes
-        },
-      });
+      // NOTE: Notifications are NOT created here at trigger time.
+      // They are created in execution.ts AFTER the sell completes
+      // with real solReceived and txHash values.
     } catch (error) {
       // Duplicate key means exit job already exists
       if ((error as Error).message?.includes('duplicate')) {

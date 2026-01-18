@@ -68,14 +68,14 @@ export async function executeEmergencySell(params: {
   const chain = position.chain;
   const tokensToSell = position.size_tokens;
 
-  logger.info('Starting emergency sell', { userId, positionId: position.id, tokensToSell });
+  logger.info('Starting emergency sell', { userId, positionId: position.uuid_id, tokensToSell });
 
   // Step 1: Generate idempotency key using exit trigger
   // This ensures only ONE emergency sell per position (regardless of how many times clicked)
   const idempotencyKey = idKeyExitSell({
     chain,
     mint: position.token_mint,
-    positionId: position.id,
+    positionId: position.uuid_id,
     trigger: 'EMERGENCY',
     sellPercent: 100,
   });
@@ -99,7 +99,7 @@ export async function executeEmergencySell(params: {
   // Check if already executed (idempotency check)
   if (!reservation.allowed) {
     if (reservation.reason === 'Already executed') {
-      logger.info('Emergency sell already executed', { positionId: position.id, executionId: reservation.execution_id });
+      logger.info('Emergency sell already executed', { positionId: position.uuid_id, executionId: reservation.execution_id });
       return {
         success: false,
         alreadyExecuted: true,
@@ -236,7 +236,7 @@ export async function executeEmergencySell(params: {
 
     // Step 8: Close position with EMERGENCY trigger
     await closePositionV31({
-      positionId: position.id,
+      positionId: position.uuid_id,
       exitExecutionId: executionId,
       exitTxSig: result.txHash,
       exitPrice: result.price,

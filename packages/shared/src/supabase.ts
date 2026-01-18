@@ -1814,6 +1814,62 @@ export async function getPositionById(positionId: string): Promise<PositionV31 |
 }
 
 /**
+ * Get a position by UUID (v3.1 standard)
+ * Use this for TP/SL engine operations instead of getPositionById
+ */
+export async function getPositionByUuid(uuidId: string): Promise<PositionV31 | null> {
+  const { data, error } = await supabase
+    .from('positions')
+    .select('*')
+    .eq('uuid_id', uuidId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data as PositionV31;
+}
+
+/**
+ * Close a position by UUID (v3.1 standard)
+ * Use this for TP/SL engine exit operations
+ */
+export async function closePositionByUuid(
+  uuidId: string,
+  closeData: {
+    exitPrice: number;
+    exitValueSol: number;
+    closeReason: string;
+    exitTxSig?: string;
+    exitTrigger?: string;
+    realizedPnlSol?: number;
+    realizedPnlPercent?: number;
+  }
+): Promise<PositionV31> {
+  const { data, error } = await supabase
+    .from('positions')
+    .update({
+      status: 'CLOSED',
+      exit_price: closeData.exitPrice,
+      exit_value_sol: closeData.exitValueSol,
+      close_reason: closeData.closeReason,
+      exit_tx_sig: closeData.exitTxSig || null,
+      exit_trigger: closeData.exitTrigger || null,
+      realized_pnl_sol: closeData.realizedPnlSol ?? null,
+      realized_pnl_percent: closeData.realizedPnlPercent ?? null,
+      closed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('uuid_id', uuidId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as PositionV31;
+}
+
+/**
  * Create a new position
  * FIX: Use tg_id (not user_id), set trigger_state, tp_price, sl_price, bonding_curve
  */
@@ -1901,6 +1957,33 @@ export async function updatePositionPrice(
 }
 
 /**
+ * Update position price by UUID (v3.1 standard)
+ * Use this for TP/SL engine operations instead of updatePositionPrice
+ */
+export async function updatePositionPriceByUuid(
+  uuidId: string,
+  currentPrice: number,
+  peakPrice?: number
+): Promise<void> {
+  const updates: Record<string, unknown> = {
+    current_price: currentPrice,
+    price_updated_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  if (peakPrice !== undefined) {
+    updates.peak_price = peakPrice;
+  }
+
+  const { error } = await supabase
+    .from('positions')
+    .update(updates)
+    .eq('uuid_id', uuidId);
+
+  if (error) throw error;
+}
+
+/**
  * Close a position
  */
 export async function closePositionV31(params: {
@@ -1912,6 +1995,7 @@ export async function closePositionV31(params: {
   realizedPnlSol: number;
   realizedPnlPercent: number;
 }): Promise<PositionV31> {
+  // Use uuid_id for consistent ID handling across the codebase
   const { data, error } = await supabase
     .from('positions')
     .update({
@@ -1925,7 +2009,7 @@ export async function closePositionV31(params: {
       closed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .eq('id', params.positionId)
+    .eq('uuid_id', params.positionId)
     .select()
     .single();
 
@@ -1936,6 +2020,42 @@ export async function closePositionV31(params: {
 // ============================================================================
 // TP/SL Engine State Machine Functions (Phase B Audit Fix)
 // ============================================================================
+
+/**
+ * Result from trigger_exit_atomically RPC
+ */
+export interface TriggerClaimResult {
+  triggered: boolean;
+  reason?: string;
+  position_id?: string;
+  trigger?: string;
+  current_state?: string;
+}
+
+/**
+ * Atomically claim a trigger for a position (MONITORING → TRIGGERED)
+ * This is the first step in the exit state machine.
+ * Returns { triggered: true } if claim succeeded, otherwise { triggered: false, reason: ... }
+ */
+export async function triggerExitAtomically(
+  positionId: string,
+  trigger: ExitTrigger,
+  triggerPrice: number
+): Promise<TriggerClaimResult> {
+  const { data, error } = await supabase.rpc('trigger_exit_atomically', {
+    p_position_id: positionId,
+    p_trigger: trigger,
+    p_trigger_price: triggerPrice,
+  });
+
+  if (error) {
+    console.error('[triggerExitAtomically] Error:', error);
+    return { triggered: false, reason: error.message };
+  }
+
+  // RPC returns JSONB which is parsed as object
+  return data as TriggerClaimResult;
+}
 
 /**
  * Mark a position as executing (TRIGGERED → EXECUTING)
@@ -2114,21 +2234,17 @@ export async function markNotificationDelivered(notificationId: string): Promise
 
 /**
  * Mark notification delivery failed
+ * FIX: Use RPC for atomic increment (was broken inline supabase.rpc call)
+ * FIX: Use delivery_error column (was last_error which doesn't exist)
  */
 export async function markNotificationFailed(
   notificationId: string,
   errorMessage: string
 ): Promise<void> {
-  const { error } = await supabase
-    .from('notifications')
-    .update({
-      delivery_attempts: supabase.rpc('increment', { x: 1 }) as unknown as number,
-      last_error: errorMessage,
-      next_attempt_at: new Date(Date.now() + 60000).toISOString(), // Retry in 1 minute
-      claimed_by: null,
-      claimed_at: null,
-    })
-    .eq('id', notificationId);
+  const { error } = await supabase.rpc('mark_notification_failed', {
+    p_notification_id: notificationId,
+    p_error: errorMessage,
+  });
 
   if (error) throw error;
 }

@@ -91,7 +91,7 @@ export async function handleManualSell(
   try {
     // M-2: Get user's positions with server-side filtering
     const positions = await getUserOpenPositions(user.id);
-    const position = positions.find((p) => p.id === positionId);
+    const position = positions.find((p) => p.uuid_id === positionId);
 
     if (!position) {
       await ctx.reply('Position not found or already closed.');
@@ -249,14 +249,14 @@ export async function executeManualSell(params: {
   const { userId, position, tokensToSell, sellPercent, tgEventId, slippageBps } = params;
   const chain = position.chain;
 
-  logger.info('Starting manual sell', { userId, positionId: position.id, tokensToSell });
+  logger.info('Starting manual sell', { userId, positionId: position.uuid_id, tokensToSell });
 
   // Step 1: Generate idempotency key
   const idempotencyKey = idKeyManualSell({
     chain,
     userId,
     mint: position.token_mint,
-    positionId: position.id,
+    positionId: position.uuid_id,
     tgEventId,
     sellPercent,
   });
@@ -400,7 +400,7 @@ export async function executeManualSell(params: {
     if (sellPercent >= 100) {
       // Full sell - close position
       await closePositionV31({
-        positionId: position.id,
+        positionId: position.uuid_id,
         exitExecutionId: executionId,
         exitTxSig: result.txHash,
         exitPrice: result.price,
@@ -413,7 +413,7 @@ export async function executeManualSell(params: {
       // Note: For simplicity, we're closing on any sell.
       // A more complete implementation would track partial exits.
       await closePositionV31({
-        positionId: position.id,
+        positionId: position.uuid_id,
         exitExecutionId: executionId,
         exitTxSig: result.txHash,
         exitPrice: result.price,
@@ -440,7 +440,7 @@ export async function executeManualSell(params: {
         route: result.route,
         pnlSol,
         pnlPercent,
-        positionId: position.id,
+        positionId: position.uuid_id,
       },
     });
 
