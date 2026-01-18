@@ -293,8 +293,14 @@ async function setSnipeMode(ctx: MyContext, mode: 'speed' | 'quality'): Promise<
 
   try {
     const strategy = await getOrCreateAutoStrategy(userId, 'sol');
-    await updateStrategy(strategy.id, { snipe_mode: mode });
 
+    // Skip update if already set to this mode (prevents "message not modified" error)
+    if (strategy.snipe_mode === mode) {
+      await ctx.answerCallbackQuery(`Already set to ${mode === 'speed' ? 'Speed' : 'Quality'}`);
+      return;
+    }
+
+    await updateStrategy(strategy.id, { snipe_mode: mode });
     await showSnipeMode(ctx);
   } catch (error) {
     console.error('Error setting snipe mode:', error);
