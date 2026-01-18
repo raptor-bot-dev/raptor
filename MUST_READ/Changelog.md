@@ -3,6 +3,11 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **fix(hunter): pump.pro API metadata fetch** (7e999bc)
+  - pump.pro instructions don't include inline metadata like pump.fun
+  - Detect pump.pro by discriminator, then fetch from frontend-api.pump.fun
+  - 3s timeout on API call with graceful fallback
+  - Fixes parse failures for all pump.pro token detections
 - **fix(hunter): add pump.pro create discriminator** (15746be)
   - pump.pro uses new discriminator: `[147,241,123,100,244,132,174,118]`
   - PumpFunMonitor now checks all 3: legacy create, create_v2, pump.pro
