@@ -119,7 +119,11 @@ export const scoringRules: ScoringRule[] = [
     evaluate: async (ctx) => {
       const percent = await getCreatorHoldingsPercent(ctx.creator, ctx.mint);
       if (percent === null) {
-        return { passed: false, value: 'holdings_unknown' };
+        // For pump.pro tokens, holdings may not be determinable immediately
+        // Allow through with a warning - the rule passes but value shows unknown
+        // TODO: Re-enable strict holdings check when pump.pro timing issues resolved
+        console.log(`[Scorer] Holdings unknown for ${ctx.mint.slice(0, 8)}..., allowing through`);
+        return { passed: true, value: 'holdings_unknown_allowed' };
       }
       const passed = percent <= DEV_HOLDINGS_MAX_PERCENT;
       return { passed, value: percent };
