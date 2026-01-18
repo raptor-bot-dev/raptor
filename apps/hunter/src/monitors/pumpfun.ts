@@ -295,11 +295,15 @@ export class PumpFunMonitor {
         ? (message as { compiledInstructions: VersionedInstruction[] }).compiledInstructions || []
         : (message as { instructions: LegacyInstruction[] }).instructions || [];
 
-      console.debug(`[PumpFunMonitor] TX ${signature.slice(0, 12)}... versioned=${isVersioned}, ${rawInstructions.length} ix, ${accountKeys.length} accounts`);
+      console.log(`[PumpFunMonitor] TX ${signature.slice(0, 12)}... versioned=${isVersioned}, ${rawInstructions.length} ix, ${accountKeys.length} accounts`);
 
       // Find pump.fun Create instruction
       let createData: Buffer | null = null;
       let createAccounts: number[] = [];
+
+      // Log all program IDs for debugging
+      const programIds = rawInstructions.map(ix => accountKeys[ix.programIdIndex]?.toBase58() || 'null');
+      console.log(`[PumpFunMonitor] Program IDs: ${programIds.join(', ')}`);
 
       const foundDiscriminators: string[] = [];
       for (const ix of rawInstructions) {
@@ -328,11 +332,11 @@ export class PumpFunMonitor {
 
       // Log found discriminators if no Create found
       if (!createData && foundDiscriminators.length > 0) {
-        console.debug(`[PumpFunMonitor] pump.fun discriminators in TX: ${foundDiscriminators.join(', ')}`);
+        console.log(`[PumpFunMonitor] pump.fun discriminators in TX: ${foundDiscriminators.join(', ')}`);
       }
 
       if (!createData || createAccounts.length < 3) {
-        console.debug(`[PumpFunMonitor] No Create instruction found in TX ${signature.slice(0, 12)}... (createData: ${!!createData}, accounts: ${createAccounts.length})`);
+        console.log(`[PumpFunMonitor] No Create instruction found in TX ${signature.slice(0, 12)}... (createData: ${!!createData}, accounts: ${createAccounts.length})`);
         return null;
       }
 
