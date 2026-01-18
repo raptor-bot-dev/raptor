@@ -277,7 +277,7 @@ export class ExecutionLoop {
             type: notificationType,
             payload: {
               positionId: job.payload.position_id,
-              tokenSymbol: job.payload.mint, // Will be enriched by formatter
+              tokenSymbol: result.tokenSymbol ?? job.payload.mint, // Prefer actual symbol
               trigger: job.payload.trigger,
               triggerPrice: job.payload.trigger_price,
               pnlPercent: result.pnlPercent || 0,
@@ -329,6 +329,10 @@ export class ExecutionLoop {
     } catch (error) {
       const { code, message } = parseError(error);
       console.error(`[ExecutionLoop] Job error: ${message}`);
+
+      if (job.action === 'SELL' && job.payload.position_id) {
+        await markTriggerFailed(job.payload.position_id, message);
+      }
 
       await finalizeJob({
         jobId: job.id,
@@ -490,6 +494,7 @@ export class ExecutionLoop {
         price: result.price,
         pnlSol,
         pnlPercent,
+        tokenSymbol: position.token_symbol || job.payload.mint,
       };
     } catch (error) {
       const { code, message } = parseError(error);
@@ -551,6 +556,7 @@ interface TradeResult {
   price?: number;
   pnlSol?: number;
   pnlPercent?: number;
+  tokenSymbol?: string;
   error?: string;
   errorCode?: string;
 }

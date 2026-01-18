@@ -13,6 +13,7 @@ import {
   renderEditStopLoss,
   renderEditSlippage,
   renderEditPriority,
+  renderSnipeModeSelection,
   renderSettingsUpdated,
   type SettingsData,
 } from '../ui/panels/settings.js';
@@ -61,6 +62,18 @@ export async function handleSettingsCallbacks(ctx: MyContext, data: string): Pro
       await showEditPriority(ctx);
       break;
 
+    case CB.SETTINGS.EDIT_SNIPE_MODE:
+      await showSnipeMode(ctx);
+      break;
+
+    case CB.SETTINGS.SET_SNIPE_MODE_SPEED:
+      await setSnipeMode(ctx, 'speed');
+      break;
+
+    case CB.SETTINGS.SET_SNIPE_MODE_QUALITY:
+      await setSnipeMode(ctx, 'quality');
+      break;
+
     case CB.SETTINGS.TOGGLE_MEV:
       await toggleMev(ctx);
       break;
@@ -93,6 +106,7 @@ export async function showSettings(ctx: MyContext): Promise<void> {
       slippageBps: strategy.slippage_bps ?? 1000,
       prioritySol: chainSettings.priority_sol ?? 0.0005,
       antiMevEnabled: chainSettings.anti_mev_enabled ?? true,
+      snipeMode: strategy.snipe_mode ?? 'quality',
     };
 
     const panel = renderSettings(settingsData);
@@ -246,6 +260,44 @@ async function showEditPriority(ctx: MyContext): Promise<void> {
     await ctx.answerCallbackQuery();
   } catch (error) {
     console.error('Error:', error);
+    await ctx.answerCallbackQuery('Error');
+  }
+}
+
+/**
+ * Show snipe mode selection panel
+ */
+async function showSnipeMode(ctx: MyContext): Promise<void> {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  try {
+    const strategy = await getOrCreateAutoStrategy(userId, 'sol');
+    const mode = strategy.snipe_mode ?? 'quality';
+    const panel = renderSnipeModeSelection(mode);
+
+    await ctx.editMessageText(panel.text, panel.opts);
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('Error showing snipe mode:', error);
+    await ctx.answerCallbackQuery('Error');
+  }
+}
+
+/**
+ * Set snipe mode (speed or quality)
+ */
+async function setSnipeMode(ctx: MyContext, mode: 'speed' | 'quality'): Promise<void> {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  try {
+    const strategy = await getOrCreateAutoStrategy(userId, 'sol');
+    await updateStrategy(strategy.id, { snipe_mode: mode });
+
+    await showSnipeMode(ctx);
+  } catch (error) {
+    console.error('Error setting snipe mode:', error);
     await ctx.answerCallbackQuery('Error');
   }
 }

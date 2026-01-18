@@ -1402,6 +1402,45 @@ export async function getOrCreateManualStrategy(userId: number, chain: Chain): P
  * v4.3: Used by hunt.ts to sync UI settings to execution strategy
  */
 export async function getOrCreateAutoStrategy(userId: number, chain: Chain): Promise<Strategy> {
+  const baseDefaults = {
+    enabled: false,
+    auto_execute: true,
+    risk_profile: 'BALANCED',
+    // Position limits
+    max_positions: 2,
+    max_per_trade_sol: 0.1,
+    max_daily_sol: 0.3,
+    max_open_exposure_sol: 0.2,
+    // Execution params (hunt defaults)
+    slippage_bps: 1500, // 15% for hunt
+    priority_fee_lamports: 1000000, // 0.001 SOL
+    // Exit strategy
+    take_profit_percent: 50,
+    stop_loss_percent: 30,
+    max_hold_minutes: 240, // 4 hours
+    // Trailing stop
+    trailing_enabled: true,
+    trailing_activation_percent: 30,
+    trailing_distance_percent: 20,
+    // DCA
+    dca_enabled: false,
+    dca_levels: [],
+    // Moon bag
+    moon_bag_percent: 25,
+    // Filters
+    min_score: 30,
+    min_liquidity_sol: 0,
+    allowed_launchpads: ['pump.fun'],
+    // Cooldown
+    cooldown_seconds: 300,
+    // Blocklists
+    token_allowlist: [],
+    token_denylist: [],
+    deployer_denylist: [],
+    // v4.3: Snipe mode
+    snipe_mode: 'quality',
+  };
+
   // Check for existing AUTO strategy
   const { data: existing } = await supabase
     .from('strategies')
@@ -1411,7 +1450,19 @@ export async function getOrCreateAutoStrategy(userId: number, chain: Chain): Pro
     .eq('chain', chain)
     .single();
 
-  if (existing) return existing;
+  if (existing) {
+    const defaultName = `Auto Hunt (${chain.toUpperCase()})`;
+    const isPristine =
+      !existing.enabled &&
+      existing.name === defaultName &&
+      existing.created_at === existing.updated_at;
+
+    if (isPristine) {
+      return updateStrategy(existing.id, baseDefaults);
+    }
+
+    return existing;
+  }
 
   // Create new AUTO strategy with hunt defaults
   const { data, error } = await supabase
@@ -1421,42 +1472,7 @@ export async function getOrCreateAutoStrategy(userId: number, chain: Chain): Pro
       kind: 'AUTO',
       name: `Auto Hunt (${chain.toUpperCase()})`,
       chain,
-      enabled: false, // Disabled by default until user starts hunt
-      auto_execute: true,
-      risk_profile: 'BALANCED',
-      // Position limits
-      max_positions: 5,
-      max_per_trade_sol: 0.1,
-      max_daily_sol: 1.0,
-      max_open_exposure_sol: 0.5,
-      // Execution params (hunt defaults)
-      slippage_bps: 1500, // 15% for hunt
-      priority_fee_lamports: 1000000, // 0.001 SOL
-      // Exit strategy
-      take_profit_percent: 50,
-      stop_loss_percent: 30,
-      max_hold_minutes: 240, // 4 hours
-      // Trailing stop
-      trailing_enabled: true,
-      trailing_activation_percent: 30,
-      trailing_distance_percent: 20,
-      // DCA
-      dca_enabled: false,
-      dca_levels: [],
-      // Moon bag
-      moon_bag_percent: 25,
-      // Filters
-      min_score: 23,
-      min_liquidity_sol: 0,
-      allowed_launchpads: ['pump.fun'],
-      // Cooldown
-      cooldown_seconds: 60,
-      // Blocklists
-      token_allowlist: [],
-      token_denylist: [],
-      deployer_denylist: [],
-      // v4.3: Snipe mode
-      snipe_mode: 'balanced',
+      ...baseDefaults,
     })
     .select()
     .single();

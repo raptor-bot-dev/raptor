@@ -25,6 +25,25 @@ Keep this log short and append-only. Use ISO dates.
   - P1: Add trigger_state check to legacy positions.ts monitor (prevent duplicates)
   - P2: Use stored position.tp_price/sl_price when available (not strategy recompute)
   - Added getOpportunityById() to fetch bonding_curve from opportunity
+- **fix(hunter): enforce metadata + dev-holdings hard stops**
+  - Require metadata URI, X/Twitter, website, and image (Telegram optional)
+  - Enforce creator holdings <= 10% of supply (hard stop)
+  - Force metadata fetch even in speed snipe mode
+- **fix(tpsl): improve exit state + notification accuracy**
+  - Use position tokenSymbol in TP/SL notifications (not mint)
+  - Always persist current_price updates in TP/SL monitor
+  - Avoid early EXECUTING state in exit queue/legacy monitor
+  - Mark triggers failed on unexpected SELL exceptions
+  - Emergency sell notifications now use uuid_id
+- **fix(bot): default base autohunt strategy to reduce launch flood**
+  - New auto strategies default to stricter limits (positions/exposure/daily spend)
+  - Raise min_score and cooldown for conservative default hunting
+  - Pristine auto strategies are auto-updated to the new base defaults
+- **chore(hunter): disable global deployer blacklist rule**
+  - Blacklist enforcement removed until testing is complete
+- **feat(bot): add snipe mode selection to Settings**
+  - Speed vs Quality options with descriptions
+  - Stores selection on the user's AUTO strategy
 - **feat(hunter): begin TP/SL Engine implementation (Phase B)**
   - Hybrid architecture: Jupiter polling (3s) + Helius WebSocket activity hints
   - Trigger state machine: MONITORING → TRIGGERED → EXECUTING → COMPLETED

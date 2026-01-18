@@ -83,3 +83,13 @@ Scope: bot, hunter, executor, TP/SL engine, notifications, worker coordination.
 - Unit: uuid-based RPCs, notification retry RPC, TP/SL notification formatting after sell.
 - Integration: single trigger claim under burst load, exit job created once, trigger_state updated.
 - E2E: open position -> TP/SL trigger -> sell -> TP/SL notification delivered with tx hash.
+
+## Round 3 - Quality gates + execution consistency
+- Enforce social metadata hard stops: require metadata URI, X/Twitter, website, and image; Telegram optional.
+- Require creator holdings <= 10% of total supply (hard stop).
+- Force metadata fetch even for speed snipe mode to avoid false rejects on social hard stops.
+- Fix SELL notifications to use actual tokenSymbol (not mint).
+- Update TP/SL monitor to always persist current_price (not only on new peak).
+- Avoid setting EXECUTING in exit queue/legacy monitor; only ExecutionLoop sets EXECUTING.
+- Ensure unexpected SELL failures mark trigger as FAILED.
+- Use uuid_id in emergency sell notifications.

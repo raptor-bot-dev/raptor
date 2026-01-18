@@ -262,7 +262,7 @@ export async function executeEmergencySell(params: {
         route: result.route,
         pnlSol,
         pnlPercent,
-        positionId: position.id,
+        positionId: position.uuid_id,
         trigger: 'EMERGENCY',
       },
     });

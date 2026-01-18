@@ -8,7 +8,6 @@ import {
   createTradeJob,
   getStrategy,
   getPositionByUuid,
-  markPositionExecuting,
   type ExitJob,
   type ExitTrigger,
   EXIT_PRIORITY,
@@ -219,9 +218,6 @@ export class ExitQueue extends EventEmitter {
       if (!strategy) {
         throw new Error(`Strategy not found: ${position.strategy_id}`);
       }
-
-      // Mark position as EXECUTING before creating trade job
-      await markPositionExecuting(job.positionId);
 
       // Calculate sell percent (leave moon bag if TP)
       let sellPercent = job.sellPercent;

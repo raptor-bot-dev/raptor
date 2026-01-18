@@ -3,16 +3,63 @@
 // Individual rules for token scoring with metadata support
 // =============================================================================
 
-import type { OpportunityV31 } from '@raptor/shared';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { PROGRAM_IDS, SOLANA_CONFIG, isValidSolanaAddress, type OpportunityV31 } from '@raptor/shared';
 import type { PumpFunEvent } from '../monitors/pumpfun.js';
 import type { TokenMetadata } from '../utils/metadataFetcher.js';
 
-// Known scammer deployers (global blacklist)
-// These wallets have been identified as serial rug-pullers
-const GLOBAL_DEPLOYER_BLACKLIST: string[] = [
-  // Add known scammer addresses here as they're identified
-  // Example: 'ScamWallet111111111111111111111111111111111'
-];
+const solanaConnection = new Connection(SOLANA_CONFIG.rpcUrl, 'confirmed');
+const DEV_HOLDINGS_MAX_PERCENT = 10;
+
+async function getCreatorHoldingsPercent(creator: string, mint: string): Promise<number | null> {
+  if (!isValidSolanaAddress(creator) || !isValidSolanaAddress(mint)) {
+    return null;
+  }
+
+  try {
+    const creatorKey = new PublicKey(creator);
+    const mintKey = new PublicKey(mint);
+
+    const supply = await solanaConnection.getTokenSupply(mintKey);
+    const supplyAmount = BigInt(supply.value.amount);
+    if (supplyAmount === 0n) {
+      return null;
+    }
+
+    const programIds = [PROGRAM_IDS.TOKEN_PROGRAM, PROGRAM_IDS.TOKEN_2022_PROGRAM];
+    let creatorAmount = 0n;
+
+    for (const programId of programIds) {
+      try {
+        const accounts = await solanaConnection.getParsedTokenAccountsByOwner(
+          creatorKey,
+          { programId: new PublicKey(programId) }
+        );
+
+        for (const account of accounts.value) {
+          const parsed = account.account.data?.parsed as
+            | { info?: { mint?: string; tokenAmount?: { amount?: string } } }
+            | undefined;
+          const info = parsed?.info;
+          if (!info || info.mint !== mint) {
+            continue;
+          }
+          const amount = info.tokenAmount?.amount;
+          if (amount) {
+            creatorAmount += BigInt(amount);
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    const percentTimes100 = (creatorAmount * 10000n) / supplyAmount;
+    return Number(percentTimes100) / 100;
+  } catch {
+    return null;
+  }
+}
 
 export interface ScoringContext {
   opportunity: OpportunityV31;
@@ -66,17 +113,16 @@ export const scoringRules: ScoringRule[] = [
   },
 
   {
-    name: 'deployer_not_blacklisted',
+    name: 'creator_holdings_under_10pct',
     weight: 0,
     isHardStop: true,
     evaluate: async (ctx) => {
-      // v4.3: Check deployer against global blacklist
-      // Strategy-level denylist is checked separately in strategyMatchesOpportunity
-      if (GLOBAL_DEPLOYER_BLACKLIST.includes(ctx.creator)) {
-        console.warn(`[Rules] BLACKLISTED DEPLOYER: ${ctx.creator} for ${ctx.symbol}`);
-        return { passed: false, value: ctx.creator };
+      const percent = await getCreatorHoldingsPercent(ctx.creator, ctx.mint);
+      if (percent === null) {
+        return { passed: false, value: 'holdings_unknown' };
       }
-      return { passed: true, value: ctx.creator };
+      const passed = percent <= DEV_HOLDINGS_MAX_PERCENT;
+      return { passed, value: percent };
     },
   },
 
@@ -122,7 +168,7 @@ export const scoringRules: ScoringRule[] = [
   {
     name: 'has_metadata_uri',
     weight: 5,
-    isHardStop: false,
+    isHardStop: true,
     evaluate: async (ctx) => {
       // Token has metadata URI
       const hasUri = Boolean(ctx.event.uri && ctx.event.uri.length > 0);
@@ -174,7 +220,7 @@ export const scoringRules: ScoringRule[] = [
   {
     name: 'has_twitter',
     weight: 5,
-    isHardStop: false,
+    isHardStop: true,
     evaluate: async (ctx) => {
       // Check metadata for Twitter link
       if (!ctx.metadata) return { passed: false, value: 'no_metadata' };
@@ -198,7 +244,7 @@ export const scoringRules: ScoringRule[] = [
   {
     name: 'has_website',
     weight: 5,
-    isHardStop: false,
+    isHardStop: true,
     evaluate: async (ctx) => {
       // Check metadata for website
       if (!ctx.metadata) return { passed: false, value: 'no_metadata' };
@@ -210,7 +256,7 @@ export const scoringRules: ScoringRule[] = [
   {
     name: 'has_profile_image',
     weight: 5,
-    isHardStop: false,
+    isHardStop: true,
     evaluate: async (ctx) => {
       // Check metadata for profile image (v4.3)
       if (!ctx.metadata) return { passed: false, value: 'no_metadata' };

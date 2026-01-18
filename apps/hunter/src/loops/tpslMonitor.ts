@@ -384,9 +384,18 @@ export class TpSlMonitorLoop {
 
     try {
       // Update peak price tracking (use uuid_id for DB operations)
-      const newPeak = Math.max(currentPrice, position.peak_price || 0);
-      if (newPeak > (position.peak_price || 0)) {
-        await updatePositionPriceByUuid(position.uuid_id, currentPrice, newPeak);
+      const previousPeak = position.peak_price ?? 0;
+      const newPeak = currentPrice > previousPeak ? currentPrice : previousPeak;
+      const peakChanged = newPeak !== previousPeak;
+
+      await updatePositionPriceByUuid(
+        position.uuid_id,
+        currentPrice,
+        peakChanged ? newPeak : undefined
+      );
+
+      monitored.position.current_price = currentPrice;
+      if (peakChanged) {
         monitored.position.peak_price = newPeak;
       }
       this.stats.priceUpdates++;

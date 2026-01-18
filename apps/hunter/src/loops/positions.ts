@@ -9,7 +9,6 @@ import {
   createTradeJob,
   getStrategy,
   triggerExitAtomically,
-  markPositionExecuting,
   type PositionV31,
   type Strategy,
   type Chain,
@@ -207,9 +206,6 @@ export class PositionMonitorLoop {
     });
 
     try {
-      // Mark position as EXECUTING
-      await markPositionExecuting(position.uuid_id);
-
       // Create sell job (use uuid_id for position_id, tg_id for userId)
       await createTradeJob({
         strategyId: position.strategy_id,

@@ -23,6 +23,7 @@ export interface SettingsData {
   slippageBps: number;
   prioritySol: number; // Priority fee in SOL (validator tip)
   antiMevEnabled: boolean; // MEV protection via Jito
+  snipeMode: 'speed' | 'balanced' | 'quality';
 }
 
 /**
@@ -45,6 +46,8 @@ export function renderSettings(data: SettingsData): Panel {
     ? `${data.prioritySol} SOL`
     : `${(data.prioritySol * 1000).toFixed(1)} mSOL`;
 
+  const snipeModeLabel = data.snipeMode === 'speed' ? 'Speed' : 'Quality';
+
   const lines: string[] = [
     stat('Trade Size', `${data.tradeSize} SOL`),
     stat('Max Positions', `${data.maxPositions}`),
@@ -52,6 +55,8 @@ export function renderSettings(data: SettingsData): Panel {
     stat('Stop Loss', `${data.stopLossPercent}%`),
     stat('Slippage', `${data.slippageBps / 100}%`),
     stat('Priority Fee', priorityDisplay),
+    stat('Snipe Mode', snipeModeLabel),
+    'Speed: faster entry, more skips. Quality: best filtering.',
     stat('MEV Protection', data.antiMevEnabled ? 'ON (Jito)' : 'OFF'),
   ];
 
@@ -67,6 +72,9 @@ export function renderSettings(data: SettingsData): Panel {
     [
       btn('Edit Slippage', CB.SETTINGS.EDIT_SLIPPAGE),
       btn('Edit Priority', CB.SETTINGS.EDIT_PRIORITY),
+    ],
+    [
+      btn('Edit Snipe Mode', CB.SETTINGS.EDIT_SNIPE_MODE),
     ],
     [
       btn(data.antiMevEnabled ? 'MEV: ON' : 'MEV: OFF', CB.SETTINGS.TOGGLE_MEV),
@@ -177,6 +185,34 @@ export function renderEditPriority(currentValue: number): Panel {
     'SOL (0.0001 - 0.01)',
     '0.0005'
   );
+}
+
+/**
+ * Render snipe mode selection panel
+ */
+export function renderSnipeModeSelection(currentMode: 'speed' | 'balanced' | 'quality'): Panel {
+  const currentLabel = currentMode === 'speed' ? 'Speed' : 'Quality';
+  const lines: string[] = [
+    stat('Current', currentLabel),
+    'Speed: Faster entry, stricter timeouts (more skips).',
+    'Quality: Slower entry, best filtering (recommended).',
+  ];
+
+  const speedLabel = currentMode === 'speed' ? 'Speed ✓' : 'Speed';
+  const qualityLabel = currentMode === 'speed' ? 'Quality' : 'Quality ✓';
+
+  const buttons: Button[][] = [
+    [
+      btn(speedLabel, CB.SETTINGS.SET_SNIPE_MODE_SPEED),
+      btn(qualityLabel, CB.SETTINGS.SET_SNIPE_MODE_QUALITY),
+    ],
+    [
+      btn('Back', CB.SETTINGS.OPEN),
+      homeBtn(),
+    ],
+  ];
+
+  return panel('SNIPE MODE', lines, buttons);
 }
 
 /**

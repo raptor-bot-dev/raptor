@@ -19,13 +19,13 @@ import { fetchMetadata, type TokenMetadata } from '../utils/metadataFetcher.js';
 
 // Snipe mode timeout configurations (ms)
 const SNIPE_MODE_TIMEOUTS: Record<string, number> = {
-  speed: 0,       // No metadata fetch
-  balanced: 200,  // 200ms timeout
-  quality: 2000,  // 2 second timeout
+  speed: 300,     // Fast metadata check
+  balanced: 500,  // Middle ground
+  quality: 2000,  // Full metadata scoring
 };
 
 // Default snipe mode if not specified
-const DEFAULT_SNIPE_MODE = 'balanced';
+const DEFAULT_SNIPE_MODE = 'quality';
 
 export class OpportunityLoop {
   private running = false;
