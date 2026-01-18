@@ -3,6 +3,12 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **fix(hunter): add create_v2 discriminator for pump.fun tokens**
+  - pump.fun now uses `create_v2` instruction (not legacy `create`)
+  - Legacy discriminator: `[24,30,200,40,5,28,7,119]` - sha256("global:create")[0..8]
+  - Current discriminator: `[214,144,76,236,95,139,49,180]` - sha256("global:create_v2")[0..8]
+  - Monitor now checks for both discriminators
+  - Tokens now parsing successfully
 - **fix(hunter): include ALT loaded addresses for versioned transactions**
   - Versioned transactions can have accounts in Address Lookup Tables (ALTs)
   - Was only reading `staticAccountKeys`, missing accounts from ALTs
@@ -12,6 +18,9 @@ Keep this log short and append-only. Use ISO dates.
   - QuickNode free tier doesn't support `logsSubscribe` WebSocket method
   - Error: "1001 - upstream went away" immediately after subscription
   - Helius paid plan configured via Fly.io secrets
+- **docs: document Fly.io auto-deploy from GitHub**
+  - MUST_READ/DEPLOYMENT.md updated with auto-deploy section
+  - No manual `fly deploy` needed for routine changes
 
 ## 2026-01-17
 - **fix(hunter): handle both versioned and legacy tx parsing**

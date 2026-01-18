@@ -2,46 +2,56 @@
 
 **Date:** 2026-01-18
 **Branch:** `main`
-**Status:** Helius configured, ALT fix committed - needs deploy
+**Status:** Token parsing WORKING - create_v2 discriminator fix deployed
 
 ---
 
 ## What Was Done This Session
 
 ### 1. Helius RPC Migration
-- **Problem:** QuickNode free tier doesn't support `logsSubscribe` - WebSocket closed immediately after subscription
-- **Error:** `1001 - upstream went away` after subscribe
-- **Fix:** Switched to Helius paid plan (API key: 4f5a8544-...)
-- **Deployed:** Secrets updated on raptor-hunter and raptor-bot via `fly-secrets-deploy`
+- **Problem:** QuickNode free tier doesn't support `logsSubscribe`
+- **Fix:** Switched to Helius paid plan
+- **Deployed:** Secrets updated on raptor-hunter and raptor-bot
 
-### 2. Address Lookup Table (ALT) Fix (CRITICAL)
-- **Problem:** 100% of detected tokens failing to parse even with Helius working
-- **Root Cause:** Versioned transactions can have accounts in Address Lookup Tables (ALTs)
-  - We were only reading `staticAccountKeys`
-  - The pump.fun program ID was in `meta.loadedAddresses` from ALTs
-  - No pump.fun instructions were matching because program ID wasn't in our account list
-- **Fix:** Combined all account sources for versioned transactions:
-  - `staticAccountKeys` (original)
-  - `meta.loadedAddresses.writable` (from ALTs)
-  - `meta.loadedAddresses.readonly` (from ALTs)
-- **File:** `apps/hunter/src/monitors/pumpfun.ts`
+### 2. Address Lookup Table (ALT) Fix
+- **Problem:** 100% token parse failure - program ID in ALTs not being read
+- **Fix:** Combined staticAccountKeys + loadedAddresses.writable + loadedAddresses.readonly
 - **Commit:** `9e01e03`
+
+### 3. create_v2 Discriminator Fix (CRITICAL)
+- **Problem:** After ALT fix, still 100% parse failure - discriminator mismatch
+- **Root Cause:** pump.fun switched from `create` to `create_v2` instruction
+  - Legacy: `[24,30,200,40,5,28,7,119]` - sha256("global:create")[0..8]
+  - Current: `[214,144,76,236,95,139,49,180]` - sha256("global:create_v2")[0..8]
+- **Fix:** Added CREATE_V2_DISCRIMINATOR and check for both
+- **Commit:** `dbd0bd6`
 
 ---
 
 ## Current State
 
+- **Token Parsing:** ✅ WORKING
+- **Autohunt:** Waiting for user to arm strategy
 - **Build:** `pnpm -w lint && pnpm -w build` passes
-- **Helius Secrets:** Deployed to Fly.io apps
-- **Code Fix:** Auto-deployed to Fly.io via GitHub integration
+
+Last successful parses:
+```
+[PumpFunMonitor] Token: PinkBull (3EBTvCMr...)
+[PumpFunMonitor] Token: WTF (4qrYs4Ku...)
+[OpportunityLoop] No enabled strategies, skipping: WTF
+```
 
 ---
 
 ## Deployment
 
-**Fly.io auto-deploys from GitHub pushes** - no manual deploy needed.
+**Fly.io auto-deploys from GitHub pushes** - no manual `fly deploy` needed.
 
-Releases are triggered automatically when commits are pushed to `main`.
+For secrets:
+```bash
+fly secrets set KEY=value -a raptor-hunter
+fly secrets deploy -a raptor-hunter
+```
 
 ---
 
@@ -49,47 +59,21 @@ Releases are triggered automatically when commits are pushed to `main`.
 
 | File | Change |
 |------|--------|
-| `apps/hunter/src/monitors/pumpfun.ts` | Include ALT loaded addresses |
-
----
-
-## Commits This Session
-
-1. `5cf1818` - debug: log pump.fun discriminators for create instruction mismatch
-2. `9e01e03` - fix(hunter): include ALT loaded addresses for versioned transactions
-
----
-
-## Verification After Deploy
-
-Check hunter logs for successful token parsing:
-```
-[PumpFunMonitor] TX abc123... versioned=true, 6 ix, 25 accounts
-[PumpFunMonitor] pump.fun discriminators in TX: [24,30,200,40,5,28,7,119]
-[PumpFunMonitor] Token: SYMBOL (mint_address)
-```
-
-If still seeing "No Create instruction found", check:
-1. The discriminator `[24,30,200,40,5,28,7,119]` in logs vs CREATE_DISCRIMINATOR constant
-2. pump.fun may have changed their program (unlikely but possible)
-
----
-
-## Fly.io Apps
-
-| App | Status |
-|-----|--------|
-| raptor-bot | Helius secrets deployed |
-| raptor-hunter | Helius secrets deployed, CODE NEEDS DEPLOY |
+| `apps/hunter/src/monitors/pumpfun.ts` | ALT fix + create_v2 discriminator |
+| `MUST_READ/DEPLOYMENT.md` | Added auto-deploy documentation |
+| `MUST_READ/Changelog.md` | Added 2026-01-18 entries |
 
 ---
 
 ## Technical Notes
 
 ### Address Lookup Tables (ALTs)
-Solana versioned (v0) transactions can reference accounts via ALTs to fit more accounts in a transaction. The `getTransaction` RPC response includes:
-- `transaction.message.staticAccountKeys` - accounts directly in the transaction
-- `meta.loadedAddresses.writable` - writable accounts from ALTs
-- `meta.loadedAddresses.readonly` - readonly accounts from ALTs
+Solana versioned (v0) transactions can reference accounts via ALTs. Must combine:
+- `staticAccountKeys` - accounts in transaction
+- `meta.loadedAddresses.writable` - writable from ALTs
+- `meta.loadedAddresses.readonly` - readonly from ALTs
 
-The full account list for instruction parsing must combine all three.
+### Anchor Discriminators
+Calculated as `sha256("global:<instruction_name>")[0..8]`:
+- `create` → `[24,30,200,40,5,28,7,119]` (legacy)
+- `create_v2` → `[214,144,76,236,95,139,49,180]` (current)

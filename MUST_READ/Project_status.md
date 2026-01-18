@@ -53,6 +53,10 @@ Single source of truth for current progress. Keep it brief.
   - Versioned transactions can have accounts in ALTs
   - Now includes `meta.loadedAddresses.writable` and `readonly`
   - Fixes parse failures when pump.fun program ID is in an ALT
+- **create_v2 discriminator support** (2026-01-18):
+  - pump.fun now uses `create_v2` instruction instead of legacy `create`
+  - Added CREATE_V2_DISCRIMINATOR for current pump.fun protocol
+  - Monitor checks for both legacy and current discriminators
 - **Settings panel text input fixed** (2026-01-17):
   - messages.ts was missing cases for v3 settings session steps
   - Now routes to handleSettingsInput() for all settings edits
@@ -94,8 +98,9 @@ Single source of truth for current progress. Keep it brief.
 - Emergency sell implemented with idempotency. ✅
 
 ## Where we left off last
-- 2026-01-18 (latest): ALT fix deployed via GitHub auto-deploy.
-- Fixed Address Lookup Table parsing for versioned transactions.
-- Helius paid plan configured via Fly.io secrets.
-- Fly.io auto-deploys from GitHub pushes to `main`.
-- Verify tokens are parsing: logs should show `Token: SYMBOL (mint)`
+- 2026-01-18 (latest): Token parsing WORKING after create_v2 discriminator fix.
+- pump.fun uses `create_v2` instruction now (not legacy `create`)
+- Added CREATE_V2_DISCRIMINATOR for current pump.fun protocol
+- Tokens parsing successfully: `[PumpFunMonitor] Token: SYMBOL (mint)`
+- Autohunt shows "No enabled strategies" - user needs to arm strategy
+- Fly.io auto-deploys from GitHub pushes to `main` (documented in DEPLOYMENT.md)

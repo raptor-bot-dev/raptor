@@ -150,9 +150,21 @@ If you do have an executor key (for fee wallet, relayer, etc.), keep it here as 
 
 ---
 
+## Auto-Deploy from GitHub
+
+**IMPORTANT:** Fly.io is configured to auto-deploy from GitHub pushes to `main`.
+
+- No manual `fly deploy` needed for routine changes
+- Push to `main` → Fly.io builds and deploys automatically
+- Check deployment status in Fly.io dashboard or `fly status -a <app>`
+
+For secrets changes, use `fly secrets set` then `fly secrets deploy`.
+
+---
+
 ## Deployment (per app)
 
-### 1) Create apps
+### 1) Create apps (initial setup only)
 
 From repo root:
 
