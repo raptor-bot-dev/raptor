@@ -2,11 +2,39 @@
 
 **Date:** 2026-01-18
 **Branch:** `main`
-**Status:** Phase B - TP/SL Engine COMPLETE + Audit Fixes Round 2 Deployed
+**Status:** Phase B Complete - Production Bug Fixes Deployed
 
 ---
 
-## Latest: uuid_id Standardization (2026-01-18)
+## Latest: Snipe Mode & Production Bug Fixes (2026-01-18)
+
+### What Was Fixed
+
+| Issue | Severity | Fix |
+|-------|----------|-----|
+| Snipe mode button has emoji "✓" | **P1** | Changed to `[x] Speed` / `[x] Quality` |
+| Clicking unchanged mode causes error | **P1** | Early return with "Already set to X" toast |
+| BigInt underflow in pumpFun.ts | **P0** | Validation before BigInt operations |
+| Jupiter slippage overflow (>99%) | **P0** | Clamp slippageBps to 9900 max |
+| TypeScript type errors | **P2** | Use `as const` for literal types |
+
+### Commits (Today)
+
+- `5761fb9` - fix(bot): remove emoji from snipe mode buttons
+- `5e4ca98` - fix(bot): prevent snipe mode 'message not modified' error
+- `565594f` - fix(executor): prevent BigInt underflow and Jupiter slippage overflow
+
+### Key Learning: Button Emoji Validator
+
+panelKit.ts has `assertNoEmoji()` that throws on any emoji in button labels. The checkmark (✓) was caught by this. Per CLAUDE.md: "No emojis on buttons."
+
+Use text indicators instead:
+- `[x] Selected` - checkbox style
+- `Selected` / `Not Selected` - plain text
+
+---
+
+## Previous: uuid_id Standardization (2026-01-18 earlier)
 
 ### What Was Fixed (Round 2)
 
@@ -16,24 +44,9 @@
 | `positions.uuid_id` can be NULL | **P0** | Backfill + NOT NULL constraint |
 | No unique index on `uuid_id` | **P0** | Added unique index |
 | `PositionV31` missing `uuid_id` field | **P1** | Added to TypeScript interface |
-| `markNotificationFailed` uses wrong columns | **P1** | Uses RPC with correct `delivery_error` column |
 | Trigger-time notifications have placeholder values | **P2** | Moved to post-sell with real data |
-| TRADE_DONE used for both BUY and SELL | **P2** | TRADE_DONE is BUY-only now |
 
-### Files Changed (Round 2)
-
-| File | Changes |
-|------|---------|
-| `packages/database/migrations/015_tpsl_uuid_and_notifications.sql` | NEW - uuid_id fixes, RPC fixes |
-| `packages/shared/src/types.ts` | Add `uuid_id` to PositionV31 |
-| `packages/shared/src/supabase.ts` | Add triggerExitAtomically, fix closePositionV31 |
-| `apps/hunter/src/loops/tpslMonitor.ts` | Use uuid_id consistently |
-| `apps/hunter/src/queues/exitQueue.ts` | Remove trigger-time notifications |
-| `apps/hunter/src/loops/positions.ts` | Atomic claim before exit jobs |
-| `apps/hunter/src/loops/execution.ts` | Post-sell notifications |
-| `apps/bot/src/handlers/*.ts` | Use uuid_id throughout |
-
-### Commits
+### Commits (Round 2)
 - `cf9cb34` - fix(tpsl): standardize on uuid_id and fix critical RPC bugs
 - `bbfdd53` - fix(tpsl): audit fixes for notification delivery and state machine
 
@@ -66,18 +79,15 @@
 
 ---
 
-## Critical Patterns (from Audit)
+## Critical Patterns
 
 ### Position ID Standard
 **Always use `uuid_id` (UUID) for position operations**, not the integer `id` column.
 
 ```typescript
 // Position creation returns uuid_id
-const position = await createPositionV31({
-  userId: job.user_id,  // Maps to tg_id internally
-  // ... other fields
-});
-const positionId = position.uuid_id;  // Use this!
+const position = await createPositionV31({ ... });
+const positionId = position.uuid_id;  // Use this everywhere!
 
 // All operations use uuid_id
 await triggerExitAtomically(position.uuid_id, 'TP', triggerPrice);
@@ -100,11 +110,13 @@ await markTriggerFailed(positionId, error);  // uuid_id
 - `TRAIL` → `TRAILING_STOP_HIT`
 - `MAXHOLD`/`EMERGENCY` → `POSITION_CLOSED`
 
-### Trigger State Check (Legacy Monitor)
+### Button Labels (No Emojis!)
 ```typescript
-if (position.trigger_state && position.trigger_state !== 'MONITORING') {
-  return; // Skip - already triggered
-}
+// WRONG - will throw assertNoEmoji error
+btn('Speed ✓', CB.SETTINGS.SET_SNIPE_MODE_SPEED)
+
+// RIGHT - use text indicators
+btn('[x] Speed', CB.SETTINGS.SET_SNIPE_MODE_SPEED)
 ```
 
 ---
@@ -112,8 +124,8 @@ if (position.trigger_state && position.trigger_state !== 'MONITORING') {
 ## Deployment Status
 
 - **Database**: Migrations 014 + 015 applied
-- **Bot**: Deployed with NotificationPoller
-- **Hunter**: Deployed with uuid_id standardization
+- **Bot**: v85 - Snipe mode fixes deployed
+- **Hunter**: v84 - uuid_id standardization deployed
 - **Feature Flags**:
   - `TPSL_ENGINE_ENABLED=true` (shadow mode)
   - `LEGACY_POSITION_MONITOR=true` (parallel operation)
@@ -124,11 +136,24 @@ Fly.io auto-deploys from GitHub pushes to `main`.
 
 ---
 
+## Settings Panel Features
+
+Current settings available in UI:
+- Trade Size (SOL)
+- Max Positions (1 or 2)
+- Take Profit %
+- Stop Loss %
+- Slippage % (capped at 99%)
+- Priority Fee (SOL)
+- Snipe Mode (Speed / Quality)
+- MEV Protection (ON/OFF)
+
+---
+
 ## Notification Patterns
 
 ### After SELL completes (not at trigger time)
 ```typescript
-// Post-sell notification with real data
 await createNotification({
   userId: position.tg_id,
   type: triggerToNotificationType(trigger),  // TP_HIT, SL_HIT, etc.

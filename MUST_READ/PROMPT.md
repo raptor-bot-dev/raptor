@@ -48,7 +48,7 @@ Keyboard labels (no emojis):
 * Row 2: `Withdraw`, `Settings`
 * Row 3: `Help`, `Refresh`
 
-#### B) SETTINGS (minimal)
+#### B) SETTINGS
 
 Fields:
 
@@ -56,7 +56,10 @@ Fields:
 * Max Positions (1 or 2)
 * Take Profit %
 * Stop Loss %
-* Slippage bps
+* Slippage % (capped at 99%)
+* Priority Fee (SOL) — validator tip, 0.0001 - 0.01
+* Snipe Mode (Speed/Quality) — metadata fetch timeout
+* MEV Protection (ON/OFF) — Jito bundle protection
 
 NOTE: Max Buys/Hour is DEPRECATED - use cooldown_seconds in strategy instead.
 cooldown_seconds provides time-based rate limiting (e.g., 600s ≈ max 6 buys/hour).
@@ -64,9 +67,24 @@ cooldown_seconds provides time-based rate limiting (e.g., 600s ≈ max 6 buys/ho
 Keyboard:
 * `Edit Trade Size`, `Edit Max Positions`
 * `Edit TP`, `Edit SL`
-* `Edit Slippage`
+* `Edit Slippage`, `Edit Priority`
+* `Edit Snipe Mode`
+* `MEV: ON` or `MEV: OFF` (toggle)
 * `Home`
   Each edit leads to an input prompt and updates persisted user config.
+
+#### B1) SNIPE MODE selection
+
+Title: SNIPE MODE
+Shows current mode (Speed or Quality) with descriptions.
+Speed: 300ms timeout, faster entry, more skips.
+Quality: 2000ms timeout, best filtering (recommended).
+
+Keyboard:
+* `[x] Speed`, `Quality` (or vice versa based on current)
+* `Back`, `Home`
+
+NOTE: Use [x] prefix for selected. NO EMOJIS on buttons (panelKit throws).
 
 #### C) ARM / DISARM confirm
 

@@ -83,6 +83,17 @@ Single source of truth for current progress. Keep it brief.
 - **Circuit breaker reset** (2026-01-17):
   - Had 8 consecutive failures blocking all trades
   - Reset to allow execution
+- **Snipe mode setting added to Settings UI** (2026-01-18):
+  - Speed (300ms metadata timeout) vs Quality (2000ms) modes
+  - Stored in strategies.snipe_mode column
+  - Edit Snipe Mode button in Settings panel
+- **Snipe mode button emoji error fixed** (2026-01-18):
+  - panelKit assertNoEmoji() rejected checkmark emoji
+  - Changed to [x] Speed / [x] Quality text indicators
+- **BigInt underflow and Jupiter slippage fixes** (2026-01-18):
+  - pumpFun.ts now validates BigInt operations to prevent underflow
+  - Jupiter slippage clamped to 9900 bps (99%) max
+  - Fixes RangeError crashes with high slippage settings
 - `pnpm -w lint && pnpm -w build` passes
 
 ## Design Notes
@@ -132,7 +143,13 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-18 (latest): **Audit fixes round 2 deployed** - uuid_id standardization complete
+- 2026-01-18 (latest): **Snipe mode & production bug fixes deployed**
+  - P1: Snipe mode button emoji error fixed - changed "Speed ✓" to "[x] Speed"
+  - P1: Snipe mode "message not modified" error fixed - early return when unchanged
+  - P0: BigInt underflow in pumpFun.ts fixed - validation before BigInt ops
+  - P0: Jupiter slippage overflow fixed - clamped to 9900 bps (99%) max
+  - Bot deployed at v85, Hunter at v84
+- 2026-01-18 (earlier): **Audit fixes round 2 deployed** - uuid_id standardization complete
   - P0: Migration 015 applied - All RPCs now use `uuid_id` (was INTEGER `id`)
   - P0: `uuid_id` column now NOT NULL with unique index
   - P1: TypeScript `PositionV31` interface includes `uuid_id` field

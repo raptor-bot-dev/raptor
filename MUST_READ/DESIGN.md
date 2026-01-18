@@ -173,7 +173,7 @@ Row 1: Arm Autohunt (or Disarm), Positions ({open})
 Row 2: Withdraw, Settings
 Row 3: Help, Refresh
 
-2) SETTINGS (minimal)
+2) SETTINGS
 
 Title: SETTINGS
 Fields:
@@ -186,7 +186,13 @@ Take Profit %
 
 Stop Loss %
 
-Slippage bps
+Slippage % (capped at 99%)
+
+Priority Fee (SOL) - validator tip for faster execution
+
+Snipe Mode (Speed/Quality) - metadata fetch timeout
+
+MEV Protection (ON/OFF) - Jito bundle protection
 
 NOTE: Max Buys/Hour is DEPRECATED - use cooldown_seconds instead.
 cooldown_seconds provides time-based rate limiting with better properties
@@ -200,13 +206,37 @@ Template:
 <b>Max Positions:</b> {maxPos}
 <b>Take Profit:</b> {tp}%
 <b>Stop Loss:</b> {sl}%
-<b>Slippage:</b> {slip} bps
+<b>Slippage:</b> {slip}%
+<b>Priority Fee:</b> {priority} SOL
+<b>Snipe Mode:</b> {Speed|Quality}
+<b>MEV Protection:</b> {ON|OFF}
 
 Buttons:
 Row 1: Edit Trade Size, Edit Max Positions
 Row 2: Edit TP, Edit SL
-Row 3: Edit Slippage
-Row 4: Home
+Row 3: Edit Slippage, Edit Priority
+Row 4: Edit Snipe Mode
+Row 5: MEV: ON (or MEV: OFF) - toggle button
+Row 6: Home
+
+2a) SNIPE MODE Selection
+
+Title: SNIPE MODE
+Allows user to choose between speed and quality for token sniping.
+
+Template:
+🦖 <b>RAPTOR | SNIPE MODE</b>
+━━━━━━━━━━━━━━━━━━━━━━
+<code>{WIDTH_PAD}</code>
+<b>Current:</b> {Speed|Quality}
+Speed: Faster entry, stricter timeouts (more skips).
+Quality: Slower entry, best filtering (recommended).
+
+Buttons:
+Row 1: [x] Speed, Quality (or Speed, [x] Quality depending on current)
+Row 2: Back, Home
+
+NOTE: Use [x] prefix for selected option. NO EMOJIS on buttons (panelKit throws).
 
 Edit prompts (all identical pattern)
 
