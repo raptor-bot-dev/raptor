@@ -7,6 +7,11 @@ Keep this log short and append-only. Use ISO dates.
   - Remove checkmark emoji from buttons (violates panelKit no-emoji rule)
   - Use "[x] Speed" / "[x] Quality" for selected state instead
   - Add early return when clicking already-selected mode
+- **fix(executor): prevent BigInt underflow and Jupiter slippage overflow** (565594f)
+  - pumpFun.ts: Add validation in calculateBuyOutput/calculateSellOutput
+  - jupiter.ts: Clamp slippageBps to 9900 max (99%)
+  - supabase.ts: Fix TypeScript type errors with 'as const' assertions
+  - Root cause: User had 1000% slippage causing negative BigInt calculations
 - **fix(tpsl): standardize on uuid_id and fix critical RPC bugs** (cf9cb34)
   - P0: Migration 015 - All RPC functions now use `uuid_id` (was INTEGER `id`)
   - P0: Backfill NULL `uuid_id` values + add NOT NULL constraint
