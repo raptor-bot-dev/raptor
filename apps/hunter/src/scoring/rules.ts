@@ -168,7 +168,7 @@ export const scoringRules: ScoringRule[] = [
   {
     name: 'has_metadata_uri',
     weight: 5,
-    isHardStop: true,
+    isHardStop: false,  // Relaxed: pump.pro tokens may not have URI available immediately
     evaluate: async (ctx) => {
       // Token has metadata URI
       const hasUri = Boolean(ctx.event.uri && ctx.event.uri.length > 0);
@@ -217,10 +217,12 @@ export const scoringRules: ScoringRule[] = [
   // SOCIAL SIGNALS (v4.3: Now uses fetched metadata)
   // =========================================================================
 
+  // SOCIAL SIGNALS - Temporarily relaxed for pump.pro (API returning 530)
+  // TODO: Re-enable hard stops when pump.fun API is stable
   {
     name: 'has_twitter',
     weight: 5,
-    isHardStop: true,
+    isHardStop: false,  // Relaxed: pump.pro metadata unavailable
     evaluate: async (ctx) => {
       // Check metadata for Twitter link
       if (!ctx.metadata) return { passed: false, value: 'no_metadata' };
@@ -244,7 +246,7 @@ export const scoringRules: ScoringRule[] = [
   {
     name: 'has_website',
     weight: 5,
-    isHardStop: true,
+    isHardStop: false,  // Relaxed: pump.pro metadata unavailable
     evaluate: async (ctx) => {
       // Check metadata for website
       if (!ctx.metadata) return { passed: false, value: 'no_metadata' };
@@ -256,7 +258,7 @@ export const scoringRules: ScoringRule[] = [
   {
     name: 'has_profile_image',
     weight: 5,
-    isHardStop: true,
+    isHardStop: false,  // Relaxed: pump.pro metadata unavailable
     evaluate: async (ctx) => {
       // Check metadata for profile image (v4.3)
       if (!ctx.metadata) return { passed: false, value: 'no_metadata' };

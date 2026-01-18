@@ -513,9 +513,12 @@ export class PumpFunMonitor {
             symbol = onChainMeta.symbol;
             uri = onChainMeta.uri;
           } else {
-            // Final fallback - skip token if no metadata available
-            console.log(`[PumpFunMonitor] No metadata available for pump.pro token ${mint}, skipping`);
-            return null;
+            // pump.pro tokens may not have metadata available immediately
+            // Use fallback values and let scoring system filter based on available data
+            console.log(`[PumpFunMonitor] No metadata for pump.pro token ${mint}, using fallback`);
+            name = `pump.pro-${mint.slice(0, 6)}`;
+            symbol = mint.slice(0, 4).toUpperCase();
+            uri = '';  // No URI available - scoring will handle this
           }
         }
       } else {

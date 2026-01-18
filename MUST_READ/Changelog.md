@@ -3,6 +3,13 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **fix(hunter): relax scoring hard stops for pump.pro tokens**
+  - pump.fun API returning HTTP 530 for pump.pro tokens AND Metaplex metadata doesn't exist
+  - Temporarily changed metadata rules from hard stops to soft failures:
+    - `has_metadata_uri`, `has_twitter`, `has_website`, `has_profile_image`
+  - pump.pro tokens without metadata now use fallback name/symbol (mint-based)
+  - Tokens can now pass scoring and be traded even without full metadata
+  - TODO: Re-enable hard stops when pump.fun API is stable
 - **fix(hunter): pump.pro on-chain metadata fallback**
   - pump.fun API returning HTTP 530 (service unavailable) for pump.pro tokens
   - Added fallback to fetch metadata from on-chain Metaplex Metadata Account
