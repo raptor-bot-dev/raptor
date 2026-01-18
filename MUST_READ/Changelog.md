@@ -2,6 +2,17 @@
 
 Keep this log short and append-only. Use ISO dates.
 
+## 2026-01-18
+- **fix(hunter): include ALT loaded addresses for versioned transactions**
+  - Versioned transactions can have accounts in Address Lookup Tables (ALTs)
+  - Was only reading `staticAccountKeys`, missing accounts from ALTs
+  - Now combines: staticAccountKeys + loadedAddresses.writable + loadedAddresses.readonly
+  - This fixes 100% parse failure when pump.fun program ID is in an ALT
+- **chore(infra): migrate from QuickNode to Helius paid plan**
+  - QuickNode free tier doesn't support `logsSubscribe` WebSocket method
+  - Error: "1001 - upstream went away" immediately after subscription
+  - Helius paid plan configured via Fly.io secrets
+
 ## 2026-01-17
 - **fix(hunter): handle both versioned and legacy tx parsing**
   - PumpFunMonitor was only handling versioned transactions (v0)

@@ -46,10 +46,13 @@ Single source of truth for current progress. Keep it brief.
   - Mayhem mode tokens filtered out in OpportunityLoop
   - Unused API functions removed (getRecentTrades, parsePumpFunTrade, parseCreateEvent, parseTradeEvent)
   - PumpFun docs added to Reference_docs.md
-- **RPC migrated from Helius to QuickNode** (2026-01-17):
-  - Helius free tier was rate-limiting (HTTP 429)
-  - QuickNode free tier: 10M credits, 15 RPS
-  - Secrets updated on raptor-hunter and raptor-bot
+- **RPC migrated to Helius paid plan** (2026-01-18):
+  - QuickNode free tier doesn't support `logsSubscribe` (WebSocket)
+  - Helius paid plan configured via Fly.io secrets
+- **Address Lookup Table (ALT) fix** (2026-01-18):
+  - Versioned transactions can have accounts in ALTs
+  - Now includes `meta.loadedAddresses.writable` and `readonly`
+  - Fixes parse failures when pump.fun program ID is in an ALT
 - **Settings panel text input fixed** (2026-01-17):
   - messages.ts was missing cases for v3 settings session steps
   - Now routes to handleSettingsInput() for all settings edits
@@ -91,8 +94,8 @@ Single source of truth for current progress. Keep it brief.
 - Emergency sell implemented with idempotency. ✅
 
 ## Where we left off last
-- 2026-01-17 (latest): Token parsing fix deployed.
-- Fixed PumpFunMonitor to handle both versioned and legacy transactions.
-- Circuit breaker reset (was blocking all trades due to 8 consecutive failures).
-- User armed autohunt with funded wallet (1 SOL).
-- Monitoring live for first successful trade execution.
+- 2026-01-18 (latest): ALT fix committed, needs deploy.
+- Fixed Address Lookup Table parsing for versioned transactions.
+- Helius paid plan configured via Fly.io secrets.
+- **NEEDS DEPLOY**: Run `fly deploy -a raptor-hunter -c apps/hunter/fly.toml`
+- After deploy, verify tokens are parsing: logs should show `Token: SYMBOL (mint)`

@@ -1,46 +1,53 @@
 # RAPTOR v3 Context - Resume Point
 
-**Date:** 2026-01-17
+**Date:** 2026-01-18
 **Branch:** `main`
-**Status:** Deployed and armed - monitoring for first trade
+**Status:** Helius configured, ALT fix committed - needs deploy
 
 ---
 
 ## What Was Done This Session
 
-### 1. Token Parsing Fix (CRITICAL)
-- **Problem:** 100% of detected tokens failed to parse
-- **Root Cause:** PumpFunMonitor only handled versioned (v0) transactions
-- **Fix:** Added support for both versioned AND legacy transaction formats
-  - Versioned: `staticAccountKeys`, `compiledInstructions`, Uint8Array data
-  - Legacy: `accountKeys`, `instructions`, base64 string data
+### 1. Helius RPC Migration
+- **Problem:** QuickNode free tier doesn't support `logsSubscribe` - WebSocket closed immediately after subscription
+- **Error:** `1001 - upstream went away` after subscribe
+- **Fix:** Switched to Helius paid plan (API key: 4f5a8544-...)
+- **Deployed:** Secrets updated on raptor-hunter and raptor-bot via `fly-secrets-deploy`
+
+### 2. Address Lookup Table (ALT) Fix (CRITICAL)
+- **Problem:** 100% of detected tokens failing to parse even with Helius working
+- **Root Cause:** Versioned transactions can have accounts in Address Lookup Tables (ALTs)
+  - We were only reading `staticAccountKeys`
+  - The pump.fun program ID was in `meta.loadedAddresses` from ALTs
+  - No pump.fun instructions were matching because program ID wasn't in our account list
+- **Fix:** Combined all account sources for versioned transactions:
+  - `staticAccountKeys` (original)
+  - `meta.loadedAddresses.writable` (from ALTs)
+  - `meta.loadedAddresses.readonly` (from ALTs)
 - **File:** `apps/hunter/src/monitors/pumpfun.ts`
-
-### 2. Circuit Breaker Reset
-- Had 8 consecutive failures (threshold: 5)
-- `circuit_open_until` was blocking all trades
-- Reset via SQL: `UPDATE safety_controls SET circuit_open_until = NULL, consecutive_failures = 0`
-
-### 3. Settings Panel Text Input Fixed
-- `messages.ts` missing cases for v3 session steps
-- Added routing to `handleSettingsInput()` for all settings edits
-
-### 4. Slippage UX Changed to Percentage
-- Display: "10%" instead of "1000 bps"
-- Input: accepts 1-1000% (converted to bps internally)
-
-### 5. MEV/Priority Fee Audit
-- Hunter now passes `tgId: job.user_id` to executor
-- Enables user's priority_sol and anti_mev_enabled settings
+- **Commit:** `9e01e03`
 
 ---
 
 ## Current State
 
 - **Build:** `pnpm -w lint && pnpm -w build` passes
-- **Deployed:** Both apps deployed to Fly.io
-- **User:** Armed autohunt with 1 SOL funded wallet
-- **Circuit Breaker:** Reset and open
+- **Helius Secrets:** Deployed to Fly.io apps
+- **Code Fix:** Committed to GitHub, NOT YET DEPLOYED to Fly.io
+
+---
+
+## NEXT STEP: Deploy Code to Fly.io
+
+The ALT fix is committed but needs to be deployed. Run:
+
+```bash
+# Deploy hunter (contains the ALT fix)
+fly deploy -a raptor-hunter -c apps/hunter/fly.toml
+
+# Deploy bot (optional, no code changes this session)
+fly deploy -a raptor-bot -c apps/bot/fly.toml
+```
 
 ---
 
@@ -48,32 +55,29 @@
 
 | File | Change |
 |------|--------|
-| `apps/hunter/src/monitors/pumpfun.ts` | Versioned + legacy tx parsing |
-| `apps/bot/src/handlers/messages.ts` | Settings session step routing |
-| `apps/bot/src/handlers/settingsHandler.ts` | Slippage % input conversion |
-| `apps/bot/src/ui/panels/settings.ts` | Slippage % display |
-| `apps/hunter/src/loops/execution.ts` | Pass tgId to executor |
+| `apps/hunter/src/monitors/pumpfun.ts` | Include ALT loaded addresses |
 
 ---
 
 ## Commits This Session
 
-1. `e5cb4c4` - fix(bot): settings input routing, slippage %, hunter MEV/priority
-2. `bb35ea2` - fix(hunter): handle both versioned and legacy tx parsing
+1. `5cf1818` - debug: log pump.fun discriminators for create instruction mismatch
+2. `9e01e03` - fix(hunter): include ALT loaded addresses for versioned transactions
 
 ---
 
-## Monitoring
+## Verification After Deploy
 
 Check hunter logs for successful token parsing:
 ```
-[PumpFunMonitor] TX abc123... versioned=false, 5 ix, 12 accounts
+[PumpFunMonitor] TX abc123... versioned=true, 6 ix, 25 accounts
+[PumpFunMonitor] pump.fun discriminators in TX: [24,30,200,40,5,28,7,119]
 [PumpFunMonitor] Token: SYMBOL (mint_address)
 ```
 
-If still seeing "Failed to parse", the issue may be:
-1. RPC returning null (timing - increase retry delay)
-2. pump.fun changed Create instruction format (check discriminator)
+If still seeing "No Create instruction found", check:
+1. The discriminator `[24,30,200,40,5,28,7,119]` in logs vs CREATE_DISCRIMINATOR constant
+2. pump.fun may have changed their program (unlikely but possible)
 
 ---
 
@@ -81,5 +85,17 @@ If still seeing "Failed to parse", the issue may be:
 
 | App | Status |
 |-----|--------|
-| raptor-bot | deployed |
-| raptor-hunter | deployed |
+| raptor-bot | Helius secrets deployed |
+| raptor-hunter | Helius secrets deployed, CODE NEEDS DEPLOY |
+
+---
+
+## Technical Notes
+
+### Address Lookup Tables (ALTs)
+Solana versioned (v0) transactions can reference accounts via ALTs to fit more accounts in a transaction. The `getTransaction` RPC response includes:
+- `transaction.message.staticAccountKeys` - accounts directly in the transaction
+- `meta.loadedAddresses.writable` - writable accounts from ALTs
+- `meta.loadedAddresses.readonly` - readonly accounts from ALTs
+
+The full account list for instruction parsing must combine all three.
