@@ -363,37 +363,70 @@ export class PumpFunMonitor {
         return null;
       }
 
-      // Parse instruction data
-      let offset = 8;
-
-      const nameLen = createData.readUInt32LE(offset);
-      offset += 4;
-      const name = createData.slice(offset, offset + nameLen).toString('utf8');
-      offset += nameLen;
-
-      const symbolLen = createData.readUInt32LE(offset);
-      offset += 4;
-      const symbol = createData
-        .slice(offset, offset + symbolLen)
-        .toString('utf8');
-      offset += symbolLen;
-
-      const uriLen = createData.readUInt32LE(offset);
-      offset += 4;
-      const uri = createData.slice(offset, offset + uriLen).toString('utf8');
-      offset += uriLen;
-
-      // Try to parse mayhem mode flag (November 2025 pump.fun update)
-      // If there's more data after uri, the next byte is is_mayhem_mode
-      let isMayhemMode = false;
-      if (offset < createData.length) {
-        isMayhemMode = createData.readUInt8(offset) === 1;
-      }
-
-      // Extract addresses
+      // Extract addresses first (works for both pump.fun and pump.pro)
       const mint = accountKeys[createAccounts[0]]?.toBase58() || '';
       const bondingCurve = accountKeys[createAccounts[2]]?.toBase58() || '';
       const creator = accountKeys[createAccounts[7]]?.toBase58() || '';
+
+      // Check if this is pump.pro (short instruction data, needs API fetch)
+      const isPumpPro = createData.slice(0, 8).equals(CREATE_PRO_DISCRIMINATOR);
+
+      let name = '';
+      let symbol = '';
+      let uri = '';
+      let isMayhemMode = false;
+
+      if (isPumpPro) {
+        // pump.pro doesn't include metadata in instruction - fetch from API
+        console.log(`[PumpFunMonitor] pump.pro token detected, fetching metadata for ${mint}`);
+        try {
+          const response = await fetch(`https://frontend-api.pump.fun/coins/${mint}`, {
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(3000),
+          });
+          if (response.ok) {
+            const metadata = await response.json() as { name?: string; symbol?: string; image_uri?: string };
+            name = metadata.name || 'Unknown';
+            symbol = metadata.symbol || 'UNK';
+            uri = metadata.image_uri || '';
+            console.log(`[PumpFunMonitor] pump.pro metadata: ${name} (${symbol})`);
+          } else {
+            console.log(`[PumpFunMonitor] pump.pro API returned ${response.status}, using fallback`);
+            name = 'pump.pro Token';
+            symbol = 'PRO';
+          }
+        } catch (apiErr) {
+          console.log(`[PumpFunMonitor] pump.pro API fetch failed:`, apiErr);
+          name = 'pump.pro Token';
+          symbol = 'PRO';
+        }
+      } else {
+        // Classic pump.fun - parse inline metadata
+        let offset = 8;
+
+        const nameLen = createData.readUInt32LE(offset);
+        offset += 4;
+        name = createData.slice(offset, offset + nameLen).toString('utf8');
+        offset += nameLen;
+
+        const symbolLen = createData.readUInt32LE(offset);
+        offset += 4;
+        symbol = createData
+          .slice(offset, offset + symbolLen)
+          .toString('utf8');
+        offset += symbolLen;
+
+        const uriLen = createData.readUInt32LE(offset);
+        offset += 4;
+        uri = createData.slice(offset, offset + uriLen).toString('utf8');
+        offset += uriLen;
+
+        // Try to parse mayhem mode flag (November 2025 pump.fun update)
+        // If there's more data after uri, the next byte is is_mayhem_mode
+        if (offset < createData.length) {
+          isMayhemMode = createData.readUInt8(offset) === 1;
+        }
+      }
 
       return {
         signature,
