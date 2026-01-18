@@ -2,65 +2,110 @@
 
 **Date:** 2026-01-18
 **Branch:** `main`
-**Status:** Slippage bug FIXED - buys should now work
+**Status:** Phase B - TP/SL Engine implementation COMPLETE
 
 ---
 
-## What Was Done This Session
+## Current Task: TP/SL Engine Implementation
 
-### 1. Slippage Bug Fix (CRITICAL)
-- **Problem:** All buys failing with RangeError: negative BigInt value
-- **Error:** `The value of "value" is out of range. Received -290_727_603_145_080n`
-- **Root Cause:** User set 1000% slippage → 100000 bps
-  - Formula: `minTokens = expectedTokens * BigInt(10000 - slippageBps) / 10000n`
-  - With 100000 bps: `10000 - 100000 = -90000` → negative minTokens
-- **Fix:**
-  1. Cap slippage validation at 99% in settings handler
-  2. Clamp slippageBps to 9900 max in pumpFun.ts (defensive)
-- **DB Fix:** Updated user's strategy slippage from 100000 to 1500 (15%)
-- **Commit:** `3045a83`
+### Overview
+Implementing automatic position exits via TP/SL triggers with hybrid pricing architecture.
 
-### 2. Circuit Breaker Reset
-- **Problem:** Circuit breaker had 5+ consecutive failures from slippage bug
-- **Fix:** Reset via SQL: `UPDATE safety_controls SET consecutive_failures = 0`
+### Architecture Decisions
+1. **Integrated approach** - New TpSlMonitorLoop in `apps/hunter` (not separate service)
+2. **Hybrid pricing** - Jupiter API (3s poll) + Helius WS for instant activity detection
+3. **Exactly-once semantics** - Atomic DB trigger claim + existing idempotency patterns
+4. **Feature-flagged migration** - Run parallel with legacy polling, gradual cutover
 
-### Previous Session (Earlier Today)
-- Helius RPC Migration (QuickNode → Helius paid)
-- ALT fix for versioned transactions
-- create_v2 discriminator for pump.fun tokens
+### Implementation Phases
 
----
-
-## Current State
-
-- **Token Parsing:** ✅ WORKING
-- **Buy Execution:** ✅ Should work now (slippage fixed)
-- **Circuit Breaker:** ✅ Reset
-- **Build:** `pnpm -w lint && pnpm -w build` passes
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 0 | Documentation updates | COMPLETE |
+| 1 | Database migration (trigger_state) | COMPLETE |
+| 2 | Helius WebSocket infrastructure | COMPLETE |
+| 3 | Exit queue with backpressure | COMPLETE |
+| 4 | TpSlMonitorLoop integration | COMPLETE |
+| 5 | Testing and verification | COMPLETE |
 
 ---
 
-## Deployment
+## Files Created
 
-**Fly.io auto-deploys from GitHub pushes** - no manual `fly deploy` needed.
-Push `3045a83` triggered auto-deploy with slippage fix.
+| File | Purpose |
+|------|---------|
+| `packages/database/migrations/014_tpsl_engine_state.sql` | trigger_state column, atomic claim function |
+| `packages/shared/src/tpsl.ts` | TriggerState type, computeTpSlPrices(), EXIT_PRIORITY |
+| `apps/hunter/src/monitors/heliusWs.ts` | Helius WebSocket manager with heartbeat |
+| `apps/hunter/src/monitors/subscriptionManager.ts` | Token-scoped subscription lifecycle |
+| `apps/hunter/src/queues/exitQueue.ts` | Exit queue with backpressure |
+| `apps/hunter/src/loops/tpslMonitor.ts` | Main TP/SL monitoring loop |
+
+## Files Updated
+
+| File | Changes |
+|------|---------|
+| `packages/shared/src/types.ts` | Added TriggerState type, PositionV31 fields |
+| `packages/shared/src/index.ts` | Export tpsl module |
+| `packages/shared/src/config.ts` | Feature flag functions |
+| `apps/hunter/src/index.ts` | Conditional TP/SL and legacy loop startup |
+| `.env.fly` | TP/SL engine environment variables |
 
 ---
 
-## Key Files Changed This Session
+## Deployment Instructions
 
-| File | Change |
-|------|--------|
-| `apps/bot/src/handlers/settingsHandler.ts` | Cap slippage at 99% |
-| `apps/executor/src/chains/solana/pumpFun.ts` | Clamp slippageBps to 9900 |
-| `MUST_READ/Changelog.md` | Added slippage bug fix entry |
+### 1. Apply Database Migration
+Run the migration `014_tpsl_engine_state.sql` on Supabase before deploying.
+
+### 2. Feature Flags
+- `TPSL_ENGINE_ENABLED=false` - Keep disabled initially
+- `LEGACY_POSITION_MONITOR=true` - Keep legacy running
+
+### 3. Gradual Cutover
+1. **Shadow Mode**: Set `TPSL_ENGINE_ENABLED=true` while keeping legacy enabled
+2. **Verify**: Monitor logs for trigger accuracy, compare timing
+3. **Cutover**: Set `LEGACY_POSITION_MONITOR=false` when confident
 
 ---
 
 ## Technical Notes
 
-### Slippage Math
-- Slippage in bps: 1% = 100 bps, 10% = 1000 bps, 99% = 9900 bps
-- Formula: `minOutput = expectedOutput * (10000 - slippageBps) / 10000`
-- At 100% slippage (10000 bps): minOutput = 0 (accept any output)
-- Above 100% is mathematically invalid (negative output)
+### Helius WebSocket Requirements
+- 10-minute inactivity timer - MUST ping every 30 seconds
+- Endpoint: `wss://mainnet.helius-rpc.com/?api-key=<KEY>`
+- logsSubscribe supports only ONE pubkey per call
+
+### Trigger State Machine
+```
+MONITORING → TRIGGERED → EXECUTING → COMPLETED
+                                  ↘ FAILED
+```
+
+### Exit Priority (lower = higher priority)
+```
+EMERGENCY: 0
+SL: 10
+TP: 50
+TRAIL: 60
+MAXHOLD: 70
+MANUAL: 80
+```
+
+### Idempotency Key Format
+```
+RAPTOR:V3:EXIT:sol:SELL:<MINT>:pos:<POSITION_ID>:trg:<TRIGGER>:<HASH>
+```
+
+---
+
+## Build Verification
+
+Before deploying:
+```bash
+pnpm -w lint && pnpm -w build
+```
+
+Build Status: **PASSING**
+
+Fly.io auto-deploys from GitHub pushes to `main`.

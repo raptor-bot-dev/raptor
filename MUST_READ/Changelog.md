@@ -3,6 +3,19 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-18
+- **feat(hunter): begin TP/SL Engine implementation (Phase B)**
+  - Hybrid architecture: Jupiter polling (3s) + Helius WebSocket activity hints
+  - Trigger state machine: MONITORING → TRIGGERED → EXECUTING → COMPLETED
+  - Exactly-once semantics via atomic DB claims + idempotency keys
+  - Exit queue with backpressure (maxConcurrent=3)
+  - Feature-flagged migration path from legacy position monitor
+  - Documentation updates: Architecture.md, CLAUDE.md, DESIGN.md, Reference_docs.md
+- **feat(hunter): add pump.pro program support for token detection**
+  - pump.fun has upgraded to new program: `proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`
+  - Most tokens now created via pump.pro instead of classic pump.fun
+  - Added PUMP_PRO to PROGRAM_IDS in shared config
+  - Monitor now subscribes to both pump.fun and pump.pro WebSocket logs
+  - Parsing logic checks for Create instructions from both programs
 - **fix(executor): clamp slippage to 99% max to prevent negative minTokens**
   - Settings handler now caps slippage input at 99% (was 1000%)
   - pumpFun.ts buy/sell now clamp slippageBps to 9900 max defensively

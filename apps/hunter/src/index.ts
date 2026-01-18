@@ -7,11 +7,14 @@ import {
   validateHunterConfig,
   getWorkerId,
   isAutoExecuteEnabled,
+  isTpSlEngineEnabled,
+  isLegacyPositionMonitorEnabled,
 } from '@raptor/shared';
 
 import { OpportunityLoop } from './loops/opportunities.js';
 import { ExecutionLoop } from './loops/execution.js';
 import { PositionMonitorLoop } from './loops/positions.js';
+import { TpSlMonitorLoop } from './loops/tpslMonitor.js';
 import { MaintenanceLoop } from './loops/maintenance.js';
 
 // Global promise rejection handler
@@ -41,26 +44,60 @@ async function main() {
     console.warn('⚠️  Running in MONITOR-ONLY mode (no trades will be executed)');
   }
 
+  // Check TP/SL engine feature flags
+  const tpslEngineEnabled = isTpSlEngineEnabled();
+  const legacyPositionMonitorEnabled = isLegacyPositionMonitorEnabled();
+
+  if (tpslEngineEnabled) {
+    console.log('✅ TP/SL Engine: ENABLED (event-driven)');
+  }
+  if (legacyPositionMonitorEnabled) {
+    console.log('✅ Legacy Position Monitor: ENABLED');
+  }
+  if (!tpslEngineEnabled && !legacyPositionMonitorEnabled) {
+    console.warn('⚠️  No position monitor enabled! TP/SL triggers will NOT fire.');
+  }
+
   // Initialize loops
   const opportunityLoop = new OpportunityLoop();
   const executionLoop = new ExecutionLoop(workerId, autoExecuteEnabled);
-  const positionMonitorLoop = new PositionMonitorLoop(workerId);
   const maintenanceLoop = new MaintenanceLoop();
+
+  // Conditionally create position monitoring loops
+  const positionMonitorLoop = legacyPositionMonitorEnabled
+    ? new PositionMonitorLoop(workerId)
+    : null;
+  const tpslMonitorLoop = tpslEngineEnabled
+    ? new TpSlMonitorLoop(workerId)
+    : null;
 
   // Start all loops
   try {
-    await Promise.all([
+    const startPromises: Promise<void>[] = [
       opportunityLoop.start(),
       executionLoop.start(),
-      positionMonitorLoop.start(),
       maintenanceLoop.start(),
-    ]);
+    ];
+
+    if (positionMonitorLoop) {
+      startPromises.push(positionMonitorLoop.start());
+    }
+    if (tpslMonitorLoop) {
+      startPromises.push(tpslMonitorLoop.start());
+    }
+
+    await Promise.all(startPromises);
 
     console.log('');
     console.log('✅ RAPTOR Hunter v3.1 is running');
     console.log('   - Opportunity loop: Monitoring launchpads');
     console.log('   - Execution loop: Processing trade jobs');
-    console.log('   - Position loop: Monitoring exit triggers');
+    if (positionMonitorLoop) {
+      console.log('   - Position loop (legacy): Monitoring exit triggers');
+    }
+    if (tpslMonitorLoop) {
+      console.log('   - TP/SL Engine: Event-driven trigger monitoring');
+    }
     console.log('   - Maintenance loop: Cleanup & recovery');
     console.log('');
   } catch (error) {
@@ -72,12 +109,20 @@ async function main() {
   const shutdown = async () => {
     console.log('\n📦 Shutting down gracefully...');
 
-    await Promise.all([
+    const stopPromises: Promise<void>[] = [
       opportunityLoop.stop(),
       executionLoop.stop(),
-      positionMonitorLoop.stop(),
       maintenanceLoop.stop(),
-    ]);
+    ];
+
+    if (positionMonitorLoop) {
+      stopPromises.push(positionMonitorLoop.stop());
+    }
+    if (tpslMonitorLoop) {
+      stopPromises.push(tpslMonitorLoop.stop());
+    }
+
+    await Promise.all(stopPromises);
 
     console.log('✅ Hunter stopped');
     process.exit(0);

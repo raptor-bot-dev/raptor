@@ -3,6 +3,8 @@
 Single source of truth for current progress. Keep it brief.
 
 ## Current milestone
+**Phase B: TP/SL Engine (automatic position exits)** - IN PROGRESS
+
 **Phase A: Autohunt-only Telegram bot (minimal UX)** - COMPLETE
 
 ### Objectives
@@ -57,6 +59,12 @@ Single source of truth for current progress. Keep it brief.
   - pump.fun now uses `create_v2` instruction instead of legacy `create`
   - Added CREATE_V2_DISCRIMINATOR for current pump.fun protocol
   - Monitor checks for both legacy and current discriminators
+- **pump.pro program support** (2026-01-18):
+  - pump.fun migrated most token creation to new pump.pro program
+  - Program ID: `proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`
+  - Added PUMP_PRO to PROGRAM_IDS in shared config
+  - Monitor subscribes to both pump.fun and pump.pro logs
+  - Parsing handles Create instructions from both programs
 - **Settings panel text input fixed** (2026-01-17):
   - messages.ts was missing cases for v3 settings session steps
   - Now routes to handleSettingsInput() for all settings edits
@@ -97,11 +105,25 @@ Single source of truth for current progress. Keep it brief.
 - Withdraw math validated in code. ✅
 - Emergency sell implemented with idempotency. ✅
 
+## Phase B Objectives (TP/SL Engine)
+- Hybrid pricing: Jupiter polling (3s) + Helius WebSocket activity hints
+- Trigger state machine: MONITORING → TRIGGERED → EXECUTING → COMPLETED
+- Exactly-once execution via atomic DB claims + idempotency keys
+- Exit queue with backpressure (maxConcurrent=3)
+- Feature-flagged migration from legacy position monitor
+
+### Phase B Implementation Status
+- [ ] Phase 0: Documentation updates
+- [ ] Phase 1: Database migration (trigger_state, tp_price, sl_price)
+- [ ] Phase 2: Helius WebSocket infrastructure
+- [ ] Phase 3: Exit queue with backpressure
+- [ ] Phase 4: TpSlMonitorLoop integration
+- [ ] Phase 5: Migration and testing
+
 ## Where we left off last
-- 2026-01-18 (latest): Fixed slippage bug causing buy failures.
-- Root cause: User set 1000% slippage → 100000 bps → negative minTokens
-- Fix: Cap slippage at 99% in settings, clamp to 9900 bps in pumpFun.ts
-- Fixed user's strategy slippage from 100000 to 1500 (15%)
-- Reset circuit breaker after consecutive failures
-- Token parsing WORKING after create_v2 discriminator fix
+- 2026-01-18 (latest): Started TP/SL Engine implementation (Phase B)
+- Earlier: Added pump.pro program support
+- pump.fun migrated most tokens to pump.pro program (`proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`)
+- Hunter now subscribes to and parses both pump.fun and pump.pro logs
+- Fixed slippage bug (capped at 99%), reset circuit breaker
 - Fly.io auto-deploys from GitHub pushes to `main` (documented in DEPLOYMENT.md)

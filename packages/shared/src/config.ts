@@ -135,3 +135,24 @@ export function getJobLeaseDuration(): number {
   const duration = parseInt(process.env.JOB_LEASE_DURATION_SECONDS || '30', 10);
   return Math.max(10, Math.min(duration, 120)); // Clamp between 10s and 2m
 }
+
+// =============================================================================
+// TP/SL Engine Configuration (Phase B)
+// =============================================================================
+
+/**
+ * Check if the new TP/SL engine is enabled
+ * Set TPSL_ENGINE_ENABLED=true to enable the new event-driven TP/SL system
+ */
+export function isTpSlEngineEnabled(): boolean {
+  return process.env.TPSL_ENGINE_ENABLED === 'true';
+}
+
+/**
+ * Check if the legacy position monitor should run
+ * Set LEGACY_POSITION_MONITOR=false to disable legacy polling
+ * Default: true (run alongside new system during migration)
+ */
+export function isLegacyPositionMonitorEnabled(): boolean {
+  return process.env.LEGACY_POSITION_MONITOR !== 'false';
+}

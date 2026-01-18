@@ -18,6 +18,43 @@ Pointers to useful references. Keep this list short.
 - Birdeye Solana Charts (mind-based chart link)
 - Solana web3.js / @solana/spl-token docs (ATA, token transfers)
 
+## Solana RPC WebSocket
+- [Solana WebSocket Methods](https://solana.com/docs/rpc/websocket) - Overview of all WS methods
+- [logsSubscribe](https://solana.com/docs/rpc/websocket/logssubscribe) - Subscribe to transaction logs
+- [SPL Token Basics](https://spl.solana.com/token) - Token accounts, mints, decimals
+
+## Helius RPC
+- [Helius WebSocket Overview](https://www.helius.dev/docs/rpc/websocket) - Endpoint format, stability
+- [Helius WebSocket Methods](https://www.helius.dev/docs/api-reference/rpc/websocket-methods) - Method index
+- [Helius logsSubscribe](https://www.helius.dev/docs/api-reference/rpc/websocket/logssubscribe) - Includes 10-min inactivity timer + ping guidance
+- [Helius RPC Endpoints](https://www.helius.dev/docs/api-reference/endpoints) - HTTP/WSS URLs
+- [Helius Enhanced WebSockets](https://www.helius.dev/docs/enhanced-websockets) - Optional enhanced features
+
+**Helius Critical Notes:**
+- 10-minute inactivity timer - MUST send pings every 60s (recommend 30s)
+- Endpoint format: `wss://mainnet.helius-rpc.com/?api-key=<KEY>`
+- logsSubscribe supports only ONE pubkey per call
+
+## Jupiter Aggregator API
+- [Jupiter Get Quote](https://dev.jup.ag/docs/swap/get-quote) - Quote endpoint documentation
+- [Jupiter API Reference](https://dev.jup.ag/api-reference) - Full API docs (note: check for deprecations)
+- [Jupiter Quote Endpoint](https://dev.jup.ag/api-reference/swap/quote) - Detailed quote params
+
+**Jupiter Critical Notes:**
+- Endpoint: `https://api.jup.ag/swap/v1/quote`
+- Required params: inputMint, outputMint, amount, slippageBps
+- `outAmount` is best-case; `otherAmountThreshold` accounts for slippage
+- Use `restrictIntermediateTokens=true` for better routes
+- Set `maxAccounts=64` for optimal routing
+
+## Anchor Events
+- [Anchor Events](https://www.anchor-lang.com/docs/features/events) - Base64 `Program Data:` log decoding
+- [Anchor Events Source](https://github.com/coral-xyz/anchor/blob/master/docs/content/docs/features/events.mdx) - Reference implementation
+
+## Supabase/Postgres
+- [Supabase DB Overview](https://supabase.com/docs/guides/database/overview) - General database usage
+- [Postgres Realtime](https://supabase.com/docs/guides/realtime/subscribing-to-database-changes) - Optional cache sync
+
 ## PumpFun Protocol
 
 ### Official Resources

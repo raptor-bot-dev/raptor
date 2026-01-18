@@ -80,3 +80,8 @@ export * from './errors.js';
 
 // Configuration validation per entrypoint
 export * from './config.js';
+
+// === RAPTOR Phase B: TP/SL Engine ===
+
+// TP/SL types, utilities, and configuration
+export * from './tpsl.js';

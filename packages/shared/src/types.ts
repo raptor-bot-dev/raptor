@@ -37,6 +37,12 @@ export type PositionStatus = 'OPEN' | 'CLOSING' | 'CLOSED';
 /** Exit trigger types */
 export type ExitTrigger = 'TP' | 'SL' | 'TRAIL' | 'MAXHOLD' | 'EMERGENCY' | 'MANUAL';
 
+/**
+ * Trigger state machine states for TP/SL monitoring
+ * Flow: MONITORING → TRIGGERED → EXECUTING → COMPLETED/FAILED
+ */
+export type TriggerState = 'MONITORING' | 'TRIGGERED' | 'EXECUTING' | 'COMPLETED' | 'FAILED';
+
 /** Trade action */
 export type TradeAction = 'BUY' | 'SELL';
 
@@ -275,6 +281,13 @@ export interface PositionV31 {
   exit_trigger: ExitTrigger | null;
   realized_pnl_sol: number | null;
   realized_pnl_percent: number | null;
+
+  // TP/SL Engine (Phase B)
+  trigger_state: TriggerState;
+  tp_price: number | null;
+  sl_price: number | null;
+  bonding_curve: string | null;
+  triggered_at: string | null;
 
   // Status
   status: PositionStatus;

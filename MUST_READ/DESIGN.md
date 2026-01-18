@@ -1,3 +1,77 @@
+# RAPTOR Design Specification
+
+This document covers UI/UX design and core system patterns.
+
+## TP/SL Engine Design
+
+### Trigger State Machine
+
+```
+Position Lifecycle:
+  [OPEN] ─────────────────────────────────────────────────────────────>
+                              |
+         ┌────────────────────┼────────────────────┐
+         |                    |                    |
+         v                    v                    v
+    ┌──────────┐       ┌──────────┐         ┌──────────┐
+    │   TP     │       │   SL     │         │  MANUAL  │
+    │ triggered│       │ triggered│         │  SELL    │
+    └────┬─────┘       └────┬─────┘         └────┬─────┘
+         |                  |                    |
+         └──────────────────┼────────────────────┘
+                            v
+                    ┌──────────────┐
+                    │  ExitQueue   │  (backpressure)
+                    └──────┬───────┘
+                           v
+                    ┌──────────────┐
+                    │   Executor   │  (idempotent)
+                    └──────┬───────┘
+                           v
+                      [CLOSED]
+```
+
+### trigger_state Values
+
+| State | Description |
+|-------|-------------|
+| `MONITORING` | Position open, watching for TP/SL triggers |
+| `TRIGGERED` | Threshold crossed, queued for execution |
+| `EXECUTING` | Sell transaction in progress |
+| `COMPLETED` | Exit successful, position closed |
+| `FAILED` | Exit failed, requires manual intervention |
+
+### Atomic Trigger Claim
+
+To prevent double-execution under WS bursts:
+
+```sql
+UPDATE positions
+SET trigger_state = 'TRIGGERED', exit_trigger = $trigger
+WHERE id = $positionId AND trigger_state = 'MONITORING' AND status = 'OPEN';
+-- Returns 0 rows if already triggered
+```
+
+### Idempotency Key Format
+
+```
+RAPTOR:V3:EXIT:sol:SELL:<MINT>:pos:<POSITION_ID>:trg:<TRIGGER>:<HASH>
+```
+
+Same position + same trigger = one and only one sell, even with retries.
+
+### Exit Priority Order
+
+1. **SL** (10) - Protect capital first
+2. **TP** (50) - Take profits
+3. **TRAIL** (60) - Trailing stop
+4. **MAXHOLD** (70) - Time-based exit
+5. **EMERGENCY** (0) - User override (highest actual priority)
+
+---
+
+## Telegram Bot UI Design
+
 Below is the complete, finalized redesign spec for the simplified RAPTOR Telegram bot, incorporating everything you decided:
 
 Terminal aesthetic

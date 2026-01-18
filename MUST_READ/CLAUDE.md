@@ -93,3 +93,41 @@ Not allowed without asking
 - CI minimum: `pnpm -w lint && pnpm -w test && pnpm -w build`.
 - For trading logic, add unit tests for math (TP/SL %, fees, rounding) and for timer enforcement.
 - Integration tests must default to mocked RPC unless explicitly configured.
+
+## TP/SL Engine Constraints
+
+### Non-Negotiable Design Patterns
+
+1. **Never execute in WS callback** - Queue exit jobs, don't block WebSocket processing
+2. **Atomic DB claims** - Use `trigger_exit_atomically()` for exactly-once triggering
+3. **Idempotency keys** - All exits must use `idKeyExitSell({positionId, trigger, sellPercent})`
+4. **Token-scoped subscriptions** - One WebSocket sub per token, many positions watch it
+5. **Backpressure** - ExitQueue limits concurrency to prevent executor overload
+
+### Trigger State Machine Rules
+
+- Never transition backwards (e.g., TRIGGERED → MONITORING)
+- Never set trigger_state for already-closed positions
+- On failure, mark FAILED but don't reset to MONITORING
+- FAILED positions require manual intervention via Emergency Sell
+
+### Helius WebSocket Requirements
+
+- **Heartbeat**: Ping every 30 seconds (Helius has 10-min inactivity timeout)
+- **Reconnect**: Exponential backoff, max 10 attempts, then 60s cooldown
+- **Resubscribe**: On reconnect, restore all active subscriptions
+- **One pubkey per call**: logsSubscribe only supports single address filter
+
+### Price Source Priority
+
+1. Jupiter Price API (primary, 3s polling) - reliable, battle-tested
+2. WebSocket activity hints (optional) - triggers immediate Jupiter re-fetch
+3. Never rely solely on WebSocket for price - use for activity detection only
+
+### Exit Priority
+
+When multiple triggers fire simultaneously:
+1. SL (highest priority - protect capital)
+2. TP
+3. TRAIL
+4. MAXHOLD (lowest priority)
