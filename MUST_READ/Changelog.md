@@ -3,6 +3,27 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-19
+- **fix(bot,hunter): emergency sell, entry price, MC display** (d10176d)
+  - P0: Emergency sell not working - field name mismatch in emergencySellService.ts
+    - Root cause: RPC returns `reservation_id` on success, but code read `execution_id`
+    - Fix: Changed to `reservation_id || execution_id` for proper fallback
+  - P0: Entry price wrong by 10^6 factor (5.35e-15 vs 5.35e-9)
+    - Root cause: Price calculated with RAW tokens but we store ADJUSTED tokens (÷10^6)
+    - Fix: Recalculate in execution.ts: `entryPrice = entryCostSol / adjustedSizeTokens`
+  - P1: Entry MC shows "0.00 SOL" in position details
+    - Root cause: `entry_mc_sol` column doesn't exist in DB, code defaults to 0
+    - Fix: Calculate from entry price × 1B total supply (pump.fun fixed supply)
+  - P1: MC shown in SOL instead of USD
+    - Root cause: `solPriceUsd` not fetched or passed to detail panel
+    - Fix: Fetch SOL price via `getSolPrice()` and pass to panel for USD display
+  - P2: Refresh button throws "message is not modified" error
+    - Root cause: Telegram throws when editing message to identical content
+    - Fix: Catch GrammyError and silently ignore when content unchanged
+  - Data fix: Updated 4 positions with correct entry_price via SQL
+    - entry_price was 10^6 too small; recalculated from entry_cost_sol / size_tokens
+  - Data fix: Deleted 15 stale SELL executions with "Stale execution cleanup" error
+    - These were blocking emergency sell retries due to idempotency check
+  - Export: Added `getSolPrice` direct export from shared/index.ts
 - **fix(bot): emergency sell stuck on "In Progress"** (82e2625)
   - Root cause: Code checked `status !== 'OPEN'` but database uses `status = 'ACTIVE'`
   - All ACTIVE positions incorrectly showed as "In Progress" and blocked emergency sell

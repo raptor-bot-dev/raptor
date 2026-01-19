@@ -145,6 +145,23 @@ Single source of truth for current progress. Keep it brief.
   - 4 positions had 0.1 SOL (reserved) instead of ~0.017 SOL (actual)
   - Queried blockchain for actual transaction balances
   - Updated positions and token symbols via SQL
+- **Emergency sell field name fix** (2026-01-19):
+  - RPC returns `reservation_id` on success, `execution_id` on already-executed
+  - Code was reading wrong field causing execution record lookup to fail
+  - Fixed: `reservation_id || execution_id` fallback
+- **Entry price calculation fix** (2026-01-19):
+  - Price was 10^6 too small (5.35e-15 vs 5.35e-9)
+  - Root cause: executor price calculated with RAW tokens, we store ADJUSTED tokens
+  - Fixed: Recalculate `entryPrice = entryCostSol / adjustedSizeTokens`
+- **Entry MC display fix** (2026-01-19):
+  - `entry_mc_sol` column doesn't exist in DB
+  - Now calculated from entry price × 1B (pump.fun fixed supply)
+  - SOL price fetched for USD display
+- **Refresh button error fix** (2026-01-19):
+  - "message is not modified" GrammyError now caught and ignored
+- **Stale executions cleaned** (2026-01-19):
+  - Deleted 15 SELL executions with "Stale execution cleanup" error
+  - These were blocking emergency sell retries
 - `pnpm -w lint && pnpm -w build` passes
 
 ## Design Notes
@@ -216,7 +233,32 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-19 (latest): **Emergency sell and pricing reliability fixes** (82e2625)
+- 2026-01-19 (latest): **Emergency sell, entry price, MC display fixes** (d10176d)
+  - P0: Emergency sell not working - field name mismatch in emergencySellService.ts
+    - Root cause: RPC `reserve_trade_budget` returns `reservation_id` on success, `execution_id` on already-executed
+    - Code was reading `execution_id` which is undefined on success → execution record not found
+    - Fix: Changed to `reservation_id || execution_id` for proper fallback
+  - P0: Entry price wrong by 10^6 (5.35e-15 instead of 5.35e-9)
+    - Root cause: `result.price` calculated with RAW tokens but we store ADJUSTED tokens (÷10^6 for pump.fun decimals)
+    - Position stored adjusted tokens but original price → price/token ratio 10^6 too small
+    - Fix: Recalculate in execution.ts: `entryPrice = entryCostSol / adjustedSizeTokens`
+  - P1: Entry MC shows "0.00 SOL" - column doesn't exist in DB
+    - Code had `(position as any).entry_mc_sol ?? 0` which always returned 0
+    - Fix: Calculate from entry price × 1B (pump.fun fixed total supply)
+  - P1: MC shown in SOL not USD - solPriceUsd never passed to panel
+    - Fix: Fetch via `getSolPrice()` and pass to detail panel for USD display
+  - P2: Refresh button "message is not modified" error in logs
+    - Telegram throws when editing message to identical content
+    - Fix: Catch GrammyError and silently ignore this specific error
+  - Data fixes via SQL:
+    - Updated 4 positions with correct entry_price (recalculated from cost/tokens)
+    - Deleted 15 stale SELL executions blocking emergency sell retries
+  - Files changed:
+    - `apps/bot/src/services/emergencySellService.ts` - field name fix
+    - `apps/hunter/src/loops/execution.ts` - entry price calculation
+    - `apps/bot/src/handlers/positionsHandler.ts` - MC calc, SOL price, refresh error
+    - `packages/shared/src/index.ts` - export getSolPrice
+- 2026-01-19 (earlier): **Emergency sell and pricing reliability fixes** (82e2625)
   - P0: Emergency sell stuck on "In Progress" for all positions
     - Root cause: Code checked `status !== 'OPEN'` but database uses `status = 'ACTIVE'`
     - Fix: Changed all status checks from 'OPEN' to 'ACTIVE' across bot handlers
@@ -334,6 +376,54 @@ Single source of truth for current progress. Keep it brief.
 ---
 
 ## Retrospectives
+
+### 2026-01-19: Emergency Sell Field Name + Entry Price + MC Display
+
+**Context:** User reported multiple issues after previous session's fixes:
+1. Emergency sell still not working (different root cause than earlier fix)
+2. Entry price shows wrong value (5.35e-15 instead of 5.35e-9)
+3. Entry MC shows "0.00 SOL"
+4. MC should display in USD, not SOL
+5. Refresh button throws errors in logs
+
+**Root cause analysis:**
+- Emergency sell: `reserve_trade_budget` RPC returns `reservation_id` on success, `execution_id` on already-executed
+  - Code was reading `execution_id` which is undefined on success
+  - This caused "Failed to create execution record" error
+- Entry price: Token decimals fix from earlier session divided `size_tokens` by 10^6
+  - But `entry_price` still used `result.price` calculated with RAW tokens
+  - Price/token ratio was 10^6 too small
+- Entry MC: Column `entry_mc_sol` doesn't exist in database
+  - Code used `(position as any).entry_mc_sol ?? 0` which always returned 0
+- USD display: `solPriceUsd` never fetched or passed to detail panel
+- Refresh error: Telegram throws when editing message to identical content
+
+**What went well:**
+- Plan mode helped systematically identify all 5 issues before coding
+- Database queries quickly confirmed entry_price values were wrong
+- Existing `getSolPrice()` function available, just needed export
+- All fixes were straightforward once root causes identified
+- Build passed after adding missing export
+
+**What could be improved:**
+- The `reservation_id` vs `execution_id` issue could have been caught by type checking
+- Token decimals fix should have also fixed entry_price calculation at same time
+- `entry_mc_sol` column was assumed to exist without checking schema
+- Should have more rigorous review of all fields when making decimal adjustments
+
+**Lessons learned:**
+- When RPC functions have different return shapes for success/failure, document them
+- Token decimal adjustments must be applied consistently to ALL derived values
+- Don't assume columns exist - check schema or use TypeScript types
+- Plan mode is valuable for complex bugs with multiple symptoms
+
+**Files changed:**
+- `apps/bot/src/services/emergencySellService.ts` - field name fix
+- `apps/hunter/src/loops/execution.ts` - entry price calculation
+- `apps/bot/src/handlers/positionsHandler.ts` - MC calc, SOL price, refresh error
+- `packages/shared/src/index.ts` - export getSolPrice
+
+---
 
 ### 2026-01-19: Emergency Sell and Pricing Reliability
 
