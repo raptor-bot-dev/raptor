@@ -113,6 +113,16 @@ Single source of truth for current progress. Keep it brief.
   - Reduces wasted gas and RPC calls on dead tokens
   - Migration 017 adds filter_mode column to strategies
   - Settings UI updated with Filter Mode selection
+- **Filter mode policy hardened** (2026-01-19):
+  - Strict forces quality metadata fetch and fails closed on missing socials/activity
+  - Moderate fails open on activity API errors
+  - Activity check runs once per token with on-chain fallback
+- **Notification alerts upgraded to terminal UI** (2026-01-19):
+  - All notifications now use panelKit HTML format with `🦖 RAPTOR | TITLE` header
+  - Created 5 new notification component files (tradeDone, tpSlHit, positionState, systemAlerts, generic)
+  - NotificationPoller uses `parse_mode: 'HTML'` and returns Panel objects
+  - Generic notification formats fields with labels instead of raw JSON
+  - All notifications include action buttons (Positions, Home, View TX, Chart)
 - `pnpm -w lint && pnpm -w build` passes
 
 ## Design Notes
@@ -162,7 +172,15 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-19 (latest): **Token launch filtering modes deployed**
+- 2026-01-19 (latest): **Notification alerts upgraded to terminal UI**
+  - All 13+ notification types now use panelKit HTML terminal style
+  - Created tradeDone.ts, tpSlHit.ts, positionState.ts, systemAlerts.ts, generic.ts
+  - NotificationPoller refactored to return Panel objects with HTML parse_mode
+  - Generic fallback formats fields with labels instead of raw JSON dump
+- 2026-01-19 (earlier): **Filter mode policy update**
+  - Strict uses quality metadata fetch and fails closed on missing socials/activity
+  - Activity check falls back to on-chain bonding curve state when pump.fun API is down
+- 2026-01-19 (earlier): **Token launch filtering modes deployed**
   - Migration 017 applied: filter_mode column (strict/moderate/light)
   - OpportunityLoop: per-strategy filtering with activity check
   - Activity check: 3s delay + bondingCurveProgress > 0.5%

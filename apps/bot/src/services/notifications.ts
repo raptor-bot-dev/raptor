@@ -7,7 +7,7 @@
  * Design:
  * - Polls every 1.5 seconds (configurable via NOTIFICATION_POLL_INTERVAL_MS)
  * - Claims notifications atomically to prevent double-send
- * - Formats messages based on notification type
+ * - Formats messages based on notification type using panelKit terminal UI
  * - Handles delivery failures with retry logic
  */
 
@@ -21,6 +21,36 @@ import {
   createLogger,
   type Notification,
 } from '@raptor/shared';
+
+import type { Panel } from '../ui/panelKit.js';
+import {
+  renderHuntExecuted,
+  renderHuntClosed,
+  renderBuyFailed,
+  renderSellFailed,
+  renderTradeDone,
+  renderTpHit,
+  renderSlHit,
+  renderTrailingStopHit,
+  renderPositionOpened,
+  renderPositionClosed,
+  renderBudgetWarning,
+  renderCircuitBreaker,
+  renderOpportunityDetected,
+  renderGenericNotification,
+  type HuntExecutedData,
+  type HuntClosedData,
+  type TpHitData,
+  type SlHitData,
+  type TrailingStopHitData,
+  type PositionOpenedData,
+  type PositionClosedData,
+  type BudgetWarningData,
+  type CircuitBreakerData,
+  type OpportunityDetectedData,
+  type TradeDoneData,
+  type ExitTrigger,
+} from '../ui/notifications/index.js';
 
 const logger = createLogger('NotificationPoller');
 
@@ -110,10 +140,10 @@ export class NotificationPoller {
    */
   private async deliverNotification(notification: Notification): Promise<void> {
     try {
-      const message = this.formatNotification(notification);
+      const panel = this.formatNotification(notification);
 
-      await this.bot.api.sendMessage(notification.user_id, message, {
-        parse_mode: 'Markdown',
+      await this.bot.api.sendMessage(notification.user_id, panel.text, {
+        ...panel.opts,
         link_preview_options: { is_disabled: true },
       });
 
@@ -130,9 +160,9 @@ export class NotificationPoller {
   }
 
   /**
-   * Format notification into Telegram message
+   * Format notification into Telegram Panel
    */
-  private formatNotification(notification: Notification): string {
+  private formatNotification(notification: Notification): Panel {
     const payload = notification.payload as Record<string, unknown>;
 
     switch (notification.type) {
@@ -176,254 +206,181 @@ export class NotificationPoller {
         return this.formatTradeDone(payload);
 
       default:
-        return this.formatGeneric(notification.type, payload);
+        return renderGenericNotification(notification.type, payload);
     }
   }
 
   // ============================================
-  // Notification formatters
+  // Notification formatters - using panelKit terminal UI
   // ============================================
 
-  private formatBuyConfirmed(payload: Record<string, unknown>): string {
-    const chain = String(payload.chain || 'sol').toUpperCase();
-    const tokenMint = String(payload.tokenMint || '');
-    const amountSol = Number(payload.amountSol || 0);
-    const tokensReceived = Number(payload.tokensReceived || 0);
-    const price = Number(payload.price || 0);
-    const txHash = String(payload.txHash || '');
-    const route = String(payload.route || 'Unknown');
-
-    const explorerUrl = `https://solscan.io/tx/${txHash}`;
-    const mintUrl = `https://solscan.io/token/${tokenMint}`;
-
-    return `✅ *BUY CONFIRMED*
-
-*Chain:* ${chain}
-*Route:* ${route}
-*Amount:* ${amountSol.toFixed(4)} SOL
-*Tokens:* ${tokensReceived.toLocaleString()}
-*Price:* ${price.toFixed(9)} SOL
-
-[View Transaction](${explorerUrl}) | [View Token](${mintUrl})`;
+  private formatBuyConfirmed(payload: Record<string, unknown>): Panel {
+    const data: HuntExecutedData = {
+      positionId: String(payload.positionId || ''),
+      tokenName: String(payload.tokenName || 'Unknown'),
+      symbol: String(payload.tokenSymbol || '???'),
+      mint: String(payload.tokenMint || ''),
+      entryPrice: formatPriceForDisplay(Number(payload.price || 0)),
+      marketCap: formatMarketCapForDisplay(Number(payload.marketCap || 0)),
+      solIn: Number(payload.amountSol || 0),
+      tokensOut: Number(payload.tokensReceived || 0),
+      txSig: String(payload.txHash || ''),
+    };
+    return renderHuntExecuted(data);
   }
 
-  private formatBuyFailed(payload: Record<string, unknown>): string {
-    const chain = String(payload.chain || 'sol').toUpperCase();
+  private formatBuyFailed(payload: Record<string, unknown>): Panel {
+    const symbol = String(payload.tokenSymbol || 'Unknown');
+    const mint = String(payload.mint || payload.tokenMint || '');
     const error = String(payload.error || 'Unknown error');
-    const errorCode = String(payload.errorCode || '');
-
-    return `❌ *BUY FAILED*
-
-*Chain:* ${chain}
-*Error:* ${error}
-${errorCode ? `*Code:* ${errorCode}` : ''}
-
-Please check your wallet balance and try again.`;
+    return renderBuyFailed(symbol, mint, error);
   }
 
-  private formatSellConfirmed(payload: Record<string, unknown>): string {
-    const chain = String(payload.chain || 'sol').toUpperCase();
-    const tokenSymbol = String(payload.tokenSymbol || 'Unknown');
-    const tokensSold = Number(payload.tokensSold || 0);
-    const solReceived = Number(payload.solReceived || 0);
-    const price = Number(payload.price || 0);
-    const txHash = String(payload.txHash || '');
-    const pnlSol = Number(payload.pnlSol || 0);
-    const pnlPercent = Number(payload.pnlPercent || 0);
-
-    const explorerUrl = `https://solscan.io/tx/${txHash}`;
-    const pnlEmoji = pnlSol >= 0 ? '📈' : '📉';
-    const pnlSign = pnlSol >= 0 ? '+' : '';
-
-    return `✅ *SELL CONFIRMED*
-
-*Token:* ${tokenSymbol}
-*Chain:* ${chain}
-*Tokens Sold:* ${tokensSold.toLocaleString()}
-*SOL Received:* ${solReceived.toFixed(4)} SOL
-*Price:* ${price.toFixed(9)} SOL
-
-${pnlEmoji} *P&L:* ${pnlSign}${pnlSol.toFixed(4)} SOL (${pnlSign}${pnlPercent.toFixed(2)}%)
-
-[View Transaction](${explorerUrl})`;
+  private formatSellConfirmed(payload: Record<string, unknown>): Panel {
+    const data: HuntClosedData = {
+      symbol: String(payload.tokenSymbol || 'Unknown'),
+      mint: String(payload.tokenMint || payload.mint || ''),
+      entryPrice: formatPriceForDisplay(Number(payload.entryPrice || 0)),
+      entryMc: formatMarketCapForDisplay(Number(payload.entryMc || 0)),
+      exitPrice: formatPriceForDisplay(Number(payload.price || 0)),
+      exitMc: formatMarketCapForDisplay(Number(payload.exitMc || 0)),
+      receivedSol: Number(payload.solReceived || 0),
+      pnlPercent: Number(payload.pnlPercent || 0),
+      pnlSol: Number(payload.pnlSol || 0),
+      txSig: String(payload.txHash || ''),
+      trigger: (payload.trigger as ExitTrigger) || 'MANUAL',
+    };
+    return renderHuntClosed(data);
   }
 
-  private formatSellFailed(payload: Record<string, unknown>): string {
-    const tokenSymbol = String(payload.tokenSymbol || 'Unknown');
+  private formatSellFailed(payload: Record<string, unknown>): Panel {
+    const symbol = String(payload.tokenSymbol || 'Unknown');
+    const mint = String(payload.mint || payload.tokenMint || '');
     const error = String(payload.error || 'Unknown error');
-
-    return `❌ *SELL FAILED*
-
-*Token:* ${tokenSymbol}
-*Error:* ${error}
-
-Please try again or check token liquidity.`;
+    return renderSellFailed(symbol, mint, error);
   }
 
-  private formatTpHit(payload: Record<string, unknown>): string {
-    const tokenSymbol = String(payload.tokenSymbol || 'Unknown');
-    const pnlPercent = Number(payload.pnlPercent || 0);
-    const solReceived = Number(payload.solReceived || 0);
-    const txHash = String(payload.txHash || '');
-
-    const explorerUrl = txHash ? `https://solscan.io/tx/${txHash}` : '';
-
-    return `🎯 *TAKE PROFIT HIT*
-
-*Token:* ${tokenSymbol}
-*Profit:* +${pnlPercent.toFixed(2)}%
-*SOL Received:* ${solReceived.toFixed(4)} SOL
-
-${explorerUrl ? `[View Transaction](${explorerUrl})` : 'Auto-sell executed'}`;
+  private formatTpHit(payload: Record<string, unknown>): Panel {
+    const data: TpHitData = {
+      tokenSymbol: String(payload.tokenSymbol || 'Unknown'),
+      mint: String(payload.mint || payload.tokenMint || ''),
+      pnlPercent: Number(payload.pnlPercent || 0),
+      solReceived: Number(payload.solReceived || 0),
+      txHash: String(payload.txHash || ''),
+    };
+    return renderTpHit(data);
   }
 
-  private formatSlHit(payload: Record<string, unknown>): string {
-    const tokenSymbol = String(payload.tokenSymbol || 'Unknown');
-    const pnlPercent = Number(payload.pnlPercent || 0);
-    const solReceived = Number(payload.solReceived || 0);
-    const txHash = String(payload.txHash || '');
-
-    const explorerUrl = txHash ? `https://solscan.io/tx/${txHash}` : '';
-
-    return `🛑 *STOP LOSS HIT*
-
-*Token:* ${tokenSymbol}
-*Loss:* ${pnlPercent.toFixed(2)}%
-*SOL Received:* ${solReceived.toFixed(4)} SOL
-
-${explorerUrl ? `[View Transaction](${explorerUrl})` : 'Auto-sell executed'}`;
+  private formatSlHit(payload: Record<string, unknown>): Panel {
+    const data: SlHitData = {
+      tokenSymbol: String(payload.tokenSymbol || 'Unknown'),
+      mint: String(payload.mint || payload.tokenMint || ''),
+      pnlPercent: Number(payload.pnlPercent || 0),
+      solReceived: Number(payload.solReceived || 0),
+      txHash: String(payload.txHash || ''),
+    };
+    return renderSlHit(data);
   }
 
-  private formatTrailingStopHit(payload: Record<string, unknown>): string {
-    const tokenSymbol = String(payload.tokenSymbol || 'Unknown');
-    const pnlPercent = Number(payload.pnlPercent || 0);
-    const peakPercent = Number(payload.peakPercent || 0);
-    const solReceived = Number(payload.solReceived || 0);
-    const txHash = String(payload.txHash || '');
-
-    const explorerUrl = txHash ? `https://solscan.io/tx/${txHash}` : '';
-
-    return `📉 *TRAILING STOP HIT*
-
-*Token:* ${tokenSymbol}
-*Peak Profit:* +${peakPercent.toFixed(2)}%
-*Locked Profit:* +${pnlPercent.toFixed(2)}%
-*SOL Received:* ${solReceived.toFixed(4)} SOL
-
-${explorerUrl ? `[View Transaction](${explorerUrl})` : 'Auto-sell executed'}`;
+  private formatTrailingStopHit(payload: Record<string, unknown>): Panel {
+    const data: TrailingStopHitData = {
+      tokenSymbol: String(payload.tokenSymbol || 'Unknown'),
+      mint: String(payload.mint || payload.tokenMint || ''),
+      pnlPercent: Number(payload.pnlPercent || 0),
+      peakPercent: Number(payload.peakPercent || 0),
+      solReceived: Number(payload.solReceived || 0),
+      txHash: String(payload.txHash || ''),
+    };
+    return renderTrailingStopHit(data);
   }
 
-  private formatPositionOpened(payload: Record<string, unknown>): string {
-    const tokenSymbol = String(payload.tokenSymbol || 'Unknown');
-    const chain = String(payload.chain || 'sol').toUpperCase();
-    const amountSol = Number(payload.amountSol || 0);
-    const tokens = Number(payload.tokens || 0);
-    const source = String(payload.source || 'auto');
-
-    return `📥 *POSITION OPENED*
-
-*Token:* ${tokenSymbol}
-*Chain:* ${chain}
-*Entry:* ${amountSol.toFixed(4)} SOL
-*Tokens:* ${tokens.toLocaleString()}
-*Source:* ${source === 'auto' ? 'Auto Hunt' : 'Manual'}`;
+  private formatPositionOpened(payload: Record<string, unknown>): Panel {
+    const data: PositionOpenedData = {
+      tokenSymbol: String(payload.tokenSymbol || 'Unknown'),
+      mint: String(payload.mint || payload.tokenMint || ''),
+      amountSol: Number(payload.amountSol || 0),
+      tokens: Number(payload.tokens || 0),
+      source: (payload.source as 'auto' | 'manual') || 'auto',
+    };
+    return renderPositionOpened(data);
   }
 
-  private formatPositionClosed(payload: Record<string, unknown>): string {
-    const tokenSymbol = String(payload.tokenSymbol || 'Unknown');
-    const pnlSol = Number(payload.pnlSol || 0);
-    const pnlPercent = Number(payload.pnlPercent || 0);
-    const trigger = String(payload.trigger || 'MANUAL');
-
-    const pnlEmoji = pnlSol >= 0 ? '📈' : '📉';
-    const pnlSign = pnlSol >= 0 ? '+' : '';
-
-    return `📤 *POSITION CLOSED*
-
-*Token:* ${tokenSymbol}
-*Trigger:* ${trigger}
-${pnlEmoji} *P&L:* ${pnlSign}${pnlSol.toFixed(4)} SOL (${pnlSign}${pnlPercent.toFixed(2)}%)`;
+  private formatPositionClosed(payload: Record<string, unknown>): Panel {
+    const data: PositionClosedData = {
+      tokenSymbol: String(payload.tokenSymbol || 'Unknown'),
+      mint: String(payload.mint || payload.tokenMint || ''),
+      pnlSol: Number(payload.pnlSol || 0),
+      pnlPercent: Number(payload.pnlPercent || 0),
+      trigger: (payload.trigger as ExitTrigger) || 'MANUAL',
+      txHash: payload.txHash ? String(payload.txHash) : undefined,
+    };
+    return renderPositionClosed(data);
   }
 
-  private formatOpportunityDetected(payload: Record<string, unknown>): string {
-    const tokenName = String(payload.tokenName || 'Unknown');
-    const tokenSymbol = String(payload.tokenSymbol || '???');
-    const tokenMint = String(payload.tokenMint || '');
-    const score = Number(payload.score || 0);
-    const source = String(payload.source || 'pump.fun');
-
-    const mintUrl = `https://solscan.io/token/${tokenMint}`;
-
-    return `🎯 *OPPORTUNITY DETECTED*
-
-*Token:* ${tokenName} (${tokenSymbol})
-*Score:* ${score}/100
-*Source:* ${source}
-
-[View Token](${mintUrl})
-
-_Auto-buy will execute if strategy conditions match._`;
+  private formatOpportunityDetected(payload: Record<string, unknown>): Panel {
+    const data: OpportunityDetectedData = {
+      tokenName: String(payload.tokenName || 'Unknown'),
+      tokenSymbol: String(payload.tokenSymbol || '???'),
+      tokenMint: String(payload.tokenMint || ''),
+      score: Number(payload.score || 0),
+      source: String(payload.source || 'pump.fun'),
+    };
+    return renderOpportunityDetected(data);
   }
 
-  private formatBudgetWarning(payload: Record<string, unknown>): string {
-    const dailySpent = Number(payload.dailySpent || 0);
-    const dailyLimit = Number(payload.dailyLimit || 0);
-    const percentUsed = Number(payload.percentUsed || 0);
-
-    return `⚠️ *BUDGET WARNING*
-
-*Daily Spent:* ${dailySpent.toFixed(2)} SOL
-*Daily Limit:* ${dailyLimit.toFixed(2)} SOL
-*Usage:* ${percentUsed.toFixed(0)}%
-
-Consider adjusting your daily limit in settings.`;
+  private formatBudgetWarning(payload: Record<string, unknown>): Panel {
+    const data: BudgetWarningData = {
+      dailySpent: Number(payload.dailySpent || 0),
+      dailyLimit: Number(payload.dailyLimit || 0),
+      percentUsed: Number(payload.percentUsed || 0),
+    };
+    return renderBudgetWarning(data);
   }
 
-  private formatCircuitBreaker(payload: Record<string, unknown>): string {
-    const consecutiveFailures = Number(payload.consecutiveFailures || 0);
-    const reopensAt = String(payload.reopensAt || '');
-
-    return `🚨 *CIRCUIT BREAKER OPEN*
-
-*Consecutive Failures:* ${consecutiveFailures}
-*Auto-trading paused until:* ${reopensAt || 'manual reset'}
-
-This is a safety measure. Check your RPC and wallet status.`;
+  private formatCircuitBreaker(payload: Record<string, unknown>): Panel {
+    const data: CircuitBreakerData = {
+      consecutiveFailures: Number(payload.consecutiveFailures || 0),
+      reopensAt: payload.reopensAt ? String(payload.reopensAt) : undefined,
+    };
+    return renderCircuitBreaker(data);
   }
 
-  private formatTradeDone(payload: Record<string, unknown>): string {
-    const action = String(payload.action || 'BUY');
-    const mint = String(payload.mint || '');
-    const amountSol = Number(payload.amount_sol || 0);
-    const tokens = Number(payload.tokens || 0);
-    const txSig = String(payload.tx_sig || '');
-
-    const explorerUrl = `https://solscan.io/tx/${txSig}`;
-    const mintUrl = `https://solscan.io/token/${mint}`;
-    const emoji = action === 'BUY' ? '🦖' : '💰';
-
-    if (action === 'BUY') {
-      return `${emoji} *HUNT BUY*
-
-*Spent:* ${amountSol.toFixed(4)} SOL
-*Tokens:* ${tokens.toLocaleString()}
-
-[View TX](${explorerUrl}) | [View Token](${mintUrl})`;
-    } else {
-      return `${emoji} *HUNT SELL*
-
-*Tokens:* ${tokens.toLocaleString()}
-*Received:* ${amountSol.toFixed(4)} SOL
-
-[View TX](${explorerUrl})`;
-    }
+  private formatTradeDone(payload: Record<string, unknown>): Panel {
+    // TRADE_DONE is BUY-only per CLAUDE.md
+    const data: TradeDoneData = {
+      mint: String(payload.mint || ''),
+      amountSol: Number(payload.amount_sol || 0),
+      tokens: Number(payload.tokens || 0),
+      txSig: String(payload.tx_sig || ''),
+      tokenSymbol: payload.tokenSymbol ? String(payload.tokenSymbol) : undefined,
+    };
+    return renderTradeDone(data);
   }
+}
 
-  private formatGeneric(type: string, payload: Record<string, unknown>): string {
-    return `📢 *${type}*
+// ============================================
+// Helper functions for formatting
+// ============================================
 
-${JSON.stringify(payload, null, 2)}`;
-  }
+/**
+ * Format price for display
+ */
+function formatPriceForDisplay(price: number): string {
+  if (price === 0) return '$0';
+  if (price < 0.00001) return `$${price.toExponential(2)}`;
+  if (price < 0.01) return `$${price.toFixed(6)}`;
+  return `$${price.toFixed(4)}`;
+}
+
+/**
+ * Format market cap for display
+ */
+function formatMarketCapForDisplay(mc: number): string {
+  if (mc === 0) return '$0';
+  if (mc >= 1e9) return `$${(mc / 1e9).toFixed(2)}B`;
+  if (mc >= 1e6) return `$${(mc / 1e6).toFixed(2)}M`;
+  if (mc >= 1e3) return `$${(mc / 1e3).toFixed(2)}K`;
+  return `$${mc.toFixed(2)}`;
 }
 
 /**

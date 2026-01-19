@@ -3,12 +3,25 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-19
+- **feat(bot): upgrade all notification alerts to terminal UI**
+  - Replaced old Markdown formatting with panelKit HTML terminal style
+  - All notifications now use `🦖 RAPTOR | TITLE` header format with divider
+  - Created 5 new notification component files:
+    - `tradeDone.ts` - TRADE_DONE (BUY-only) notifications
+    - `tpSlHit.ts` - TP_HIT, SL_HIT, TRAILING_STOP_HIT notifications
+    - `positionState.ts` - POSITION_OPENED, POSITION_CLOSED notifications
+    - `systemAlerts.ts` - BUDGET_WARNING, CIRCUIT_BREAKER, OPPORTUNITY_DETECTED
+    - `generic.ts` - Terminal-style fallback for unknown notification types
+  - NotificationPoller now uses `parse_mode: 'HTML'` and returns Panel objects
+  - Generic notification no longer shows raw JSON, formats fields with labels
+  - All notifications include action buttons (Positions, Home, View TX, etc.)
 - **feat(hunter): token launch filtering modes**
   - Added 3 configurable filter modes: strict, moderate (default), light
-  - Strict: Require socials + 3s delay + activity check
-  - Moderate: 3s delay + activity check only (checks bondingCurveProgress > 0.5%)
+  - Strict: Require socials + 3s delay + activity check (quality metadata, fail closed)
+  - Moderate: 3s delay + activity check only (checks bondingCurveProgress > 0.5%, fail open)
   - Light: Require at least 1 social signal, no delay (fastest entry)
-  - Activity check uses pump.fun API to verify early buyer interest
+  - Activity check uses pump.fun API with on-chain bonding curve fallback
+  - On-chain fallback reads realSolReserves directly when API returns 530
   - Reduces wasted gas and RPC calls on dead tokens
   - Migration 017 adds filter_mode column to strategies
   - Settings UI updated with Filter Mode selection
