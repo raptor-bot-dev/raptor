@@ -160,7 +160,7 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
       stopLossPercent: strategy.stop_loss_percent ?? 20,
       entrySol: position.entry_cost_sol,
       tokenAmount: position.size_tokens ?? 0,
-      status: position.status as 'OPEN' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED',
+      status: position.status as 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED',
       entryTxSig: position.entry_tx_sig ?? undefined,
     };
 
@@ -188,7 +188,7 @@ async function showEmergencySellConfirm(ctx: MyContext, positionId: string): Pro
       return;
     }
 
-    if (position.status !== 'OPEN') {
+    if (position.status !== 'ACTIVE') {
       const panel = renderEmergencySellInProgress(position.token_symbol || 'Unknown');
       await ctx.editMessageText(panel.text, panel.opts);
       await ctx.answerCallbackQuery('Position not available');
@@ -227,7 +227,7 @@ async function executeEmergencySell(ctx: MyContext, positionId: string): Promise
       return;
     }
 
-    if (position.status !== 'OPEN') {
+    if (position.status !== 'ACTIVE') {
       const panel = renderEmergencySellInProgress(position.token_symbol || 'Unknown');
       await ctx.editMessageText(panel.text, panel.opts);
       await ctx.answerCallbackQuery('Already processing');

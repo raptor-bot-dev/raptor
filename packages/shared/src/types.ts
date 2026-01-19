@@ -31,8 +31,8 @@ export type OpportunityStatus = 'NEW' | 'QUALIFIED' | 'REJECTED' | 'EXPIRED' | '
 /** Opportunity outcome after all jobs complete */
 export type OpportunityOutcome = 'SUCCESS' | 'FAILED' | 'MIXED';
 
-/** Position status */
-export type PositionStatus = 'OPEN' | 'CLOSING' | 'CLOSED';
+/** Position status - uses 'ACTIVE' for open positions (matches database) */
+export type PositionStatus = 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED';
 
 /** Exit trigger types */
 export type ExitTrigger = 'TP' | 'SL' | 'TRAIL' | 'MAXHOLD' | 'EMERGENCY' | 'MANUAL';

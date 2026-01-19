@@ -1,9 +1,10 @@
 // =============================================================================
-// RAPTOR v4.4 Hybrid Pricing Module
-// Fetches token prices with Jupiter primary and pump.fun API fallback
+// RAPTOR v4.5 Hybrid Pricing Module
+// Fetches token prices with Jupiter primary + DEXScreener + pump.fun fallback
 // =============================================================================
 
 import { getTokenInfo } from './api/pumpfun.js';
+import { getTokenByAddress } from './api/dexscreener.js';
 
 // Jupiter Price API v2
 const JUPITER_PRICE_API = 'https://api.jup.ag/price/v2';
@@ -15,7 +16,7 @@ const API_TIMEOUT_MS = 5000;
 const priceCache = new Map<string, { price: number; source: PriceSource; expiry: number }>();
 const CACHE_TTL_MS = 30_000;
 
-export type PriceSource = 'jupiter' | 'pumpfun' | 'none';
+export type PriceSource = 'jupiter' | 'dexscreener' | 'pumpfun' | 'none';
 
 export interface PriceResult {
   price: number;
@@ -23,12 +24,13 @@ export interface PriceResult {
 }
 
 /**
- * Get prices for multiple tokens using Jupiter batch API with pump.fun fallback
+ * Get prices for multiple tokens using Jupiter batch API with DEXScreener + pump.fun fallback
  *
  * Strategy:
  * 1. Try Jupiter batch API first (handles graduated tokens via DEX)
- * 2. For missing prices, try pump.fun API (handles bonding curve tokens)
- * 3. Return 0 with source='none' for unavailable prices
+ * 2. For missing prices, try DEXScreener API (handles most tokens)
+ * 3. For still missing prices, try pump.fun API (handles bonding curve tokens)
+ * 4. Return 0 with source='none' for unavailable prices
  *
  * @param mints - Array of token mint addresses
  * @returns Record mapping mint -> { price, source }
@@ -79,8 +81,28 @@ export async function getTokenPrices(mints: string[]): Promise<Record<string, Pr
     console.warn('[Pricing] Jupiter batch price fetch failed:', error);
   }
 
-  // Fallback: pump.fun API for missing prices
-  const missingMints = uncachedMints.filter(m => !results[m]);
+  // Fallback 1: DEXScreener API for missing prices (more reliable than pump.fun API)
+  let missingMints = uncachedMints.filter(m => !results[m]);
+  if (missingMints.length > 0) {
+    await Promise.all(
+      missingMints.map(async (mint) => {
+        try {
+          const { data: tokenData } = await getTokenByAddress(mint);
+          // DEXScreener returns priceNative which is price in SOL
+          if (tokenData?.priceNative && tokenData.priceNative > 0) {
+            const result: PriceResult = { price: tokenData.priceNative, source: 'dexscreener' };
+            results[mint] = result;
+            priceCache.set(mint, { ...result, expiry: now + CACHE_TTL_MS });
+          }
+        } catch (error) {
+          console.warn(`[Pricing] DEXScreener price fetch failed for ${mint}:`, error);
+        }
+      })
+    );
+  }
+
+  // Fallback 2: pump.fun API for still missing prices (may be blocked by Cloudflare)
+  missingMints = uncachedMints.filter(m => !results[m]);
   if (missingMints.length > 0) {
     await Promise.all(
       missingMints.map(async (mint) => {

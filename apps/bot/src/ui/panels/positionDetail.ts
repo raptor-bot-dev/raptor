@@ -23,7 +23,7 @@ import { CB } from '../callbackIds.js';
 /**
  * Position status
  */
-export type PositionStatus = 'OPEN' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED';
+export type PositionStatus = 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED';
 
 /**
  * Full position data for detail view
@@ -87,8 +87,8 @@ export function renderPositionDetail(data: PositionDetailData): Panel {
   // Buttons
   const buttons: Button[][] = [];
 
-  // Row 1: Emergency Sell + Chart (only if OPEN)
-  if (data.status === 'OPEN') {
+  // Row 1: Emergency Sell + Chart (only if ACTIVE)
+  if (data.status === 'ACTIVE') {
     buttons.push([
       btn('Emergency Sell', CB.POSITION.emergencySell(data.id)),
       urlBtn('Chart', dexscreenerChartUrl(data.mint)),
@@ -118,8 +118,8 @@ export function renderPositionDetail(data: PositionDetailData): Panel {
  */
 function formatStatus(status: PositionStatus): string {
   switch (status) {
-    case 'OPEN':
-      return 'OPEN';
+    case 'ACTIVE':
+      return 'ACTIVE';
     case 'CLOSING':
       return 'CLOSING...';
     case 'CLOSING_EMERGENCY':

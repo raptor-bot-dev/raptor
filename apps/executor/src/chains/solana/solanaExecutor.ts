@@ -175,6 +175,21 @@ export class SolanaExecutor {
   }
 
   /**
+   * Get SOL balance for a wallet
+   * Used to calculate actual SOL spent in pump.fun buys
+   */
+  private async getSolBalance(walletAddress: string): Promise<bigint> {
+    try {
+      const wallet = new PublicKey(walletAddress);
+      const balance = await this.connection.getBalance(wallet);
+      return BigInt(balance);
+    } catch (error) {
+      console.error('[SolanaExecutor] Failed to get SOL balance:', error);
+      return BigInt(0);
+    }
+  }
+
+  /**
    * Get or create the PumpFunClient (lazy initialization)
    */
   private getPumpFunClient(): PumpFunClient {
@@ -453,15 +468,20 @@ export class SolanaExecutor {
         useJito: useJito && this.jitoClient !== null,
       };
 
+      // v4.5: Track actual SOL spent (differs from requested on pump.fun bonding curve)
+      let actualSolSpent: number;
+
       if (tokenInfo && !tokenInfo.graduated) {
         // Use pump.fun bonding curve
         console.log('[SolanaExecutor] Token on bonding curve, using pump.fun');
-        result = await this.buyViaPumpFunWithKeypair(
+        const pumpResult = await this.buyViaPumpFunWithKeypair(
           tokenMint,
           netAmount,
           keypair,
           executeOptions
         );
+        result = { txHash: pumpResult.txHash, tokensReceived: pumpResult.tokensReceived };
+        actualSolSpent = pumpResult.actualSolSpent; // v4.5: Use actual spend from balance change
         route = useJito ? 'pump.fun (Jito)' : 'pump.fun';
       } else {
         // Use Jupiter for graduated tokens
@@ -472,14 +492,18 @@ export class SolanaExecutor {
           keypair,
           executeOptions
         );
+        actualSolSpent = netAmount; // Jupiter uses full requested amount
         route = useJito ? 'Jupiter (Jito)' : 'Jupiter';
       }
 
-      const price = netAmount / Number(result.tokensReceived);
+      // v4.5: Calculate price using ACTUAL SOL spent, not requested amount
+      const price = actualSolSpent / Number(result.tokensReceived);
 
       console.log('[SolanaExecutor] Buy successful', {
         txHash: result.txHash,
         tokensReceived: result.tokensReceived.toString(),
+        actualSolSpent,
+        requestedAmount: netAmount,
         price,
         route,
       });
@@ -490,7 +514,7 @@ export class SolanaExecutor {
       return {
         success: true,
         txHash: result.txHash,
-        amountIn: netAmount,
+        amountIn: actualSolSpent, // v4.5: Return ACTUAL SOL spent, not requested
         amountOut: Number(result.tokensReceived),
         fee,
         price,
@@ -907,6 +931,7 @@ export class SolanaExecutor {
    * Buy via pump.fun bonding curve with external keypair
    *
    * v3.5: Added Jito bundle support for MEV protection
+   * v4.5: Fixed to return actual SOL spent (from balance change) instead of requested amount
    */
   private async buyViaPumpFunWithKeypair(
     tokenMint: string,
@@ -917,7 +942,7 @@ export class SolanaExecutor {
       priorityFeeSol?: number;
       useJito?: boolean;
     }
-  ): Promise<{ txHash: string; tokensReceived: bigint }> {
+  ): Promise<{ txHash: string; tokensReceived: bigint; actualSolSpent: number }> {
     console.log(`[SolanaExecutor] Executing pump.fun buy of ${solAmount} SOL with external keypair`);
 
     try {
@@ -929,6 +954,10 @@ export class SolanaExecutor {
       const lamports = solToLamports(solAmount);
       const slippageBps = options?.slippageBps || 500; // Default 5% slippage
 
+      // v4.5: Get SOL balance BEFORE buy to calculate actual spend
+      const walletAddress = keypair.publicKey.toBase58();
+      const balanceBefore = await this.getSolBalance(walletAddress);
+
       // v3.5: For pump.fun, Jito integration would require modifying the PumpFunClient
       // to return unsigned transactions. For now, pump.fun sends directly.
       const result = await client.buy({
@@ -939,11 +968,19 @@ export class SolanaExecutor {
         priorityFeeSol: options?.priorityFeeSol,
       });
 
+      // v4.5: Get SOL balance AFTER buy to calculate actual spend
+      // Small delay to ensure balance is updated after confirmation
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const balanceAfter = await this.getSolBalance(walletAddress);
+      const actualSolSpent = lamportsToSol(balanceBefore - balanceAfter);
+
       console.log(`[SolanaExecutor] pump.fun buy successful: ${result.signature}`);
+      console.log(`[SolanaExecutor] Actual SOL spent: ${actualSolSpent} (requested: ${solAmount})`);
 
       return {
         txHash: result.signature,
         tokensReceived: result.tokenAmount,
+        actualSolSpent,
       };
     } catch (error) {
       console.error('[SolanaExecutor] pump.fun buy with keypair failed:', error);

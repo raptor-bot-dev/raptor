@@ -112,7 +112,7 @@ function formatPositionsMessage(
           : '🔴';
     const pnlSign = pos.unrealized_pnl_percent >= 0 ? '+' : '';
     const statusIcon =
-      pos.status === 'OPEN' ? '🟢' : pos.status === 'CLOSING' ? '🟠' : '⚪';
+      pos.status === 'ACTIVE' ? '🟢' : pos.status === 'CLOSING' ? '🟠' : '⚪';
 
     const age = getTimeAgo(new Date(pos.created_at));
     const sourceLabel = getSourceLabel(pos.source);
