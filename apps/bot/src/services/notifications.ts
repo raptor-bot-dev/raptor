@@ -353,6 +353,7 @@ export class NotificationPoller {
       tokens: Number(payload.tokens || 0),
       txSig: String(payload.tx_sig || ''),
       tokenSymbol: payload.tokenSymbol ? String(payload.tokenSymbol) : undefined,
+      marketCapSol: payload.marketCapSol ? Number(payload.marketCapSol) : undefined,
     };
     return renderTradeDone(data);
   }

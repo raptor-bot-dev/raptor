@@ -27,6 +27,7 @@ export interface TradeDoneData {
   tokens: number;
   txSig: string;
   tokenSymbol?: string;
+  marketCapSol?: number;  // Market cap in SOL at entry time
 }
 
 /**
@@ -52,6 +53,11 @@ export function renderTradeDone(data: TradeDoneData): Panel {
   // Amount spent
   lines.push(stat('Spent', `${formatSol(data.amountSol)} SOL`));
   lines.push(`   └─ ${formatTokens(data.tokens)} tokens`);
+
+  // Market cap at entry (if available)
+  if (data.marketCapSol !== undefined && data.marketCapSol > 0) {
+    lines.push(stat('Entry MC', `${formatSol(data.marketCapSol)} SOL`));
+  }
 
   // Buttons
   const buttons: Button[][] = [

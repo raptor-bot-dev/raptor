@@ -3,6 +3,11 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-19
+- **feat(hunter): add market cap to BUY notifications**
+  - Fetch token info from pump.fun API after successful BUY
+  - Include `marketCapSol` in TRADE_DONE notification payload
+  - Display "Entry MC: X.XX SOL" in notification panel
+  - Graceful fallback if API fetch fails (no market cap shown)
 - **fix(shared): positions not showing - status query mismatch**
   - `getOpenPositions()` and `getUserOpenPositions()` were querying for `status = 'OPEN'`
   - But `createPositionV31()` sets `status = 'ACTIVE'` (required by DB constraint)

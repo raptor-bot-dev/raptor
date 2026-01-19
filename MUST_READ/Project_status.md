@@ -172,7 +172,12 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-19 (latest): **Positions not showing - status query mismatch fixed**
+- 2026-01-19 (latest): **Market cap added to BUY notifications**
+  - Fetch token info from pump.fun API after successful BUY
+  - Include `marketCapSol` in TRADE_DONE notification payload
+  - Display "Entry MC: X.XX SOL" in notification panel
+  - Graceful fallback if API fetch fails (no market cap shown)
+- 2026-01-19 (earlier): **Positions not showing - status query mismatch fixed**
   - P0: `getOpenPositions()` and `getUserOpenPositions()` queried for `status = 'OPEN'`
   - But `createPositionV31()` sets `status = 'ACTIVE'` (required by DB constraint)
   - Fix: Changed both queries to use `.eq('status', 'ACTIVE')`
