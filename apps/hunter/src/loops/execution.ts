@@ -237,6 +237,7 @@ export class ExecutionLoop {
             opportunityId: job.opportunity_id || undefined,
             chain: job.chain,
             tokenMint: job.payload.mint,
+            tokenSymbol: opportunity?.token_symbol || undefined,  // FIX: Pass symbol for position display
             entryExecutionId: executionId,
             entryTxSig: result.txSig,
             entryCostSol: job.payload.amount_sol || 0,
@@ -285,6 +286,10 @@ export class ExecutionLoop {
             console.log(`[ExecutionLoop] Could not fetch market cap: ${parseError(err)}`);
           }
 
+          // Pump.fun tokens have 6 decimals - adjust raw amount for display
+          const PUMP_FUN_DECIMALS = 6;
+          const adjustedTokens = (result.tokensReceived || 0) / Math.pow(10, PUMP_FUN_DECIMALS);
+
           await createNotification({
             userId: job.user_id,
             type: 'TRADE_DONE',
@@ -293,7 +298,7 @@ export class ExecutionLoop {
               mint: job.payload.mint,
               tokenSymbol: opportunity?.token_symbol || undefined,  // FIX: Include symbol for display
               amount_sol: job.payload.amount_sol,
-              tokens: result.tokensReceived,
+              tokens: adjustedTokens,  // FIX: Decimal-adjusted for human-readable display
               tx_sig: result.txSig,
               marketCapSol,  // Market cap in SOL at entry time
             },

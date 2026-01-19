@@ -172,7 +172,19 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-19 (latest): **Market cap added to BUY notifications**
+- 2026-01-19 (latest): **Three autohunt production bugs fixed**
+  - P0: Position limit bypass - RPC `reserve_trade_budget()` checked `status='OPEN'` but positions use `status='ACTIVE'`
+    - Migration 018 fixes queries on lines 204 and 220 to use 'ACTIVE'
+  - P1: Token amount wrong ("3467.85B" instead of "3.47M") - raw token amounts not adjusted for decimals
+    - ExecutionLoop now divides by 10^6 (pump.fun decimals) before passing to notification
+  - P1: Token symbol "Unknown" - tokenSymbol not passed to createPositionV31
+    - Now passes `opportunity?.token_symbol` to position creation
+  - Investigation: Jupiter circuit breaker failures traced to pump.pro program routing issue
+    - pump.pro tokens have bonding curves on different program ID
+    - `deriveBondingCurvePDA` only checks pump.fun program, not pump.pro
+    - When bonding curve lookup fails, defaults to graduated=true → routes to Jupiter → fails
+    - Future fix needed: check both program IDs for bonding curve derivation
+- 2026-01-19 (earlier): **Market cap added to BUY notifications**
   - Fetch token info from pump.fun API after successful BUY
   - Include `marketCapSol` in TRADE_DONE notification payload
   - Display "Entry MC: X.XX SOL" in notification panel

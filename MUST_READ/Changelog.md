@@ -3,6 +3,22 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-19
+- **fix(db): position limit bypass in reserve_trade_budget**
+  - RPC was checking `status='OPEN'` but positions use `status='ACTIVE'`
+  - This caused position count query to return 0, bypassing max_positions limit
+  - Migration 018 fixes lines 204 and 220 to check 'ACTIVE' status
+- **fix(hunter): token amount display wrong in notifications**
+  - Raw token amounts were passed without decimal adjustment (pump.fun uses 6 decimals)
+  - "3467850000000" displayed as "3467.85B" instead of "3.47M tokens"
+  - Now divides by 10^6 before passing to notification
+- **fix(hunter): token symbol "Unknown" in positions**
+  - tokenSymbol was not passed from opportunity to createPositionV31
+  - Now passes `opportunity?.token_symbol` during position creation
+- **investigation: Jupiter circuit breaker failures**
+  - Root cause: pump.pro tokens have bonding curves on different program ID
+  - `deriveBondingCurvePDA` only checks pump.fun program, not pump.pro
+  - When lookup fails, defaults to `graduated=true` → routes to Jupiter → fails
+  - Future fix: check both program IDs for bonding curve derivation
 - **feat(hunter): add market cap to BUY notifications**
   - Fetch token info from pump.fun API after successful BUY
   - Include `marketCapSol` in TRADE_DONE notification payload
