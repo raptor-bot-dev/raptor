@@ -140,9 +140,30 @@ Single source of truth for current progress. Keep it brief.
   No callback handlers needed for these.
 
 ## Next steps (post-MVP)
-- Edge Functions for background cleanup (stale executions, expired monitors)
-- Unit tests for withdraw math and PnL calculations
-- Production smoke testing with real wallet
+
+### P0 - Critical (affects trading)
+- [ ] **pump.pro bonding curve support**: `deriveBondingCurvePDA` only checks pump.fun program
+  - When lookup fails, defaults to `graduated=true` → routes to Jupiter → fails
+  - Need to check both pump.fun and pump.pro program IDs for bonding curve derivation
+  - File: `apps/executor/src/chains/solana/pumpFun.ts`
+- [ ] **Fix existing positions**: 4 positions have wrong entry_cost_sol (0.1 instead of ~0.0167)
+  - Parse `entry_tx_sig` from blockchain to get actual SOL spent
+  - Update positions with correct values (one-time migration script)
+
+### P1 - Important (UX/reliability)
+- [ ] **Max positions setting**: User wants 5 positions instead of 2
+  - Change via Settings UI or direct DB update: `UPDATE strategies SET max_positions = 5`
+- [ ] **Background price polling**: Consider for scale (1000+ users)
+  - Poll Jupiter prices every 30s, store in DB
+  - Positions panel reads from DB instead of fetching on-demand
+- [ ] **Price cache in Redis**: For horizontal scaling
+  - Current 30s in-memory cache doesn't work across multiple instances
+
+### P2 - Nice to have (post-launch)
+- [ ] Edge Functions for background cleanup (stale executions, expired monitors)
+- [ ] Unit tests for withdraw math and PnL calculations
+- [ ] Production smoke testing with real wallet
+- [ ] Re-enable metadata hard stops when pump.fun API is stable for pump.pro tokens
 
 ## Definition of done for MVP
 - `pnpm -w lint && pnpm -w build` passes. ✅
@@ -275,3 +296,49 @@ Single source of truth for current progress. Keep it brief.
 - Earlier: TP/SL Engine implementation complete (Phases 0-5)
 - pump.fun migrated most tokens to pump.pro program (`proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`)
 - Fly.io auto-deploys from GitHub pushes to `main` (documented in DEPLOYMENT.md)
+
+---
+
+## Retrospectives
+
+### 2026-01-19: Position Tracking Data Quality
+
+**Context:** User reported 4 positions showing with wrong data:
+- Entry amounts: 0.1000 SOL (should be ~0.0167 SOL)
+- Token names: "Unknown" for 3 of 4
+- PnL: 0.00% for all (never updates)
+
+**What went well:**
+- Systematic root cause analysis identified 3 distinct issues
+- Plan mode helped structure the investigation and get user buy-in on hybrid approach
+- Created reusable pricing module (`packages/shared/src/pricing.ts`) for future use
+- No paid Jupiter plan needed - free tier sufficient for current scale
+- Build passed first try after implementation
+
+**What could be improved:**
+- Entry cost bug existed since position tracking was added - should have caught in review
+- Position creation uses reserved budget (`job.payload.amount_sol`) which is misleading
+- Executor returns actual SOL spent but it wasn't mapped through TradeResult
+- Metadata symbol was fetched but never saved back to opportunity
+
+**Root causes:**
+1. **Entry cost**: TradeResult interface missing `amountIn` field, so actual spend was never propagated
+2. **Token symbol**: Metadata fetched for scoring but `updateOpportunityScore()` didn't accept/save it
+3. **PnL**: No price fetching at all for active positions - just stored NULL/0
+
+**Lessons learned:**
+- When creating positions, verify data comes from execution result, not job payload
+- Metadata fetched for one purpose should be saved if useful elsewhere
+- Real-time display features need explicit price fetching - data doesn't update itself
+- Hybrid approach (code capture + API fallback) provides reliability without complexity
+
+**Architectural decisions:**
+- Jupiter free tier (600 req/min) is plenty for current scale
+- 30s in-memory cache sufficient for single-instance deployment
+- pump.fun API as fallback for bonding curve tokens not on Jupiter
+- No background polling yet - fetch on panel open is simpler and works
+
+**Follow-up items:**
+- [ ] Fix pump.pro bonding curve derivation (P0)
+- [ ] Fix existing 4 positions with wrong entry cost (P1)
+- [ ] Increase max_positions to 5 per user request (P1)

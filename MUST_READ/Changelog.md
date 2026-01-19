@@ -62,6 +62,23 @@ Keep this log short and append-only. Use ISO dates.
   - Reduces wasted gas and RPC calls on dead tokens
   - Migration 017 adds filter_mode column to strategies
   - Settings UI updated with Filter Mode selection
+- **fix(hunter): position tracking data quality** (12ea0fa)
+  - P0: Entry cost showing reserved budget (0.1 SOL) instead of actual spend (~0.0167)
+    - Root cause: `entryCostSol: job.payload.amount_sol` used reserved budget, not actual spend
+    - Fix: Added `amountIn` to TradeResult interface, mapped from executor result
+    - Position now stores `result.amountIn` (actual SOL spent after fees)
+  - P1: Token symbol "Unknown" - metadata not saved back to opportunity
+    - Root cause: Metadata IS fetched for scoring but symbol NOT written back to DB
+    - Fix: `updateOpportunityScore()` now accepts optional metadata parameter
+    - Added `metadata` field to `ModeResult` interface for propagation
+    - Save symbol from metadata when opportunity symbol is missing
+  - P1: PnL shows 0.00% - never calculated for active positions
+    - Root cause: No price fetching or calculation for ACTIVE positions
+    - Fix: Created hybrid pricing module (`packages/shared/src/pricing.ts`)
+    - Jupiter Price API primary (batch requests), pump.fun API fallback
+    - 30-second in-memory cache to reduce API calls
+    - Positions handler fetches real-time prices and calculates PnL on panel open
+  - No paid Jupiter plan needed: Free tier (600 req/min) sufficient until 1000+ users
 
 ## 2026-01-18
 - **fix(db): allow retryable auto jobs to reuse executions**

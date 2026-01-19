@@ -126,6 +126,19 @@ Not allowed without asking
 2. WebSocket activity hints (optional) - triggers immediate Jupiter re-fetch
 3. Never rely solely on WebSocket for price - use for activity detection only
 
+### Position Display Pricing (v4.4 Hybrid Module)
+
+For displaying positions with real-time PnL, use `packages/shared/src/pricing.ts`:
+```typescript
+import { getTokenPrices } from '@raptor/shared';
+
+// Batch fetch prices for all positions
+const prices = await getTokenPrices(mints);
+const pnl = ((prices[mint].price * tokens) - entryCost) / entryCost * 100;
+```
+- Jupiter API primary (batched), pump.fun API fallback
+- 30-second cache, no paid Jupiter plan needed (600 req/min free tier)
+
 ### Exit Priority
 
 When multiple triggers fire simultaneously:
