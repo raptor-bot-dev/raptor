@@ -55,8 +55,8 @@ export const CB = {
     details: (id: string) => `position:details:${id}`,
     chart: (id: string) => `position:chart:${id}`,
     emergencySell: (id: string) => `position:emergency_sell:${id}`,
-    confirmEmergencySell: (id: string) => `position:confirm_emergency_sell:${id}`,
-    cancelEmergencySell: (id: string) => `position:cancel_emergency_sell:${id}`,
+    confirmEmergencySell: (id: string) => `position:ces:${id}`,  // ces = confirm emergency sell (shortened for Telegram 64 byte limit)
+    cancelEmergencySell: (id: string) => `position:xes:${id}`,  // xes = cancel emergency sell
     viewEntryTx: (id: string) => `position:view_entry_tx:${id}`,
     back: (id: string) => `position:back:${id}`,
   },

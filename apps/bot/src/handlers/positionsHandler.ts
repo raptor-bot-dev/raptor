@@ -56,9 +56,9 @@ export async function handlePositionCallbacks(ctx: MyContext, data: string): Pro
     await showPositionDetails(ctx, positionId);
   } else if (data.startsWith('position:emergency_sell:')) {
     await showEmergencySellConfirm(ctx, positionId);
-  } else if (data.startsWith('position:confirm_emergency_sell:')) {
+  } else if (data.startsWith('position:ces:')) {
     await executeEmergencySell(ctx, positionId);
-  } else if (data.startsWith('position:cancel_emergency_sell:')) {
+  } else if (data.startsWith('position:xes:')) {
     await showPositionDetails(ctx, positionId);
   } else if (data.startsWith('position:back:')) {
     await showPositionsList(ctx);
