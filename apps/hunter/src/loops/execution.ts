@@ -223,13 +223,13 @@ export class ExecutionLoop {
       });
 
       if (result.success) {
+        // Get opportunity data for position creation and notifications (BUY only)
+        const opportunity = job.action === 'BUY' && job.opportunity_id
+          ? await getOpportunityById(job.opportunity_id)
+          : null;
+
         // 6. Create/close position
         if (job.action === 'BUY') {
-          // Get opportunity for bonding_curve (Phase B audit fix)
-          const opportunity = job.opportunity_id
-            ? await getOpportunityById(job.opportunity_id)
-            : null;
-
           await createPositionV31({
             userId: job.user_id,
             strategyId: job.strategy_id,
@@ -279,6 +279,7 @@ export class ExecutionLoop {
             payload: {
               action: job.action,
               mint: job.payload.mint,
+              tokenSymbol: opportunity?.token_symbol || undefined,  // FIX: Include symbol for display
               amount_sol: job.payload.amount_sol,
               tokens: result.tokensReceived,
               tx_sig: result.txSig,
@@ -295,6 +296,7 @@ export class ExecutionLoop {
             payload: {
               positionId: job.payload.position_id,
               tokenSymbol: result.tokenSymbol ?? job.payload.mint, // Prefer actual symbol
+              mint: job.payload.mint,  // FIX: Include mint for chart button
               trigger: job.payload.trigger,
               triggerPrice: job.payload.trigger_price,
               pnlPercent: result.pnlPercent || 0,

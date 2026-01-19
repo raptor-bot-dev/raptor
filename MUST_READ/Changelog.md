@@ -3,6 +3,10 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-19
+- **fix(hunter): notification payload gaps**
+  - High: TP/SL notifications now include `mint` for chart button and display
+  - Low: TRADE_DONE now includes `tokenSymbol` from opportunity metadata
+  - Moved opportunity fetch to success block scope for access in both position and notification code
 - **fix(shared): critical position creation bug**
   - `createPositionV31()` was missing required columns: `token_address`, `amount_in`, `tokens_held`, `source`, `mode`, `strategy`
   - Status was 'OPEN' but constraint requires 'ACTIVE'|'CLOSED'|'PENDING'

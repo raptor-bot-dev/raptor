@@ -172,7 +172,11 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-19 (latest): **Critical position creation bug fixed**
+- 2026-01-19 (latest): **Notification payload gaps fixed**
+  - High: TP/SL notifications now include `mint` for chart button and display
+  - Low: TRADE_DONE now includes `tokenSymbol` from opportunity metadata
+  - Moved opportunity fetch to success block scope for access in both position and notification code
+- 2026-01-19 (earlier): **Critical position creation bug fixed**
   - P0: `createPositionV31()` was missing required columns causing position insert failures
   - Root cause: Trade executed (tokens bought) but position not tracked (orphaned execution)
   - Missing columns: `token_address`, `amount_in`, `tokens_held`, `source`, `mode`, `strategy`
