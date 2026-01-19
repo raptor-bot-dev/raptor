@@ -153,19 +153,16 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-18 (latest): **Autohunt retry + lifecycle updates ready for testing**
-  - Migration 016 adds `p_allow_retry` to reserve_trade_budget
-  - OpportunityLoop runs per-mode metadata scoring and avoids early COMPLETED
-  - Legacy hunt callbacks now route to new panels
-  - Settings slippage copy and snipe mode UI normalized
-- 2026-01-18 (latest): **pump.pro execution debugging - circuit breaker still tripping**
-  - P0: Fixed parseError to handle object errors (Supabase errors were showing as `[object Object]`)
-  - P0: Added job staleness check (60s TTL) - stale jobs now CANCELED instead of FAILED
-  - Jobs are being created successfully for pump.pro tokens
-  - Scoring passes (relaxed rules allow unknown holdings through)
-  - **BLOCKER**: Circuit breaker keeps tripping - need to investigate actual execution errors
-  - Next step: Check FAILED jobs for real error messages (parseError fix should help)
-  - Hunter deployed at v95
+- 2026-01-18 (latest): **Autohunt retry + lifecycle fixes deployed**
+  - Migration 016 deployed: `p_allow_retry` in reserve_trade_budget
+  - OpportunityLoop: per-mode metadata scoring, no early COMPLETED
+  - Legacy hunt callbacks route to new Arm/Disarm + Settings panels
+  - Settings: slippage prompt 1-99%, snipe mode speed/quality only
+  - Commit d82ed23 pushed to origin/main
+- 2026-01-18 (earlier): **pump.pro execution debugging resolved**
+  - Fixed parseError to handle object errors (Supabase errors were showing as `[object Object]`)
+  - Added job staleness check (60s TTL) - stale jobs now CANCELED instead of FAILED
+  - Circuit breaker issue addressed by staleness check + retry mechanism
 - 2026-01-18 (earlier): **pump.pro on-chain metadata fallback deployed**
   - P0: pump.fun API returning HTTP 530 for all pump.pro tokens
   - P0: Added on-chain Metaplex Metadata Account fetch as fallback
