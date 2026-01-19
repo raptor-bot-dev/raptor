@@ -17,7 +17,7 @@ import { CB } from '../callbackIds.js';
  */
 export interface SettingsData {
   tradeSize: number; // SOL
-  maxPositions: number; // 1 or 2
+  maxPositions: number; // 1 to 5
   takeProfitPercent: number;
   stopLossPercent: number;
   slippageBps: number;

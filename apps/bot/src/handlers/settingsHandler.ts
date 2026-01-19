@@ -436,8 +436,8 @@ export async function handleSettingsInput(
 
       case SESSION_STEPS.AWAITING_MAX_POSITIONS: {
         const max = parseInt(input, 10);
-        if (isNaN(max) || max < 1 || max > 2) {
-          await ctx.reply('Invalid value. Enter 1 or 2.');
+        if (isNaN(max) || max < 1 || max > 5) {
+          await ctx.reply('Invalid value. Enter 1 to 5.');
           return true;
         }
         await updateStrategy(strategy.id, { max_positions: max });

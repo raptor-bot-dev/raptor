@@ -60,7 +60,7 @@ export function renderQuickTips(): Panel {
     stat('1', 'Set your trade size before arming'),
     stat('2', 'Start with conservative TP/SL (e.g., TP 50%, SL 20%)'),
     stat('3', 'Use Emergency Sell if market moves against you'),
-    stat('4', 'Keep max 2 positions to manage risk'),
+    stat('4', 'Limit positions to manage risk (max 5)'),
     stat('5', 'Set a withdrawal destination before withdrawing'),
   ];
 

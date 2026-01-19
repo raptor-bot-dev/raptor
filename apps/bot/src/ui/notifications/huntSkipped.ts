@@ -85,7 +85,7 @@ function formatReason(reason: SkipReason): string {
     case 'INSUFFICIENT_BALANCE':
       return 'Insufficient balance';
     case 'MAX_POSITIONS':
-      return 'Maximum positions reached (2/2)';
+      return 'Maximum positions reached';
     case 'RATE_LIMIT':
       return 'Rate limit reached (max buys/hour)';
     case 'COOLDOWN':
