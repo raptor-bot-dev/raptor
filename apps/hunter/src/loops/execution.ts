@@ -22,6 +22,7 @@ import {
   loadSolanaKeypair,
   applySellFeeDecimal,
   getTokenInfo,  // For fetching market cap at buy time
+  getSolPrice,   // For entry MC USD calculation (Audit Round 4)
   // TP/SL state machine functions (Phase B audit fix)
   markPositionExecuting,
   markTriggerCompleted,
@@ -229,15 +230,44 @@ export class ExecutionLoop {
           ? await getOpportunityById(job.opportunity_id)
           : null;
 
+        // AUDIT FIX: Entry MC variables - declared in outer scope for notification access
+        let entryMcSol: number | undefined;
+        let entryMcUsd: number | undefined;
+
         // 6. Create/close position
         if (job.action === 'BUY') {
-          // Pump.fun tokens have 6 decimals - store adjusted amount for correct PnL calculation
-          const PUMP_FUN_DECIMALS = 6;
-          const adjustedSizeTokens = (result.tokensReceived || 0) / Math.pow(10, PUMP_FUN_DECIMALS);
+          // AUDIT FIX: Determine token decimals based on source
+          // pump.fun = 6 decimals, pump.pro = 9 decimals
+          const tokenDecimals = opportunity?.source === 'pump.pro' ? 9 : 6;
+          const adjustedSizeTokens = (result.tokensReceived || 0) / Math.pow(10, tokenDecimals);
           const entryCostSol = result.amountIn || job.payload.amount_sol || 0;
           // FIX: Calculate entry price from adjusted values (price = cost / tokens)
           // result.price is calculated with RAW tokens, but we store ADJUSTED tokens
           const entryPrice = adjustedSizeTokens > 0 ? entryCostSol / adjustedSizeTokens : 0;
+
+          // AUDIT FIX: Fetch token info and SOL price for entry MC calculation
+          let totalSupply = 1_000_000_000; // Default for pump.fun tokens
+
+          try {
+            const [tokenInfo, solPriceUsd] = await Promise.all([
+              getTokenInfo(job.payload.mint),
+              getSolPrice(),
+            ]);
+
+            if (tokenInfo?.totalSupply) {
+              totalSupply = tokenInfo.totalSupply;
+            }
+
+            // Calculate entry MC from entry price × total supply
+            if (entryPrice > 0) {
+              entryMcSol = entryPrice * totalSupply;
+              if (solPriceUsd && solPriceUsd > 0) {
+                entryMcUsd = entryMcSol * solPriceUsd;
+              }
+            }
+          } catch (err) {
+            console.log(`[ExecutionLoop] Could not fetch entry MC data: ${parseError(err)}`);
+          }
 
           await createPositionV31({
             userId: job.user_id,
@@ -255,6 +285,10 @@ export class ExecutionLoop {
             tpPercent: strategy.take_profit_percent,
             slPercent: strategy.stop_loss_percent,
             bondingCurve: opportunity?.bonding_curve || undefined,
+            // Display accuracy fields (Audit Round 4)
+            tokenDecimals,
+            entryMcSol,
+            entryMcUsd,
           });
         } else if (job.payload.position_id) {
           await closePositionV31({
@@ -283,20 +317,9 @@ export class ExecutionLoop {
         // BUY: TRADE_DONE notification
         // SELL: TP/SL-specific notification with real solReceived and txHash
         if (job.action === 'BUY') {
-          // Fetch current token info for market cap at entry time
-          let marketCapSol: number | undefined;
-          try {
-            const tokenInfo = await getTokenInfo(job.payload.mint);
-            if (tokenInfo) {
-              marketCapSol = tokenInfo.marketCapSol;
-            }
-          } catch (err) {
-            console.log(`[ExecutionLoop] Could not fetch market cap: ${parseError(err)}`);
-          }
-
-          // Pump.fun tokens have 6 decimals - adjust raw amount for display
-          const PUMP_FUN_DECIMALS = 6;
-          const adjustedTokens = (result.tokensReceived || 0) / Math.pow(10, PUMP_FUN_DECIMALS);
+          // AUDIT FIX: Use token decimals determined above (pump.fun=6, pump.pro=9)
+          const notificationDecimals = opportunity?.source === 'pump.pro' ? 9 : 6;
+          const adjustedTokens = (result.tokensReceived || 0) / Math.pow(10, notificationDecimals);
 
           await createNotification({
             userId: job.user_id,
@@ -308,7 +331,7 @@ export class ExecutionLoop {
               amount_sol: job.payload.amount_sol,
               tokens: adjustedTokens,  // FIX: Decimal-adjusted for human-readable display
               tx_sig: result.txSig,
-              marketCapSol,  // Market cap in SOL at entry time
+              marketCapSol: entryMcSol,  // AUDIT FIX: Use calculated entry MC (already have it)
             },
           });
         } else if (job.action === 'SELL' && job.payload.trigger) {

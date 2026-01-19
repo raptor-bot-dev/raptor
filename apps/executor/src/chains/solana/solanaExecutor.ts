@@ -59,6 +59,7 @@ import {
   PumpFunClient,
   getPumpFunClient,
   deriveBondingCurvePDA,
+  findBondingCurveAndProgram,  // AUDIT FIX: For pump.pro support
 } from './pumpFun.js';
 
 // Re-export for convenience
@@ -1185,34 +1186,40 @@ export class SolanaExecutor {
         route = useJito ? 'Jupiter (Jito)' : 'Jupiter';
         console.log('[SolanaExecutor] Jupiter sell successful');
       } catch (jupiterError) {
-        // Jupiter failed - check if we can fall back to pump.fun
-        console.log('[SolanaExecutor] Jupiter sell failed, checking pump.fun fallback',
+        // Jupiter failed - check if we can fall back to pump.fun/pump.pro bonding curve
+        console.log('[SolanaExecutor] Jupiter sell failed, checking bonding curve fallback',
           jupiterError instanceof Error ? jupiterError.message : jupiterError);
 
-        const tokenInfo = await this.getTokenInfo(tokenMint);
+        // AUDIT FIX: Use getBondingCurveStateWithProgram to check both pump.fun AND pump.pro
+        // This fixes the issue where pump.pro tokens were incorrectly treated as "graduated"
+        const bondingCurveInfo = await this.getBondingCurveStateWithProgram(tokenMint);
 
-        if (tokenInfo && !tokenInfo.graduated) {
-          // Token is on bonding curve - try pump.fun as fallback
-          console.log('[SolanaExecutor] Token on bonding curve, trying pump.fun fallback');
+        if (bondingCurveInfo && !bondingCurveInfo.state.complete) {
+          // Token is on bonding curve (pump.fun or pump.pro) - try direct sell
+          const programName = bondingCurveInfo.programId.toBase58().startsWith('pro') ? 'pump.pro' : 'pump.fun';
+          console.log(`[SolanaExecutor] Token on ${programName} bonding curve, trying direct sell`);
           try {
             result = await this.sellViaPumpFunWithKeypair(
               tokenMint,
               tokenAmount,
               keypair,
-              executeOptions
+              {
+                ...executeOptions,
+                programId: bondingCurveInfo.programId,  // AUDIT FIX: Pass detected program ID
+              }
             );
-            route = useJito ? 'pump.fun (Jito)' : 'pump.fun';
-            console.log('[SolanaExecutor] Pump.fun fallback successful');
+            route = useJito ? `${programName} (Jito)` : programName;
+            console.log(`[SolanaExecutor] ${programName} sell successful`);
           } catch (pumpError) {
-            // Both Jupiter and pump.fun failed
-            console.error('[SolanaExecutor] Both Jupiter and pump.fun failed');
+            // Both Jupiter and bonding curve sell failed
+            console.error('[SolanaExecutor] Both Jupiter and bonding curve sell failed');
             throw new Error(
               `Sell failed via both routes. Jupiter: ${jupiterError instanceof Error ? jupiterError.message : 'Unknown'}. ` +
-              `Pump.fun: ${pumpError instanceof Error ? pumpError.message : 'Unknown'}`
+              `Bonding curve: ${pumpError instanceof Error ? pumpError.message : 'Unknown'}`
             );
           }
         } else {
-          // Token is graduated, Jupiter should have worked - re-throw
+          // Token is graduated or no bonding curve found, Jupiter should have worked - re-throw
           throw jupiterError;
         }
       }
@@ -1253,9 +1260,10 @@ export class SolanaExecutor {
   }
 
   /**
-   * Sell via pump.fun bonding curve with external keypair
+   * Sell via pump.fun/pump.pro bonding curve with external keypair
    *
    * v3.5: Added options interface update for consistency
+   * AUDIT FIX: Added programId support for pump.pro tokens
    */
   private async sellViaPumpFunWithKeypair(
     tokenMint: string,
@@ -1265,16 +1273,28 @@ export class SolanaExecutor {
       slippageBps?: number;
       priorityFeeSol?: number;
       useJito?: boolean;
+      programId?: PublicKey;  // AUDIT FIX: Program ID for pump.pro support
     }
   ): Promise<{ txHash: string; solReceived: bigint }> {
-    console.log(`[SolanaExecutor] Executing pump.fun sell of ${tokenAmount} tokens with external keypair`);
+    const programName = options?.programId?.toBase58().startsWith('pro') ? 'pump.pro' : 'pump.fun';
+    console.log(`[SolanaExecutor] Executing ${programName} sell of ${tokenAmount} tokens with external keypair`);
 
     try {
+      const mint = new PublicKey(tokenMint);
+
+      // AUDIT FIX: Detect program if not provided
+      let programId = options?.programId;
+      if (!programId) {
+        const bondingCurveInfo = await findBondingCurveAndProgram(this.connection, mint);
+        if (bondingCurveInfo) {
+          programId = bondingCurveInfo.programId;
+          console.log(`[SolanaExecutor] Auto-detected program: ${programId.toBase58()}`);
+        }
+      }
+
       // Create a PumpFunClient with the external keypair
       const { PumpFunClient } = await import('./pumpFun.js');
       const client = new PumpFunClient(keypair);
-
-      const mint = new PublicKey(tokenMint);
 
       // P0-2 FIX: Get actual token decimals instead of assuming 6
       const decimals = await this.getTokenDecimals(tokenMint);
@@ -1283,22 +1303,24 @@ export class SolanaExecutor {
       const slippageBps = options?.slippageBps || 500; // Default 5% slippage
 
       // v3.5: pump.fun sends directly, no Jito integration at this level
+      // AUDIT FIX: Pass programId to sell method for pump.pro support
       const result = await client.sell({
         mint,
         tokenAmount: tokensRaw,
         minSolOut: 0n, // Will use slippageBps to calculate
         slippageBps,
         priorityFeeSol: options?.priorityFeeSol,
+        programId,  // AUDIT FIX: Pass program ID
       });
 
-      console.log(`[SolanaExecutor] pump.fun sell successful: ${result.signature}`);
+      console.log(`[SolanaExecutor] ${programName} sell successful: ${result.signature}`);
 
       return {
         txHash: result.signature,
         solReceived: result.solAmount,
       };
     } catch (error) {
-      console.error('[SolanaExecutor] pump.fun sell with keypair failed:', error);
+      console.error(`[SolanaExecutor] ${programName} sell with keypair failed:`, error);
       throw error;
     }
   }
@@ -1405,7 +1427,7 @@ export class SolanaExecutor {
   }
 
   /**
-   * Get bonding curve state for a pump.fun token
+   * Get bonding curve state for a pump.fun token (legacy - pump.fun only)
    */
   private async getBondingCurveState(
     tokenMint: string
@@ -1424,6 +1446,50 @@ export class SolanaExecutor {
       return decodeBondingCurveState(Buffer.from(accountInfo.data));
     } catch (error) {
       console.error('[SolanaExecutor] Error getting bonding curve state:', error);
+      return null;
+    }
+  }
+
+  /**
+   * AUDIT FIX: Get bonding curve state with program detection
+   * Checks both pump.fun and pump.pro programs to find active bonding curve
+   *
+   * @returns State and program ID if found, null if token has graduated or doesn't exist
+   */
+  private async getBondingCurveStateWithProgram(
+    tokenMint: string
+  ): Promise<{
+    state: BondingCurveState;
+    programId: PublicKey;
+    bondingCurve: PublicKey;
+  } | null> {
+    try {
+      const mint = new PublicKey(tokenMint);
+
+      // Use the new findBondingCurveAndProgram to check both programs
+      const result = await findBondingCurveAndProgram(this.connection, mint);
+
+      if (!result) {
+        // No bonding curve found on either program - token graduated or doesn't exist
+        return null;
+      }
+
+      // Fetch and decode the bonding curve state
+      const accountInfo = await this.connection.getAccountInfo(result.bondingCurve);
+
+      if (!accountInfo || accountInfo.data.length < 49) {
+        return null;
+      }
+
+      const state = decodeBondingCurveState(Buffer.from(accountInfo.data));
+
+      return {
+        state,
+        programId: result.programId,
+        bondingCurve: result.bondingCurve,
+      };
+    } catch (error) {
+      console.error('[SolanaExecutor] Error getting bonding curve state with program:', error);
       return null;
     }
   }

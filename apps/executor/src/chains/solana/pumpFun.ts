@@ -35,6 +35,8 @@ import bs58 from 'bs58';
 // Pump.fun program constants
 export const PUMP_FUN_PROGRAM_ID = PROGRAM_IDS.PUMP_FUN;
 export const PUMP_FUN_GLOBAL_STATE = PROGRAM_IDS.PUMP_FUN_GLOBAL;
+// AUDIT FIX: pump.pro program ID (upgraded pump.fun, late 2025)
+export const PUMP_PRO_PROGRAM_ID = PROGRAM_IDS.PUMP_PRO;
 
 // Fee structure
 export const PUMP_FUN_FEE_BPS = 100; // 1% fee
@@ -311,9 +313,11 @@ const PUMP_FUN_FEE_RECIPIENT = new PublicKey('CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7Abic
 const PUMP_FUN_EVENT_AUTHORITY = new PublicKey('Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1');
 // Fee program for pump.fun (Sep 2025 update) - required for buy/sell instructions
 const PUMP_FEE_PROGRAM = new PublicKey('pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ');
+// AUDIT FIX: pump.pro program (upgraded pump.fun, late 2025)
+const PUMP_PRO_PROGRAM = new PublicKey(PUMP_PRO_PROGRAM_ID);
 
 /**
- * Derive bonding curve PDA for a mint
+ * Derive bonding curve PDA for a mint (pump.fun only - legacy)
  */
 export function deriveBondingCurvePDA(mint: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
@@ -323,34 +327,85 @@ export function deriveBondingCurvePDA(mint: PublicKey): [PublicKey, number] {
 }
 
 /**
+ * AUDIT FIX: Derive bonding curve PDA for any pump program (pump.fun or pump.pro)
+ */
+export function deriveBondingCurvePDAForProgram(
+  mint: PublicKey,
+  programId: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('bonding-curve'), mint.toBuffer()],
+    programId
+  );
+}
+
+/**
+ * AUDIT FIX: Find bonding curve and determine which program owns it
+ * Checks both pump.fun and pump.pro programs to find the active bonding curve
+ *
+ * @returns The bonding curve PDA, program ID, and bump if found, null otherwise
+ */
+export async function findBondingCurveAndProgram(
+  connection: Connection,
+  mint: PublicKey
+): Promise<{
+  bondingCurve: PublicKey;
+  programId: PublicKey;
+  bump: number;
+} | null> {
+  const programs = [PUMP_FUN_PROGRAM, PUMP_PRO_PROGRAM];
+
+  for (const programId of programs) {
+    const [bondingCurve, bump] = deriveBondingCurvePDAForProgram(mint, programId);
+
+    try {
+      const accountInfo = await connection.getAccountInfo(bondingCurve);
+
+      // Check if account exists and has valid bonding curve data (min 49 bytes)
+      if (accountInfo && accountInfo.data.length >= 49 && accountInfo.owner.equals(programId)) {
+        return { bondingCurve, programId, bump };
+      }
+    } catch (error) {
+      // Continue to next program on error
+      console.warn(`[findBondingCurveAndProgram] Error checking ${programId.toBase58()}:`, error);
+    }
+  }
+
+  return null;
+}
+
+/**
  * Derive global volume accumulator PDA
  * Required by pump.fun since August 2025 update for volume tracking
+ * AUDIT FIX: Added programId parameter for pump.pro support
  */
-export function deriveGlobalVolumeAccumulatorPDA(): [PublicKey, number] {
+export function deriveGlobalVolumeAccumulatorPDA(programId: PublicKey = PUMP_FUN_PROGRAM): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from('global_volume_accumulator')],
-    PUMP_FUN_PROGRAM
+    programId
   );
 }
 
 /**
  * Derive user volume accumulator PDA
  * Required by pump.fun since August 2025 update for per-user volume tracking
+ * AUDIT FIX: Added programId parameter for pump.pro support
  */
-export function deriveUserVolumeAccumulatorPDA(user: PublicKey): [PublicKey, number] {
+export function deriveUserVolumeAccumulatorPDA(user: PublicKey, programId: PublicKey = PUMP_FUN_PROGRAM): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from('user_volume_accumulator'), user.toBuffer()],
-    PUMP_FUN_PROGRAM
+    programId
   );
 }
 
 /**
  * Derive fee config PDA
  * Required by pump.fun since September 2025 update for fee handling
+ * AUDIT FIX: Added programId parameter for pump.pro support
  */
-export function deriveFeeConfigPDA(): [PublicKey, number] {
+export function deriveFeeConfigPDA(programId: PublicKey = PUMP_FUN_PROGRAM): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from('fee_config'), PUMP_FUN_PROGRAM.toBuffer()],
+    [Buffer.from('fee_config'), programId.toBuffer()],
     PUMP_FEE_PROGRAM
   );
 }
@@ -359,11 +414,12 @@ export function deriveFeeConfigPDA(): [PublicKey, number] {
  * Derive creator vault PDA
  * Required by pump.fun for creator fee distribution (late 2025 update)
  * This replaced SysvarRent in the account list
+ * AUDIT FIX: Added programId parameter for pump.pro support
  */
-export function deriveCreatorVaultPDA(creator: PublicKey): [PublicKey, number] {
+export function deriveCreatorVaultPDA(creator: PublicKey, programId: PublicKey = PUMP_FUN_PROGRAM): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from('creator-vault'), creator.toBuffer()],
-    PUMP_FUN_PROGRAM
+    programId
   );
 }
 
@@ -425,6 +481,7 @@ export interface PumpFunSellParams {
   minSolOut: bigint;
   slippageBps?: number;
   priorityFeeSol?: number;
+  programId?: PublicKey;  // AUDIT FIX: For pump.pro support
 }
 
 export interface PumpFunTradeResult {
@@ -457,10 +514,12 @@ export class PumpFunClient {
 
   /**
    * Get bonding curve state for a token
+   * AUDIT FIX: Added programId parameter for pump.pro support
    */
-  async getBondingCurveState(mint: PublicKey): Promise<BondingCurveState | null> {
+  async getBondingCurveState(mint: PublicKey, programId: PublicKey = PUMP_FUN_PROGRAM): Promise<BondingCurveState | null> {
     try {
-      const [bondingCurve] = deriveBondingCurvePDA(mint);
+      // AUDIT FIX: Use program-agnostic PDA derivation for pump.pro support
+      const [bondingCurve] = deriveBondingCurvePDAForProgram(mint, programId);
       const accountInfo = await this.connection.getAccountInfo(bondingCurve);
 
       if (!accountInfo || accountInfo.data.length < 49) {
@@ -618,18 +677,23 @@ export class PumpFunClient {
   }
 
   /**
-   * Execute a sell on pump.fun bonding curve
-   * Note: pump.fun uses Token-2022 program for all tokens
+   * Execute a sell on pump.fun/pump.pro bonding curve
+   * Note: pump.fun/pump.pro use Token-2022 program for all tokens
+   * AUDIT FIX: Added programId support for pump.pro tokens
    */
   async sell(params: PumpFunSellParams): Promise<PumpFunTradeResult> {
     // Clamp slippage to 99% max (9900 bps) to prevent negative minSol calculation
     const effectiveSlippageBps = Math.min(params.slippageBps ?? 500, 9900);
-    const { mint, tokenAmount, minSolOut, priorityFeeSol } = params;
+    const { mint, tokenAmount, minSolOut, priorityFeeSol, programId } = params;
 
-    console.log(`[PumpFunClient] Selling ${tokenAmount} tokens, slippage: ${effectiveSlippageBps}bps, priorityFee: ${priorityFeeSol ?? 'default'} SOL`);
+    // AUDIT FIX: Use provided programId or default to pump.fun
+    const effectiveProgram = programId ?? PUMP_FUN_PROGRAM;
+    const programName = effectiveProgram.equals(PUMP_PRO_PROGRAM) ? 'pump.pro' : 'pump.fun';
 
-    // Derive PDAs - use Token-2022 for pump.fun tokens
-    const [bondingCurve] = deriveBondingCurvePDA(mint);
+    console.log(`[PumpFunClient] Selling ${tokenAmount} tokens via ${programName}, slippage: ${effectiveSlippageBps}bps, priorityFee: ${priorityFeeSol ?? 'default'} SOL`);
+
+    // AUDIT FIX: Derive PDAs using program-agnostic function for pump.pro support
+    const [bondingCurve] = deriveBondingCurvePDAForProgram(mint, effectiveProgram);
     const associatedBondingCurve = await deriveAssociatedBondingCurve(bondingCurve, mint);
     const userTokenAccount = await getAssociatedTokenAddress(
       mint,
@@ -638,24 +702,24 @@ export class PumpFunClient {
       TOKEN_2022_PROGRAM_ID
     );
 
-    // Derive volume accumulator PDAs (required since August 2025 pump.fun update)
-    const [globalVolumeAccumulator] = deriveGlobalVolumeAccumulatorPDA();
-    const [userVolumeAccumulator] = deriveUserVolumeAccumulatorPDA(this.wallet.publicKey);
+    // AUDIT FIX: Derive volume accumulator PDAs using effectiveProgram for pump.pro support
+    const [globalVolumeAccumulator] = deriveGlobalVolumeAccumulatorPDA(effectiveProgram);
+    const [userVolumeAccumulator] = deriveUserVolumeAccumulatorPDA(this.wallet.publicKey, effectiveProgram);
 
-    // Derive fee config PDA (required since September 2025 pump.fun update)
-    const [feeConfig] = deriveFeeConfigPDA();
+    // AUDIT FIX: Derive fee config PDA using effectiveProgram for pump.pro support
+    const [feeConfig] = deriveFeeConfigPDA(effectiveProgram);
 
-    // Get bonding curve state
-    const state = await this.getBondingCurveState(mint);
+    // AUDIT FIX: Get bonding curve state using effectiveProgram for pump.pro support
+    const state = await this.getBondingCurveState(mint, effectiveProgram);
     if (!state) {
-      throw new Error('Token not found on bonding curve');
+      throw new Error(`Token not found on ${programName} bonding curve`);
     }
     if (state.complete) {
       throw new Error('Token has graduated - use Jupiter instead');
     }
 
-    // Derive creator vault PDA (required since late 2025 pump.fun update)
-    const [creatorVault] = deriveCreatorVaultPDA(new PublicKey(state.creator));
+    // AUDIT FIX: Derive creator vault PDA using effectiveProgram for pump.pro support
+    const [creatorVault] = deriveCreatorVaultPDA(new PublicKey(state.creator), effectiveProgram);
 
     // Calculate expected SOL
     const expectedSol = calculateSellOutput(
@@ -694,9 +758,10 @@ export class PumpFunClient {
     );
 
     // Build sell instruction
-    // Note: pump.fun uses Token-2022 program for all tokens
+    // AUDIT FIX: Use effectiveProgram for pump.pro support
+    // Note: pump.fun/pump.pro use Token-2022 program for all tokens
     const sellInstruction = new TransactionInstruction({
-      programId: PUMP_FUN_PROGRAM,
+      programId: effectiveProgram,  // AUDIT FIX: Use effectiveProgram instead of hardcoded PUMP_FUN_PROGRAM
       keys: [
         { pubkey: PUMP_FUN_GLOBAL, isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
@@ -709,7 +774,7 @@ export class PumpFunClient {
         { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
         { pubkey: creatorVault, isSigner: false, isWritable: true }, // creator_vault (late 2025 update)
         { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
-        { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
+        { pubkey: effectiveProgram, isSigner: false, isWritable: false },  // AUDIT FIX: Use effectiveProgram
         // Volume accumulator accounts (required since August 2025)
         { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: true },
         { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },

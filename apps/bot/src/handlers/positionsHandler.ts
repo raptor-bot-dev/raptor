@@ -26,8 +26,10 @@ import {
   getUserOpenPositions,
   getPositionByUuid,
   getOrCreateAutoStrategy,
-  getTokenPrices,
   getSolPrice,
+  getMarketDataBatch,
+  getMarketData,
+  computeQuotePnl,
 } from '@raptor/shared';
 import { GrammyError } from 'grammy';
 import { executeEmergencySell as executeEmergencySellService } from '../services/emergencySellService.js';
@@ -95,33 +97,51 @@ export async function showPositionsList(ctx: MyContext): Promise<void> {
       return;
     }
 
-    // Fetch current prices for all position tokens (Jupiter + pump.fun fallback)
+    // Fetch SOL price once for the batch
+    const solPriceUsd = await getSolPrice();
+
+    // Fetch market data for all position tokens (current MC, price, etc.)
     const mints = positions.map((p) => p.token_mint);
-    const prices = await getTokenPrices(mints);
+    const marketDataMap = await getMarketDataBatch(mints, solPriceUsd ?? undefined);
 
-    // Map positions to list items with real-time PnL calculation
-    const listItems: PositionListItem[] = positions.map((pos) => {
-      const priceResult = prices[pos.token_mint];
-      let pnlPercent: number | undefined;
+    // Map positions to list items with quote-based PnL calculation
+    const listItems: PositionListItem[] = await Promise.all(
+      positions.map(async (pos) => {
+        const marketData = marketDataMap[pos.token_mint];
+        let pnlPercent: number | undefined;
+        let pnlSol: number | undefined;
+        let currentMcUsd: number | undefined;
 
-      // Calculate PnL if we have a valid price and entry data
-      if (priceResult?.price && priceResult.price > 0 && pos.entry_cost_sol > 0 && pos.size_tokens > 0) {
-        const currentValue = priceResult.price * pos.size_tokens;
-        pnlPercent = ((currentValue - pos.entry_cost_sol) / pos.entry_cost_sol) * 100;
-      }
+        // Get current MC from market data
+        if (marketData?.marketCapUsd && marketData.marketCapUsd > 0) {
+          currentMcUsd = marketData.marketCapUsd;
+        }
 
-      // FIX: Calculate entry MC from entry price × total supply
-      const entryMcSol = pos.entry_price > 0 ? pos.entry_price * PUMP_FUN_TOTAL_SUPPLY : undefined;
+        // Calculate quote-based PnL if we have entry data
+        if (pos.entry_cost_sol > 0 && pos.size_tokens > 0) {
+          const pnlResult = await computeQuotePnl(
+            pos.token_mint,
+            pos.size_tokens,
+            pos.entry_cost_sol,
+            { marketData, solPriceUsd: solPriceUsd ?? undefined }
+          );
+          if (pnlResult.currentValueSol > 0) {
+            pnlPercent = pnlResult.pnlPercent;
+            pnlSol = pnlResult.pnlSol;
+          }
+        }
 
-      return {
-        id: pos.uuid_id,
-        symbol: pos.token_symbol || 'Unknown',
-        mint: pos.token_mint,
-        entrySol: pos.entry_cost_sol,
-        entryMcSol,
-        pnlPercent,
-      };
-    });
+        return {
+          id: pos.uuid_id,
+          symbol: pos.token_symbol || 'Unknown',
+          mint: pos.token_mint,
+          entrySol: pos.entry_cost_sol,
+          currentMcUsd, // AUDIT FIX: Show CURRENT MC, not entry MC
+          pnlPercent,
+          pnlSol,
+        };
+      })
+    );
 
     const maxPositions = strategy.max_positions ?? 2;
     const panel = renderPositionsList(listItems, maxPositions);
@@ -164,16 +184,37 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
       return;
     }
 
-    // Fetch strategy and SOL price in parallel
-    const [strategy, solPriceUsd] = await Promise.all([
+    // Fetch strategy, SOL price, and market data in parallel
+    const [strategy, solPriceUsd, marketData] = await Promise.all([
       getOrCreateAutoStrategy(userId, 'sol'),
       getSolPrice(),
+      getMarketData(position.token_mint),
     ]);
 
-    // FIX: Calculate entry MC from entry price × total supply (column doesn't exist in DB)
-    const entryMcSol = position.entry_price > 0
-      ? position.entry_price * PUMP_FUN_TOTAL_SUPPLY
-      : 0;
+    // Calculate entry MC from stored value or entry price × total supply
+    const entryMcSol = position.entry_mc_sol
+      ?? (position.entry_price > 0 ? position.entry_price * PUMP_FUN_TOTAL_SUPPLY : 0);
+    const entryMcUsd = position.entry_mc_usd
+      ?? (solPriceUsd && entryMcSol > 0 ? entryMcSol * solPriceUsd : undefined);
+
+    // Get current market data
+    const currentMcUsd = marketData?.marketCapUsd ?? undefined;
+
+    // Calculate quote-based PnL
+    let pnlPercent: number | undefined;
+    let pnlSol: number | undefined;
+    if (position.entry_cost_sol > 0 && position.size_tokens > 0) {
+      const pnlResult = await computeQuotePnl(
+        position.token_mint,
+        position.size_tokens,
+        position.entry_cost_sol,
+        { marketData, solPriceUsd: solPriceUsd ?? undefined }
+      );
+      if (pnlResult.currentValueSol > 0) {
+        pnlPercent = pnlResult.pnlPercent;
+        pnlSol = pnlResult.pnlSol;
+      }
+    }
 
     const detailData: PositionDetailData = {
       id: position.uuid_id,
@@ -189,6 +230,11 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
       status: position.status as 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED',
       entryTxSig: position.entry_tx_sig ?? undefined,
       solPriceUsd: solPriceUsd || undefined,
+      // AUDIT FIX: Add current MC, entry MC in USD, and PnL
+      entryMcUsd,
+      currentMcUsd,
+      pnlPercent,
+      pnlSol,
     };
 
     const panel = renderPositionDetail(detailData);

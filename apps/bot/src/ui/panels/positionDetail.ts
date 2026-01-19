@@ -10,6 +10,8 @@ import {
   b,
   formatSol,
   formatMarketCap,
+  formatCompact,
+  formatPercent,
   btn,
   urlBtn,
   homeBtn,
@@ -27,6 +29,7 @@ export type PositionStatus = 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSE
 
 /**
  * Full position data for detail view
+ * Shows both current MC and entry MC in USD per audit requirement
  */
 export interface PositionDetailData {
   id: string;
@@ -42,6 +45,11 @@ export interface PositionDetailData {
   status: PositionStatus;
   entryTxSig?: string;
   solPriceUsd?: number;
+  // New fields for accurate display (Audit Round 4)
+  entryMcUsd?: number;   // Entry MC in USD (from stored value or calculated)
+  currentMcUsd?: number; // Current MC in USD
+  pnlPercent?: number;   // Quote-based PnL percentage
+  pnlSol?: number;       // Quote-based PnL in SOL
 }
 
 /**
@@ -67,12 +75,33 @@ export function renderPositionDetail(data: PositionDetailData): Panel {
   lines.push(stat('Token', `${data.tokenName} (${data.symbol})`));
   lines.push(code(data.mint));
 
-  // Entry price with MC joiner
+  // Entry price
   const priceFormatted = data.entryPrice < 0.000001
     ? data.entryPrice.toExponential(4)
     : formatSol(data.entryPrice);
   lines.push(stat('Entry Price', `${priceFormatted} SOL`));
-  lines.push(join(`${b('Entry MC:')} ${formatMarketCap(data.entryMcSol, data.solPriceUsd)}`));
+
+  // Market Cap section: Current MC and Entry MC in USD
+  if (data.currentMcUsd !== undefined && data.currentMcUsd > 0) {
+    lines.push(stat('Current MC', `$${formatCompact(data.currentMcUsd)}`));
+    // Entry MC as joiner if available
+    if (data.entryMcUsd !== undefined && data.entryMcUsd > 0) {
+      lines.push(join(`${b('Entry MC:')} $${formatCompact(data.entryMcUsd)}`));
+    } else {
+      lines.push(join(`${b('Entry MC:')} ${formatMarketCap(data.entryMcSol, data.solPriceUsd)}`));
+    }
+  } else {
+    // Fallback to original display if no current MC
+    lines.push(join(`${b('Entry MC:')} ${formatMarketCap(data.entryMcSol, data.solPriceUsd)}`));
+  }
+
+  // PnL section (if available)
+  if (data.pnlPercent !== undefined) {
+    const pnlLine = data.pnlSol !== undefined
+      ? `${formatPercent(data.pnlPercent)} (${formatSol(data.pnlSol)} SOL)`
+      : formatPercent(data.pnlPercent);
+    lines.push(stat('PnL', pnlLine));
+  }
 
   // Exit rules
   lines.push(stat('Exit Rules', `TP ${data.takeProfitPercent}% | SL ${data.stopLossPercent}%`));

@@ -3,6 +3,35 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-19
+- **feat(audit): Round 4 - Dynamic data displays + pump.pro bonding curve** (pending commit)
+  - **Phase 1: DB Schema + Types**
+    - Migration 019: Added `token_decimals`, `entry_mc_sol`, `entry_mc_usd` columns to positions
+    - Updated PositionV31 interface with new display accuracy fields
+    - Updated createPositionV31 to accept and insert new fields
+  - **Phase 2: Market Data Helper**
+    - New module: `packages/shared/src/marketData.ts`
+    - `getMarketData()` - single token with pump.fun API → DEXScreener → Jupiter fallback
+    - `getMarketDataBatch()` - batch fetch for position lists
+    - `getExpectedSolOut()` - quote-based sell output (bonding curve or Jupiter)
+    - `computeQuotePnl()` - accurate PnL using real sell quotes
+  - **Phase 3: Bot Panel Updates**
+    - Positions list shows current MC in USD (not entry MC)
+    - Position detail shows both current MC and entry MC in USD
+    - PnL displays as percentage AND SOL amount
+  - **Phase 4: Execution Entry Data**
+    - BUY handler now captures token_decimals (pump.fun=6, pump.pro=9)
+    - Entry MC calculated and stored at buy time
+    - Notification includes calculated entry MC
+  - **Phase 5: TP/SL Monitor Pricing**
+    - Both tpslMonitor.ts and positions.ts now use shared getTokenPrice()
+    - Fallback chain: Jupiter → DEXScreener → pump.fun
+  - **Phase 6: pump.pro Bonding Curve Support (CRITICAL)**
+    - `deriveBondingCurvePDAForProgram()` - program-agnostic PDA derivation
+    - `findBondingCurveAndProgram()` - checks both pump.fun AND pump.pro programs
+    - All PDA derivation functions now accept programId parameter
+    - Sell instruction uses correct program ID for pump.pro tokens
+    - `getBondingCurveStateWithProgram()` in solanaExecutor.ts
+    - Emergency sell now works for pump.pro tokens
 - **fix(bot,hunter): emergency sell, entry price, MC display** (d10176d)
   - P0: Emergency sell not working - field name mismatch in emergencySellService.ts
     - Root cause: RPC returns `reservation_id` on success, but code read `execution_id`

@@ -296,6 +296,11 @@ export interface PositionV31 {
   bonding_curve: string | null;
   triggered_at: string | null;
 
+  // Display accuracy fields (Audit Round 4)
+  token_decimals: number | null;
+  entry_mc_sol: number | null;
+  entry_mc_usd: number | null;
+
   // Status
   status: PositionStatus;
   opened_at: string;

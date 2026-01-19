@@ -93,3 +93,8 @@ export * from './tpsl.js';
 
 // Token price fetching with Jupiter + pump.fun fallback
 export * from './pricing.js';
+
+// === RAPTOR v4.5 Market Data ===
+
+// Unified market data helper with quote-based PnL
+export * from './marketData.js';

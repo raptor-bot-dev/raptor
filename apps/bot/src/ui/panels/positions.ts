@@ -11,7 +11,7 @@ import {
   b,
   formatSol,
   formatPercent,
-  formatMarketCap,
+  formatCompact,
   btn,
   urlBtn,
   homeBtn,
@@ -23,14 +23,16 @@ import { CB } from '../callbackIds.js';
 
 /**
  * Position data for list view
+ * Note: Shows CURRENT MC (not entry MC) per audit requirement
  */
 export interface PositionListItem {
   id: string;
   symbol: string;
   mint: string;
   entrySol: number;
-  entryMcSol?: number;
-  pnlPercent?: number; // Only if available
+  currentMcUsd?: number; // Current MC in USD (not entry MC)
+  pnlPercent?: number;   // Quote-based PnL percentage
+  pnlSol?: number;       // Quote-based PnL in SOL
 }
 
 /**
@@ -64,13 +66,16 @@ export function renderPositionsList(
       // Mint
       lines.push(join(code(pos.mint)));
 
-      // Entry details line
+      // Entry details line: Entry SOL | Current MC (USD) | PnL
       let detailLine = `Entry: ${formatSol(pos.entrySol)} SOL`;
-      if (pos.entryMcSol !== undefined) {
-        detailLine += ` | MC: ${formatMarketCap(pos.entryMcSol, solPriceUsd)}`;
+      if (pos.currentMcUsd !== undefined && pos.currentMcUsd > 0) {
+        detailLine += ` | MC: $${formatCompact(pos.currentMcUsd)}`;
       }
       if (pos.pnlPercent !== undefined) {
-        detailLine += ` | PnL: ${formatPercent(pos.pnlPercent)}`;
+        const pnlStr = pos.pnlSol !== undefined
+          ? `${formatPercent(pos.pnlPercent)} (${formatSol(pos.pnlSol)} SOL)`
+          : formatPercent(pos.pnlPercent);
+        detailLine += ` | PnL: ${pnlStr}`;
       }
       lines.push(join(detailLine));
     }

@@ -175,10 +175,12 @@ Single source of truth for current progress. Keep it brief.
 ## Next steps (post-MVP)
 
 ### P0 - Critical (affects trading)
-- [ ] **pump.pro bonding curve support**: `deriveBondingCurvePDA` only checks pump.fun program
-  - When lookup fails, defaults to `graduated=true` → routes to Jupiter → fails
-  - Need to check both pump.fun and pump.pro program IDs for bonding curve derivation
-  - File: `apps/executor/src/chains/solana/pumpFun.ts`
+- [x] ~~**pump.pro bonding curve support**: `deriveBondingCurvePDA` only checks pump.fun program~~ DONE (2026-01-19)
+  - Added `deriveBondingCurvePDAForProgram()` - program-agnostic PDA derivation
+  - Added `findBondingCurveAndProgram()` - checks both pump.fun AND pump.pro
+  - All PDA derivation functions now accept programId parameter
+  - Sell instruction uses effectiveProgram for pump.pro tokens
+  - Emergency sell now works for pump.pro tokens
 - [x] ~~**Fix existing positions**: 4 positions have wrong entry_cost_sol~~ DONE (2026-01-19)
   - Queried blockchain for actual transaction balances via Solana RPC
   - Updated positions via SQL with correct entry costs (~0.017 SOL)
@@ -233,7 +235,27 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-19 (latest): **Emergency sell, entry price, MC display fixes** (d10176d)
+- 2026-01-19 (latest): **Audit Round 4 - Dynamic data displays + pump.pro bonding curve**
+  - **Phase 1: DB Schema + Types**
+    - Migration 019: Added `token_decimals`, `entry_mc_sol`, `entry_mc_usd` columns
+    - Updated PositionV31 interface and createPositionV31 function
+  - **Phase 2: Market Data Helper**
+    - New module: `packages/shared/src/marketData.ts`
+    - Functions: getMarketData, getMarketDataBatch, getExpectedSolOut, computeQuotePnl
+  - **Phase 3: Bot Panel Updates**
+    - Positions list: current MC in USD, PnL % and SOL
+    - Position detail: current MC and entry MC in USD
+  - **Phase 4: Execution Entry Data**
+    - BUY captures token_decimals (pump.fun=6, pump.pro=9)
+    - Entry MC calculated at buy time
+  - **Phase 5: TP/SL Monitor Pricing**
+    - Unified pricing via shared getTokenPrice()
+  - **Phase 6: pump.pro Bonding Curve (CRITICAL)**
+    - Program-agnostic PDA derivation functions
+    - `findBondingCurveAndProgram()` checks both programs
+    - Emergency sell now works for pump.pro tokens
+  - Build: All 6 packages pass lint and build
+- 2026-01-19 (earlier): **Emergency sell, entry price, MC display fixes** (d10176d)
   - P0: Emergency sell not working - field name mismatch in emergencySellService.ts
     - Root cause: RPC `reserve_trade_budget` returns `reservation_id` on success, `execution_id` on already-executed
     - Code was reading `execution_id` which is undefined on success → execution record not found
@@ -502,3 +524,75 @@ Single source of truth for current progress. Keep it brief.
 - 30s in-memory cache sufficient for single-instance deployment
 - pump.fun API as fallback for bonding curve tokens not on Jupiter
 - No background polling yet - fetch on panel open is simpler and works
+
+---
+
+### 2026-01-19: Audit Round 4 - Dynamic Data Displays + pump.pro Bonding Curve
+
+**Context:** Comprehensive audit fix plan covering 6 phases:
+1. DB schema changes for accurate entry data
+2. Unified market data helper module
+3. Bot panel updates for current MC in USD and proper PnL
+4. Execution entry data capture
+5. TP/SL monitor pricing consistency
+6. CRITICAL: pump.pro bonding curve support for emergency sells
+
+**Root cause (pump.pro):**
+- `deriveBondingCurvePDA()` was hardcoded to pump.fun program ID only
+- pump.pro tokens (program: `proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`) failed bonding curve lookup
+- System incorrectly treated them as "graduated" → routed to Jupiter → failed
+- Emergency sell was broken for all pump.pro tokens
+
+**What went well:**
+- Plan mode with detailed phase breakdown prevented scope creep
+- Session continuation preserved full context from previous work
+- Program-agnostic PDA derivation pattern is clean and extensible
+- All 6 phases implemented systematically with proper testing
+- Build passed after fixing minor TypeScript errors (null vs undefined, scope)
+
+**What could be improved:**
+- pump.pro program support was identified as P0 critical but took multiple sessions to fix
+- Hardcoded program IDs are fragile - should use config-driven approach
+- Volume accumulator and fee config PDAs might also need pump.pro-specific derivation
+- Need integration testing with actual pump.pro tokens to verify full flow
+
+**Key changes:**
+1. **pumpFun.ts** - Program-agnostic functions:
+   - `deriveBondingCurvePDAForProgram(mint, programId)`
+   - `findBondingCurveAndProgram(connection, mint)` - checks both programs
+   - `deriveGlobalVolumeAccumulatorPDA(programId)`
+   - `deriveUserVolumeAccumulatorPDA(user, programId)`
+   - `deriveFeeConfigPDA(programId)`
+   - `deriveCreatorVaultPDA(creator, programId)`
+   - `sell()` uses effectiveProgram throughout
+
+2. **solanaExecutor.ts** - Program detection:
+   - `getBondingCurveStateWithProgram()` - finds active bonding curve on either program
+   - `sellViaPumpFunWithKeypair()` - accepts and passes programId
+   - Sell routing uses detected program, not hardcoded pump.fun
+
+3. **marketData.ts** (new module):
+   - Unified market data fetching with fallback chain
+   - Quote-based PnL calculation for accurate display
+   - Batch fetching for position lists
+
+**Lessons learned:**
+- When adding new program support, audit ALL places where program ID is used
+- PDA derivation functions should always accept programId as parameter
+- Program detection should happen early and propagate through the call chain
+- Hardcoded constants are a code smell for program-specific values
+
+**Files changed:**
+- `packages/database/migrations/019_positions_display_fields.sql` (NEW)
+- `packages/shared/src/types.ts` - PositionV31 fields
+- `packages/shared/src/supabase.ts` - createPositionV31 params
+- `packages/shared/src/marketData.ts` (NEW)
+- `packages/shared/src/index.ts` - exports
+- `apps/bot/src/ui/panels/positions.ts` - current MC display
+- `apps/bot/src/ui/panels/positionDetail.ts` - MC and PnL display
+- `apps/bot/src/handlers/positionsHandler.ts` - market data fetching
+- `apps/hunter/src/loops/execution.ts` - entry data capture
+- `apps/hunter/src/loops/tpslMonitor.ts` - shared pricing
+- `apps/hunter/src/loops/positions.ts` - shared pricing
+- `apps/executor/src/chains/solana/pumpFun.ts` - program-agnostic PDAs
+- `apps/executor/src/chains/solana/solanaExecutor.ts` - program detection

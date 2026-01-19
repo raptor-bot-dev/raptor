@@ -17,8 +17,8 @@ import {
   computeTpSlPrices,
   computeTrailActivationPrice,
   isMaxHoldExceeded,
+  getTokenPrice,  // AUDIT FIX: Use shared pricing with fallback chain
 } from '@raptor/shared';
-import { jupiter } from '@raptor/executor/solana';
 
 import { HeliusWsManager } from '../monitors/heliusWs.js';
 import { TpSlSubscriptionManager, type TokenActivityEvent } from '../monitors/subscriptionManager.js';
@@ -318,11 +318,12 @@ export class TpSlMonitorLoop {
       const tokens = Array.from(this.tokenToPositions.keys());
       if (tokens.length === 0) return;
 
-      // Fetch prices in parallel (batch for efficiency)
+      // AUDIT FIX: Fetch prices using shared pricing with fallback chain
+      // (Jupiter → DEXScreener → pump.fun)
       const pricePromises = tokens.map(async (tokenMint) => {
         try {
-          const price = await jupiter.getTokenPrice(tokenMint);
-          return { tokenMint, price: price > 0 ? price : null };
+          const result = await getTokenPrice(tokenMint);
+          return { tokenMint, price: result.price > 0 ? result.price : null };
         } catch {
           return { tokenMint, price: null };
         }
@@ -355,14 +356,14 @@ export class TpSlMonitorLoop {
     const positionIds = this.tokenToPositions.get(event.tokenMint);
     if (!positionIds || positionIds.size === 0) return;
 
-    // Fetch fresh price
+    // AUDIT FIX: Fetch fresh price using shared pricing with fallback chain
     try {
-      const price = await jupiter.getTokenPrice(event.tokenMint);
-      if (price <= 0) return;
+      const result = await getTokenPrice(event.tokenMint);
+      if (result.price <= 0) return;
 
       // Evaluate all positions for this token
       for (const positionId of positionIds) {
-        await this.evaluatePosition(positionId, price);
+        await this.evaluatePosition(positionId, result.price);
       }
     } catch (error) {
       console.error(

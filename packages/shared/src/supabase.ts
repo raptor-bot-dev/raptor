@@ -1911,6 +1911,10 @@ export async function createPositionV31(position: {
   tpPercent?: number;
   slPercent?: number;
   bondingCurve?: string;
+  // Display accuracy fields (Audit Round 4)
+  tokenDecimals?: number;
+  entryMcSol?: number;
+  entryMcUsd?: number;
 }): Promise<PositionV31> {
   // Compute TP/SL prices at creation time (immutable for position lifetime)
   const tpPrice = position.tpPercent && position.entryPrice > 0
@@ -1950,6 +1954,10 @@ export async function createPositionV31(position: {
       tp_price: tpPrice,
       sl_price: slPrice,
       bonding_curve: position.bondingCurve || null,
+      // Display accuracy fields (Audit Round 4)
+      token_decimals: position.tokenDecimals ?? null,
+      entry_mc_sol: position.entryMcSol ?? null,
+      entry_mc_usd: position.entryMcUsd ?? null,
     })
     .select()
     .single();

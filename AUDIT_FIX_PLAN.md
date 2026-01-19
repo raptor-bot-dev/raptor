@@ -1,95 +1,173 @@
-# RAPTOR Audit Fix Plan (Round 2)
+# RAPTOR Audit Fix Plan - Dynamic Data Displays (Round 4)
 
-Scope: bot, hunter, executor, TP/SL engine, notifications, worker coordination.
+Scope: bot UI panels/notifications, price/market-cap sources, TP/SL monitor pricing, emergency sell routing.
 
-## Confirmed Decisions (from owner)
-- Positions table uses `tg_id` (not `user_id`); positions stay on tg_id for compatibility.
-- TP/SL thresholds are fixed at entry; `tp_price`/`sl_price` are source of truth for open positions.
-- Shadow mode stays: `TPSL_ENGINE_ENABLED=true` and `LEGACY_POSITION_MONITOR=true`.
-- Notifications are DB-poller based (worker -> notifications table -> NotificationPoller).
-- `bonding_curve` exists on positions but must be populated from opportunity at creation.
-- TP/SL engine standardizes on `positions.uuid_id` for all claims/exits.
-- TP/SL notifications are sent after sell only (no trigger-time placeholders).
-- Legacy monitor must use atomic claim (`trigger_exit_atomically`) before enqueueing.
-## Maintainer Decisions (this plan)
-- Enforce `positions.uuid_id` as NOT NULL with a unique index after backfill.
-- `TRADE_DONE` is BUY-only; SELL exits rely on TP/SL-specific notifications after close.
+## Owner Decisions
+- Positions list shows CURRENT MC (USD). Entry MC moves to detail panel.
+- PnL must be quote-based for accuracy.
+- OK to add DB columns for accurate display data (decimals, entry MC).
 
-## Key Findings (summary)
-- TP/SL RPCs take UUIDs but compare against `positions.id` (SERIAL), so claims/transitions fail.
-- v3.1 `PositionV31` assumes `user_id`, but positions store `tg_id` (exit jobs can have undefined userId).
-- TP/SL notifications are created at trigger time with placeholder `solReceived`/`txHash` and never updated.
-- `TRADE_DONE` payload is wrong for SELL (amount_sol undefined, tokens is SOL received).
-- Legacy monitor lacks atomic claim; shadow mode can still enqueue duplicates.
-- Notification retry writes `last_error` (non-existent) and uses a missing `increment` RPC.
+## Implementation Plan (step-by-step)
 
-## Fix Plan (by priority)
+### Step 1 - Add DB columns for accuracy (schema)
+1. Create migration: `packages/database/migrations/0xx_positions_display_fields.sql`
+   - Add columns:
+     - `token_decimals SMALLINT NULL`
+     - `entry_mc_sol NUMERIC NULL`
+     - `entry_mc_usd NUMERIC NULL`
+   - Optional: add `entry_price_spot` if you want explicit spot entry price separate from average.
+2. Backfill where possible:
+   - Set `token_decimals` from mint on-chain (script or one-off job).
+   - Set `entry_mc_sol` and `entry_mc_usd` for existing positions if `entry_price` + supply + solPriceUsd_at_entry are available.
+3. Update shared types and helpers:
+   - `packages/shared/src/types.ts` (PositionV31) add the new fields.
+   - `packages/shared/src/supabase.ts` include fields in reads/updates.
 
-### P0 - Schema + RPC correctness (blocking)
-1) Add migration `015_tpsl_uuid_and_notifications.sql`.
-   - Files: packages/database/migrations/015_tpsl_uuid_and_notifications.sql.
-   - Logic:
-     - Backfill `positions.uuid_id` where NULL; then enforce NOT NULL.
-     - Add unique index on `positions.uuid_id`.
-     - Update TP/SL RPCs (`trigger_exit_atomically`, `mark_position_executing`,
-       `mark_trigger_completed`, `mark_trigger_failed`) to use `WHERE uuid_id = p_position_id`.
-     - Add `mark_notification_failed()` RPC to atomically increment attempts and set `delivery_error`.
+### Step 2 - Market data helper (single source of truth)
+1. Create a shared helper (extend `packages/shared/src/pricing.ts` or new `marketData.ts`):
+   - Input: `mint`, optional `bondingCurve`, optional `tokenDecimals`, optional `totalSupply`.
+   - Output: `{ priceSol, priceUsd, marketCapSol, marketCapUsd, supply, decimals, source }`.
+2. Data source order:
+   - On-chain bonding curve state (if bondingCurve exists).
+   - pump.fun API (if available).
+   - DEXScreener/Birdeye (token info).
+   - Jupiter price + mint supply (fallback).
+3. Cache:
+   - Reuse existing 30s cache or add per-mint cache for market data.
 
-### P1 - Shared types + helpers
-2) Align `PositionV31` and add uuid helpers.
-   - Files: packages/shared/src/types.ts, packages/shared/src/supabase.ts.
-   - Logic:
-     - Add `uuid_id` and `tg_id` to `PositionV31`; remove/avoid `user_id`.
-     - Add `getPositionByUuid()` and `closePositionByUuid()` helpers.
-     - Ensure TP/SL RPC wrappers accept uuid_id.
+### Step 3 - Quote-based PnL helper (accuracy)
+1. Create `getExpectedSolOut(mint, tokensAdjusted, tokenDecimals, bondingCurve?)`:
+   - If bonding curve state available: use `calculateSellOutput()` on raw tokens.
+   - If graduated: use Jupiter quoteSell.
+   - Fallback to `spotPriceSol * tokensAdjusted`.
+2. Compute PnL:
+   - `currentValueSol = expectedSolOut`
+   - `pnlSol = currentValueSol - entry_cost_sol`
+   - `pnlPercent = (pnlSol / entry_cost_sol) * 100`
+3. Do not use USD for PnL display.
 
-### P2 - TP/SL engine + legacy monitor
-3) Standardize TP/SL engine on uuid_id and tg_id.
-   - Files: apps/hunter/src/loops/tpslMonitor.ts, apps/hunter/src/queues/exitQueue.ts.
-   - Logic:
-     - Use `position.uuid_id` for idempotency keys, trigger claims, and exit job payload.
-     - Use `position.tg_id` for user notifications and job ownership.
+### Step 4 - Update bot panels (positions list + detail)
+1. `apps/bot/src/handlers/positionsHandler.ts`
+   - Fetch `solPriceUsd` once per render.
+   - For each position:
+     - Fetch market data helper for current MC (USD).
+     - Compute quote-based PnL (SOL + %).
+2. `apps/bot/src/ui/panels/positions.ts`
+   - Show **current MC** in USD in list.
+   - Do not show entry MC in list.
+3. `apps/bot/src/ui/panels/positionDetail.ts`
+   - Add `Current MC (USD)` and `Entry MC (USD)` lines.
+   - Add `PnL` lines (percent + SOL).
 
-4) Legacy monitor uses atomic claim before enqueueing.
-   - Files: apps/hunter/src/loops/positions.ts.
-   - Logic:
-     - Call `trigger_exit_atomically()` with uuid_id; only enqueue if claim succeeds.
+### Step 5 - Store accurate entry fields at buy time
+1. `apps/hunter/src/loops/execution.ts`
+   - Fetch token decimals on buy (cache by mint).
+   - Store `size_tokens` using actual decimals.
+   - Compute `entry_price` using adjusted tokens.
+   - Compute and store `entry_mc_sol`, `entry_mc_usd` using market data helper + solPriceUsd at buy time.
+2. Ensure TP/SL prices are computed from corrected `entry_price`.
 
-### P3 - Notifications and execution flow
-5) Emit TP/SL notifications after sell only.
-   - Files: apps/hunter/src/loops/execution.ts, apps/hunter/src/queues/exitQueue.ts,
-     apps/hunter/src/loops/positions.ts, apps/bot/src/services/notifications.ts.
-   - Logic:
-     - Remove trigger-time placeholder notifications (ExitQueue + legacy monitor).
-     - After sell completes, emit `TP_HIT` / `SL_HIT` / `TRAILING_STOP_HIT` / `POSITION_CLOSED`
-       with real `solReceived` and `txHash`.
-     - Keep `TRADE_DONE` for BUY only (skip for SELL).
+### Step 6 - TP/SL and legacy monitors use shared pricing
+1. `apps/hunter/src/loops/tpslMonitor.ts`
+   - Replace Jupiter-only pricing with market data helper (priceSol).
+2. `apps/hunter/src/loops/positions.ts`
+   - Same change for legacy monitor.
 
-6) Fix notification retry updates.
-   - Files: packages/shared/src/supabase.ts, packages/database/migrations/015_tpsl_uuid_and_notifications.sql.
-   - Logic:
-     - Use `delivery_error` column.
-     - Increment `delivery_attempts` atomically via RPC.
-     - Clear claim fields on failure for retries.
+### Step 7 - Emergency sell reliability (pump.fun + pump.pro)
+1. `apps/executor/src/chains/solana/solanaExecutor.ts`
+   - Extend bonding curve derivation to try both pump.fun and pump.pro program IDs.
+2. `apps/executor/src/chains/solana/pumpFun.ts`
+   - Ensure token program detection (Tokenkeg vs Token-2022) is respected in sell instruction.
+   - Route pump.pro tokens to the correct program ID.
+3. Validate that InvalidProgramId is resolved on real pump.pro tokens.
 
-## Research Topics (web)
-- Jupiter price API coverage for pump.fun pre-graduation tokens.
-- PumpSwap pool reserve accounts for price (base/quote ATA derivation).
-- Helius logsSubscribe limitations (single pubkey) + inactivity timer guidance.
-- Bonding curve PDA derivation and synthetic reserve layout.
-- Token-2022 ATA derivation specifics for pump.fun.
+### Step 8 - Notifications consistency
+1. `apps/bot/src/ui/notifications/tradeDone.ts`
+   - Display MC in USD (using `solPriceUsd` or marketCapUsd).
+2. `apps/bot/src/services/notifications.ts`
+   - Ensure BUY/SELL confirmed payloads include market cap fields or suppress MC lines when missing.
 
-## Test/Verify Plan
-- Unit: uuid-based RPCs, notification retry RPC, TP/SL notification formatting after sell.
-- Integration: single trigger claim under burst load, exit job created once, trigger_state updated.
-- E2E: open position -> TP/SL trigger -> sell -> TP/SL notification delivered with tx hash.
+## Calculation Reference (formulas)
+PnL (quote-based):
+- expectedSolOut = sell quote (bonding curve or Jupiter)
+- pnlSol = expectedSolOut - entry_cost_sol
+- pnlPercent = (pnlSol / entry_cost_sol) * 100
 
-## Round 3 - Quality gates + execution consistency
-- Enforce social metadata hard stops: require metadata URI, X/Twitter, website, and image; Telegram optional.
-- Require creator holdings <= 10% of total supply (hard stop).
-- Force metadata fetch even for speed snipe mode to avoid false rejects on social hard stops.
-- Fix SELL notifications to use actual tokenSymbol (not mint).
-- Update TP/SL monitor to always persist current_price (not only on new peak).
-- Avoid setting EXECUTING in exit queue/legacy monitor; only ExecutionLoop sets EXECUTING.
-- Ensure unexpected SELL failures mark trigger as FAILED.
-- Use uuid_id in emergency sell notifications.
+Market cap (USD):
+- priceSol = spot price
+- marketCapSol = priceSol * totalSupplyTokens
+- marketCapUsd = marketCapSol * solPriceUsd
+
+Entry MC (stored):
+- entryMcSol = entry_price * totalSupplyTokens
+- entryMcUsd = entryMcSol * solPriceUsd_at_entry
+
+Decimals:
+- tokensRaw = floor(size_tokens * 10^token_decimals)
+
+## Verification Checklist
+- Positions list: MC in USD, no entry MC in list.
+- Detail panel: Current MC USD, Entry MC USD, PnL % + SOL.
+- PnL uses quote-based output where possible.
+- TP/SL triggers fire for pump.fun/pump.pro tokens without Jupiter prices.
+- Emergency sell works for pump.fun and pump.pro (no InvalidProgramId).
+
+## Appendix: Example Calculations (pump.fun-style)
+Example inputs (hypothetical):
+- token_decimals = 6
+- size_tokens = 2,050,000.0 (adjusted)
+- entry_cost_sol = 0.0170
+- entry_price = 0.0170 / 2,050,000 = 8.29268e-9 SOL
+- total_supply = 1,000,000,000 tokens
+- solPriceUsd = 180.00 USD
+
+Entry MC:
+- entryMcSol = entry_price * total_supply
+  = 8.29268e-9 * 1,000,000,000
+  = 8.29268 SOL
+- entryMcUsd = entryMcSol * solPriceUsd
+  = 8.29268 * 180
+  = 1,492.68 USD
+
+Current MC (spot):
+- spotPriceSol = currentSpotPriceSol (from bonding curve or API)
+- currentMcSol = spotPriceSol * total_supply
+- currentMcUsd = currentMcSol * solPriceUsd
+
+Quote-based PnL:
+- tokensRaw = floor(size_tokens * 10^token_decimals)
+- expectedSolOut = calculateSellOutput(tokensRaw, virtualSolReserves, virtualTokenReserves) -> lamports
+- currentValueSol = expectedSolOut / 1e9
+- pnlSol = currentValueSol - entry_cost_sol
+- pnlPercent = (pnlSol / entry_cost_sol) * 100
+
+Fallback (if no sell quote):
+- currentValueSol = spotPriceSol * size_tokens
+- pnlSol = currentValueSol - entry_cost_sol
+- pnlPercent = (pnlSol / entry_cost_sol) * 100
+
+## Appendix: Example Calculations (pump.pro-style)
+Example inputs (hypothetical):
+- token_decimals = 9
+- size_tokens = 12,500,000.0 (adjusted)
+- entry_cost_sol = 0.0250
+- entry_price = 0.0250 / 12,500,000 = 2.0e-9 SOL
+- total_supply = 2,500,000,000 tokens
+- solPriceUsd = 175.00 USD
+
+Entry MC:
+- entryMcSol = entry_price * total_supply
+  = 2.0e-9 * 2,500,000,000
+  = 5.0 SOL
+- entryMcUsd = entryMcSol * solPriceUsd
+  = 5.0 * 175
+  = 875.00 USD
+
+Quote-based PnL:
+- tokensRaw = floor(size_tokens * 10^token_decimals)
+  = 12,500,000 * 1,000,000,000
+  = 12,500,000,000,000,000
+- expectedSolOut = calculateSellOutput(tokensRaw, virtualSolReserves, virtualTokenReserves) -> lamports
+- currentValueSol = expectedSolOut / 1e9
+- pnlSol = currentValueSol - entry_cost_sol
+- pnlPercent = (pnlSol / entry_cost_sol) * 100

@@ -13,20 +13,20 @@ import {
   type Strategy,
   type Chain,
   type ExitTrigger,
+  idKeyExitSell,
+  getTokenPrice as getTokenPriceShared,  // AUDIT FIX: Use shared pricing with fallback chain
 } from '@raptor/shared';
-import { idKeyExitSell } from '@raptor/shared';
-import { jupiter } from '@raptor/executor/solana';
 
 /**
- * Get current token price from Jupiter Price API
+ * Get current token price using shared pricing module
+ * AUDIT FIX: Now uses shared pricing with Jupiter → DEXScreener → pump.fun fallback
  * @param mint - Token mint address
  * @returns Price in SOL, or null if unavailable
  */
 const getTokenPrice = async (mint: string): Promise<number | null> => {
   try {
-    const price = await jupiter.getTokenPrice(mint);
-    // Jupiter returns 0 on error/no price
-    return price > 0 ? price : null;
+    const result = await getTokenPriceShared(mint);
+    return result.price > 0 ? result.price : null;
   } catch (error) {
     console.error(`[PositionMonitorLoop] Failed to get price for ${mint}:`, error);
     return null;
