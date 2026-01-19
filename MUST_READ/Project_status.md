@@ -129,6 +129,22 @@ Single source of truth for current progress. Keep it brief.
   - Real-time PnL calculated on panel open via hybrid pricing module
   - Hybrid pricing: Jupiter API primary, pump.fun API fallback, 30s cache
   - New module: `packages/shared/src/pricing.ts` with `getTokenPrices()` API
+- **Emergency sell "In Progress" bug fixed** (2026-01-19):
+  - Root cause: Code checked `status !== 'OPEN'` but database uses `status = 'ACTIVE'`
+  - All ACTIVE positions incorrectly showed as "In Progress" blocking emergency sell
+  - Fixed positionsHandler.ts, positionDetail.ts, positions.ts, shared/types.ts
+- **Pricing reliability improved** (2026-01-19):
+  - pump.fun API returning 530 (Cloudflare blocked) caused price fetch failures
+  - Added DEXScreener as second fallback: Jupiter → DEXScreener → pump.fun
+  - Pricing module version bumped to v4.5
+- **Executor captures actual SOL spent** (2026-01-19):
+  - pump.fun bonding curve uses less SOL than requested
+  - Added balance measurement before/after buy to capture actual spend
+  - Entry cost will now be accurate for future positions
+- **Existing positions fixed** (2026-01-19):
+  - 4 positions had 0.1 SOL (reserved) instead of ~0.017 SOL (actual)
+  - Queried blockchain for actual transaction balances
+  - Updated positions and token symbols via SQL
 - `pnpm -w lint && pnpm -w build` passes
 
 ## Design Notes
@@ -146,9 +162,10 @@ Single source of truth for current progress. Keep it brief.
   - When lookup fails, defaults to `graduated=true` → routes to Jupiter → fails
   - Need to check both pump.fun and pump.pro program IDs for bonding curve derivation
   - File: `apps/executor/src/chains/solana/pumpFun.ts`
-- [ ] **Fix existing positions**: 4 positions have wrong entry_cost_sol (0.1 instead of ~0.0167)
-  - Parse `entry_tx_sig` from blockchain to get actual SOL spent
-  - Update positions with correct values (one-time migration script)
+- [x] ~~**Fix existing positions**: 4 positions have wrong entry_cost_sol~~ DONE (2026-01-19)
+  - Queried blockchain for actual transaction balances via Solana RPC
+  - Updated positions via SQL with correct entry costs (~0.017 SOL)
+  - Also fixed token symbols (Unknown → HODL, Watcher, REDBULL)
 
 ### P1 - Important (UX/reliability)
 - [ ] **Max positions setting**: User wants 5 positions instead of 2
@@ -199,7 +216,24 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-19 (latest): **Position tracking data quality fixes**
+- 2026-01-19 (latest): **Emergency sell and pricing reliability fixes** (82e2625)
+  - P0: Emergency sell stuck on "In Progress" for all positions
+    - Root cause: Code checked `status !== 'OPEN'` but database uses `status = 'ACTIVE'`
+    - Fix: Changed all status checks from 'OPEN' to 'ACTIVE' across bot handlers
+    - Updated `PositionStatus` type in shared/types.ts to match database schema
+  - P1: Price fetching failing due to pump.fun API blocked (530 Cloudflare)
+    - Root cause: pump.fun API sole fallback when Jupiter has no price
+    - Fix: Added DEXScreener as second fallback: Jupiter → DEXScreener → pump.fun
+    - DEXScreener more reliable and handles most Solana tokens
+  - P1: Entry cost capture inaccurate on pump.fun buys
+    - Root cause: Executor returned requested amount, not actual spend
+    - Fix: Added `getSolBalance()` to measure wallet before/after buy
+    - `buyViaPumpFunWithKeypair` now returns `actualSolSpent` from balance change
+  - Data fix: Updated 4 existing positions with correct entry costs via SQL
+    - Queried blockchain for actual transaction balances
+    - PUMP: 0.016973511, REDBULL: 0.016973611, Watcher: 0.016973, HODL: 0.016973
+    - Also fixed token symbols: Unknown → HODL, Watcher, REDBULL
+- 2026-01-19 (earlier): **Position tracking data quality fixes**
   - P0: Entry cost wrong (0.1 SOL vs actual ~0.0167 SOL)
     - Root cause: Used reserved budget (`job.payload.amount_sol`) instead of actual spend
     - Fix: Added `amountIn` to TradeResult interface, mapped from executor result
@@ -301,6 +335,47 @@ Single source of truth for current progress. Keep it brief.
 
 ## Retrospectives
 
+### 2026-01-19: Emergency Sell and Pricing Reliability
+
+**Context:** User reported two issues:
+1. Emergency sell stuck on "Processing" and never completes
+2. Positions panel shows "error fetching balances" on refresh
+
+**Root cause analysis:**
+- Emergency sell: Code checked `status !== 'OPEN'` but database uses `'ACTIVE'`
+  - All ACTIVE positions incorrectly showed as "In Progress"
+  - Emergency sell button appeared but clicking did nothing
+- Price fetching: pump.fun API returning 530 (Cloudflare blocked)
+  - Only fallback after Jupiter was pump.fun API
+  - When pump.fun blocked, all price fetches failed → PnL showed as 0%
+
+**What went well:**
+- Quick diagnosis of status mismatch via database query vs code comparison
+- DEXScreener fallback addition was straightforward (API already integrated)
+- Build passed first try after type fixes
+- User's existing positions already had correct data in DB (from earlier session fix)
+
+**What could be improved:**
+- Status value mismatch (`OPEN` vs `ACTIVE`) existed across multiple files
+- Should have caught when `PositionStatus` type was defined with wrong value
+- pump.fun API unreliability affects multiple features - need more resilient fallbacks
+
+**Files changed:**
+- `apps/bot/src/handlers/positionsHandler.ts` - status checks
+- `apps/bot/src/ui/panels/positionDetail.ts` - status type and checks
+- `apps/bot/src/commands/positions.ts` - status check
+- `packages/shared/src/types.ts` - PositionStatus type definition
+- `packages/shared/src/pricing.ts` - DEXScreener fallback
+- `apps/executor/src/chains/solana/solanaExecutor.ts` - actual SOL spent capture
+
+**Follow-up items:**
+- [x] Fix existing 4 positions with wrong entry cost (done via SQL)
+- [x] Fix token symbols (done via SQL + DEXScreener API)
+- [ ] Fix pump.pro bonding curve derivation (P0)
+- [ ] Increase max_positions to 5 per user request (P1)
+
+---
+
 ### 2026-01-19: Position Tracking Data Quality
 
 **Context:** User reported 4 positions showing with wrong data:
@@ -337,8 +412,3 @@ Single source of truth for current progress. Keep it brief.
 - 30s in-memory cache sufficient for single-instance deployment
 - pump.fun API as fallback for bonding curve tokens not on Jupiter
 - No background polling yet - fetch on panel open is simpler and works
-
-**Follow-up items:**
-- [ ] Fix pump.pro bonding curve derivation (P0)
-- [ ] Fix existing 4 positions with wrong entry cost (P1)
-- [ ] Increase max_positions to 5 per user request (P1)

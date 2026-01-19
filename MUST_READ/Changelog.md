@@ -3,6 +3,27 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-19
+- **fix(bot): emergency sell stuck on "In Progress"** (82e2625)
+  - Root cause: Code checked `status !== 'OPEN'` but database uses `status = 'ACTIVE'`
+  - All ACTIVE positions incorrectly showed as "In Progress" and blocked emergency sell
+  - Fixed positionsHandler.ts, positionDetail.ts, positions.ts to use 'ACTIVE'
+  - Updated PositionStatus type in shared/types.ts: 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED'
+- **fix(pricing): add DEXScreener fallback for pump.fun API failures** (82e2625)
+  - pump.fun API returning 530 (Cloudflare blocked) causing price fetch failures
+  - New fallback chain: Jupiter → DEXScreener → pump.fun
+  - DEXScreener more reliable and handles most Solana tokens
+  - Pricing module version bumped to v4.5
+- **fix(executor): capture actual SOL spent on pump.fun buys** (82e2625)
+  - Previously returned requested amount, not actual spend
+  - Pump.fun bonding curve uses less SOL than requested
+  - Added `getSolBalance()` helper to measure wallet balance before/after
+  - `buyViaPumpFunWithKeypair` now returns `actualSolSpent` from balance change
+  - Entry cost will now be accurate for future positions
+- **fix(db): existing positions updated with correct entry costs**
+  - 4 positions had 0.1 SOL (reserved budget) instead of ~0.017 SOL (actual spend)
+  - Queried blockchain for actual transaction balances
+  - Updated via SQL: PUMP 0.016973511, REDBULL 0.016973611, Watcher 0.016973, HODL 0.016973
+  - Token symbols also fixed: Unknown → HODL, Watcher, REDBULL (PUMP was correct)
 - **fix(db): position limit bypass in reserve_trade_budget**
   - RPC was checking `status='OPEN'` but positions use `status='ACTIVE'`
   - This caused position count query to return 0, bypassing max_positions limit
