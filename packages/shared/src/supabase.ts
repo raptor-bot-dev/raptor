@@ -1927,8 +1927,9 @@ export async function createPositionV31(position: {
       strategy_id: position.strategyId,
       opportunity_id: position.opportunityId || null,
       chain: position.chain,
+      token_address: position.tokenMint,  // FIX: required column (same as mint on Solana)
       token_mint: position.tokenMint,
-      token_symbol: position.tokenSymbol || null,
+      token_symbol: position.tokenSymbol || 'Unknown',  // FIX: NOT NULL column
       token_name: position.tokenName || null,
       entry_execution_id: position.entryExecutionId || null,
       entry_tx_sig: position.entryTxSig || null,
@@ -1936,7 +1937,13 @@ export async function createPositionV31(position: {
       entry_price: position.entryPrice,
       size_tokens: position.sizeTokens,
       current_price: position.entryPrice,
-      status: 'OPEN',
+      // Legacy columns (NOT NULL constraints)
+      amount_in: position.entryCostSol,
+      tokens_held: position.sizeTokens,
+      source: 'auto',
+      mode: 'snipe',
+      strategy: 'STANDARD',
+      status: 'ACTIVE',  // FIX: was 'OPEN', constraint requires 'ACTIVE'|'CLOSED'|'PENDING'
       opened_at: new Date().toISOString(),
       // TP/SL engine fields (Phase B audit fix)
       trigger_state: 'MONITORING',

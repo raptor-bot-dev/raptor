@@ -3,6 +3,13 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-19
+- **fix(shared): critical position creation bug**
+  - `createPositionV31()` was missing required columns: `token_address`, `amount_in`, `tokens_held`, `source`, `mode`, `strategy`
+  - Status was 'OPEN' but constraint requires 'ACTIVE'|'CLOSED'|'PENDING'
+  - Root cause: Trade executed but position insert failed with NOT NULL constraint violation
+  - Impact: User tokens bought successfully but position not tracked (orphaned execution)
+  - Fix: Added all required columns with correct values and constraint-compliant status
+  - Manually created position for orphaned execution (user 5979211008)
 - **feat(bot): upgrade all notification alerts to terminal UI**
   - Replaced old Markdown formatting with panelKit HTML terminal style
   - All notifications now use `🦖 RAPTOR | TITLE` header format with divider

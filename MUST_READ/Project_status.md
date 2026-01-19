@@ -172,7 +172,13 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-19 (latest): **Notification alerts upgraded to terminal UI**
+- 2026-01-19 (latest): **Critical position creation bug fixed**
+  - P0: `createPositionV31()` was missing required columns causing position insert failures
+  - Root cause: Trade executed (tokens bought) but position not tracked (orphaned execution)
+  - Missing columns: `token_address`, `amount_in`, `tokens_held`, `source`, `mode`, `strategy`
+  - Status was 'OPEN' but constraint requires 'ACTIVE'|'CLOSED'|'PENDING'
+  - Manually created position for orphaned execution (user 5979211008, token Ahte7zvpjbroToRRoA3MzvuDz6XGFgvWrBPGj1hfpump)
+- 2026-01-19 (earlier): **Notification alerts upgraded to terminal UI**
   - All 13+ notification types now use panelKit HTML terminal style
   - Created tradeDone.ts, tpSlHit.ts, positionState.ts, systemAlerts.ts, generic.ts
   - NotificationPoller refactored to return Panel objects with HTML parse_mode
