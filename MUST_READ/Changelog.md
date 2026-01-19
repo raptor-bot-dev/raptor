@@ -3,6 +3,11 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-19
+- **fix(shared): positions not showing - status query mismatch**
+  - `getOpenPositions()` and `getUserOpenPositions()` were querying for `status = 'OPEN'`
+  - But `createPositionV31()` sets `status = 'ACTIVE'` (required by DB constraint)
+  - Result: Positions created correctly but never returned by queries
+  - Fix: Changed both queries to use `.eq('status', 'ACTIVE')`
 - **fix(hunter): notification payload gaps**
   - High: TP/SL notifications now include `mint` for chart button and display
   - Low: TRADE_DONE now includes `tokenSymbol` from opportunity metadata

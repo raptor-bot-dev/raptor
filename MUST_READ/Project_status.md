@@ -172,7 +172,12 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-19 (latest): **Notification payload gaps fixed**
+- 2026-01-19 (latest): **Positions not showing - status query mismatch fixed**
+  - P0: `getOpenPositions()` and `getUserOpenPositions()` queried for `status = 'OPEN'`
+  - But `createPositionV31()` sets `status = 'ACTIVE'` (required by DB constraint)
+  - Fix: Changed both queries to use `.eq('status', 'ACTIVE')`
+  - Positions should now display correctly in Telegram bot
+- 2026-01-19 (earlier): **Notification payload gaps fixed**
   - High: TP/SL notifications now include `mint` for chart button and display
   - Low: TRADE_DONE now includes `tokenSymbol` from opportunity metadata
   - Moved opportunity fetch to success block scope for access in both position and notification code

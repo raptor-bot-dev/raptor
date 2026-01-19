@@ -1764,7 +1764,7 @@ export async function getOpenPositions(chain?: Chain): Promise<PositionV31[]> {
   let query = supabase
     .from('positions')
     .select('*')
-    .eq('status', 'OPEN');
+    .eq('status', 'ACTIVE');  // Must match createPositionV31() status and DB constraint
 
   if (chain) {
     query = query.eq('chain', chain);
@@ -1785,7 +1785,7 @@ export async function getUserOpenPositions(userId: number, chain?: Chain): Promi
     .from('positions')
     .select('*')
     .eq('tg_id', userId)  // Fix: positions table uses tg_id, not user_id
-    .eq('status', 'OPEN');
+    .eq('status', 'ACTIVE');  // Must match createPositionV31() status and DB constraint
 
   if (chain) {
     query = query.eq('chain', chain);
