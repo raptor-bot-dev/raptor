@@ -108,6 +108,11 @@ export async function showPositionsList(ctx: MyContext): Promise<void> {
     const listItems: PositionListItem[] = await Promise.all(
       positions.map(async (pos) => {
         const marketData = marketDataMap[pos.token_mint];
+        const adjustedTokens = normalizeTokenAmount(
+          pos.size_tokens,
+          pos.token_decimals,
+          marketData?.decimals
+        );
         let pnlPercent: number | undefined;
         let pnlSol: number | undefined;
         let currentMcUsd: number | undefined;
@@ -118,10 +123,10 @@ export async function showPositionsList(ctx: MyContext): Promise<void> {
         }
 
         // Calculate quote-based PnL if we have entry data
-        if (pos.entry_cost_sol > 0 && pos.size_tokens > 0) {
+        if (pos.entry_cost_sol > 0 && adjustedTokens > 0) {
           const pnlResult = await computeQuotePnl(
             pos.token_mint,
-            pos.size_tokens,
+            adjustedTokens,
             pos.entry_cost_sol,
             { marketData, solPriceUsd: solPriceUsd ?? undefined }
           );
@@ -135,10 +140,10 @@ export async function showPositionsList(ctx: MyContext): Promise<void> {
           id: pos.uuid_id,
           symbol: pos.token_symbol || 'Unknown',
           mint: pos.token_mint,
-          entrySol: pos.entry_cost_sol,
-          currentMcUsd, // AUDIT FIX: Show CURRENT MC, not entry MC
-          pnlPercent,
-          pnlSol,
+      entrySol: pos.entry_cost_sol,
+      currentMcUsd, // AUDIT FIX: Show CURRENT MC, not entry MC
+      pnlPercent,
+      pnlSol,
         };
       })
     );
@@ -184,16 +189,19 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
       return;
     }
 
-    // Fetch strategy, SOL price, and market data in parallel
-    const [strategy, solPriceUsd, marketData] = await Promise.all([
+    // Fetch strategy and SOL price in parallel, then fetch market data with SOL price
+    const [strategy, solPriceUsd] = await Promise.all([
       getOrCreateAutoStrategy(userId, 'sol'),
       getSolPrice(),
-      getMarketData(position.token_mint),
     ]);
+    const marketData = await getMarketData(position.token_mint, {
+      solPriceUsd: solPriceUsd ?? undefined,
+    });
 
     // Calculate entry MC from stored value or entry price × total supply
+    const supply = marketData?.supply ?? PUMP_FUN_TOTAL_SUPPLY;
     const entryMcSol = position.entry_mc_sol
-      ?? (position.entry_price > 0 ? position.entry_price * PUMP_FUN_TOTAL_SUPPLY : 0);
+      ?? (position.entry_price > 0 ? position.entry_price * supply : 0);
     const entryMcUsd = position.entry_mc_usd
       ?? (solPriceUsd && entryMcSol > 0 ? entryMcSol * solPriceUsd : undefined);
 
@@ -203,10 +211,15 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
     // Calculate quote-based PnL
     let pnlPercent: number | undefined;
     let pnlSol: number | undefined;
-    if (position.entry_cost_sol > 0 && position.size_tokens > 0) {
+    const adjustedTokens = normalizeTokenAmount(
+      position.size_tokens,
+      position.token_decimals,
+      marketData?.decimals
+    );
+    if (position.entry_cost_sol > 0 && adjustedTokens > 0) {
       const pnlResult = await computeQuotePnl(
         position.token_mint,
-        position.size_tokens,
+        adjustedTokens,
         position.entry_cost_sol,
         { marketData, solPriceUsd: solPriceUsd ?? undefined }
       );
@@ -226,7 +239,7 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
       takeProfitPercent: strategy.take_profit_percent ?? 50,
       stopLossPercent: strategy.stop_loss_percent ?? 20,
       entrySol: position.entry_cost_sol,
-      tokenAmount: position.size_tokens ?? 0,
+      tokenAmount: adjustedTokens ?? 0,
       status: position.status as 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED',
       entryTxSig: position.entry_tx_sig ?? undefined,
       solPriceUsd: solPriceUsd || undefined,
@@ -340,4 +353,22 @@ async function executeEmergencySell(ctx: MyContext, positionId: string): Promise
     await ctx.editMessageText(panel.text, panel.opts);
     await ctx.answerCallbackQuery('Error');
   }
+}
+
+function normalizeTokenAmount(
+  amount: number,
+  storedDecimals?: number | null,
+  actualDecimals?: number | null
+): number {
+  if (!amount || storedDecimals == null || actualDecimals == null) {
+    return amount;
+  }
+  if (storedDecimals === actualDecimals) {
+    return amount;
+  }
+  const diff = storedDecimals - actualDecimals;
+  if (diff > 0) {
+    return amount / Math.pow(10, diff);
+  }
+  return amount * Math.pow(10, -diff);
 }

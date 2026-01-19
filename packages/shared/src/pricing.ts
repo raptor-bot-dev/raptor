@@ -5,6 +5,7 @@
 
 import { getTokenInfo } from './api/pumpfun.js';
 import { getTokenByAddress } from './api/dexscreener.js';
+import { getBondingCurveSnapshot, getMintInfo } from './pumpfun/onchain.js';
 
 // Jupiter Price API v2
 const JUPITER_PRICE_API = 'https://api.jup.ag/price/v2';
@@ -16,7 +17,7 @@ const API_TIMEOUT_MS = 5000;
 const priceCache = new Map<string, { price: number; source: PriceSource; expiry: number }>();
 const CACHE_TTL_MS = 30_000;
 
-export type PriceSource = 'jupiter' | 'dexscreener' | 'pumpfun' | 'none';
+export type PriceSource = 'jupiter' | 'dexscreener' | 'pumpfun' | 'onchain' | 'none';
 
 export interface PriceResult {
   price: number;
@@ -115,6 +116,39 @@ export async function getTokenPrices(mints: string[]): Promise<Record<string, Pr
           }
         } catch (error) {
           console.warn(`[Pricing] pump.fun price fetch failed for ${mint}:`, error);
+        }
+      })
+    );
+  }
+
+  // Fallback 3: On-chain bonding curve (handles pump.pro when API is down)
+  missingMints = uncachedMints.filter(m => !results[m]);
+  if (missingMints.length > 0) {
+    await Promise.all(
+      missingMints.map(async (mint) => {
+        try {
+          const snapshot = await getBondingCurveSnapshot(mint);
+          if (!snapshot) {
+            return;
+          }
+
+          const mintInfo = await getMintInfo(mint);
+          const decimals = mintInfo?.decimals ?? 6;
+
+          const solReserves = Number(snapshot.state.virtualSolReserves) / 1e9;
+          const tokenReserves = Number(snapshot.state.virtualTokenReserves) / Math.pow(10, decimals);
+          if (tokenReserves <= 0) {
+            return;
+          }
+
+          const price = solReserves / tokenReserves;
+          if (price > 0) {
+            const result: PriceResult = { price, source: 'onchain' };
+            results[mint] = result;
+            priceCache.set(mint, { ...result, expiry: now + CACHE_TTL_MS });
+          }
+        } catch (error) {
+          console.warn(`[Pricing] On-chain price fetch failed for ${mint}:`, error);
         }
       })
     );

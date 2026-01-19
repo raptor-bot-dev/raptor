@@ -235,6 +235,12 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
+- 2026-01-20: **Audit follow-ups (pricing + decimals + pump.pro overrides)**
+  - On-chain bonding curve fallback added to pricing/market data
+  - Quote-based PnL now uses Jupiter sell quotes for graduated tokens
+  - Entry MC fallback uses on-chain mint supply when available
+  - Execution uses on-chain decimals for new positions and adjusts sell size on mismatch
+  - Pump.fun client supports pump.pro account overrides via env vars
 - 2026-01-19 (latest): **Audit Round 4 - Dynamic data displays + pump.pro bonding curve**
   - **Phase 1: DB Schema + Types**
     - Migration 019: Added `token_decimals`, `entry_mc_sol`, `entry_mc_usd` columns

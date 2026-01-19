@@ -2,6 +2,18 @@
 
 Keep this log short and append-only. Use ISO dates.
 
+## 2026-01-20
+- **fix(audit): pricing, PnL, and pump.pro execution hardening**
+  - Added on-chain bonding curve fallback for pricing and market data
+  - Quote-based PnL now uses Jupiter sell quotes for graduated tokens (cached)
+  - Market cap uses on-chain mint supply when available (no fixed 1B fallback)
+  - Positions UI normalizes token amounts when stored decimals differ from on-chain
+  - Execution loop uses on-chain decimals for new positions and adjusts sell size when mismatched
+  - Pump.fun client now supports pump.pro account overrides via env:
+    - `PUMP_PRO_GLOBAL_STATE`, `PUMP_PRO_FEE_RECIPIENT`, `PUMP_PRO_EVENT_AUTHORITY`, `PUMP_PRO_FEE_PROGRAM`
+  - Bonding curve ATA derivation now uses the detected token program (no Token-2022 hardcode)
+  - New helper: `packages/shared/src/pumpfun/onchain.ts` (bonding curve + mint info)
+
 ## 2026-01-19
 - **feat(audit): Round 4 - Dynamic data displays + pump.pro bonding curve** (pending commit)
   - **Phase 1: DB Schema + Types**

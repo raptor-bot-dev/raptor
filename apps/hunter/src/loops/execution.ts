@@ -233,12 +233,17 @@ export class ExecutionLoop {
         // AUDIT FIX: Entry MC variables - declared in outer scope for notification access
         let entryMcSol: number | undefined;
         let entryMcUsd: number | undefined;
+        let tokenDecimals: number | undefined;
 
         // 6. Create/close position
         if (job.action === 'BUY') {
-          // AUDIT FIX: Determine token decimals based on source
-          // pump.fun = 6 decimals, pump.pro = 9 decimals
-          const tokenDecimals = opportunity?.source === 'pump.pro' ? 9 : 6;
+          // AUDIT FIX: Determine token decimals from on-chain mint data
+          tokenDecimals = 6;
+          try {
+            tokenDecimals = await solanaExecutor.getTokenDecimals(job.payload.mint);
+          } catch (error) {
+            console.warn('[ExecutionLoop] Token decimals fetch failed, defaulting to 6:', error);
+          }
           const adjustedSizeTokens = (result.tokensReceived || 0) / Math.pow(10, tokenDecimals);
           const entryCostSol = result.amountIn || job.payload.amount_sol || 0;
           // FIX: Calculate entry price from adjusted values (price = cost / tokens)
@@ -317,9 +322,9 @@ export class ExecutionLoop {
         // BUY: TRADE_DONE notification
         // SELL: TP/SL-specific notification with real solReceived and txHash
         if (job.action === 'BUY') {
-          // AUDIT FIX: Use token decimals determined above (pump.fun=6, pump.pro=9)
-          const notificationDecimals = opportunity?.source === 'pump.pro' ? 9 : 6;
-          const adjustedTokens = (result.tokensReceived || 0) / Math.pow(10, notificationDecimals);
+          // AUDIT FIX: Use token decimals determined above
+          const decimals = tokenDecimals ?? 6;
+          const adjustedTokens = (result.tokensReceived || 0) / Math.pow(10, decimals);
 
           await createNotification({
             userId: job.user_id,
@@ -526,7 +531,20 @@ export class ExecutionLoop {
       }
 
       const sellPercent = job.payload.sell_percent || 100;
-      const tokensToSell = position.size_tokens * (sellPercent / 100);
+      let tokensToSell = position.size_tokens * (sellPercent / 100);
+      const storedDecimals = position.token_decimals ?? null;
+
+      try {
+        const actualDecimals = await solanaExecutor.getTokenDecimals(job.payload.mint);
+        if (storedDecimals !== null && storedDecimals !== actualDecimals) {
+          const diff = storedDecimals - actualDecimals;
+          tokensToSell = diff > 0
+            ? tokensToSell / Math.pow(10, diff)
+            : tokensToSell * Math.pow(10, -diff);
+        }
+      } catch (error) {
+        console.warn('[ExecutionLoop] Token decimals check failed, using stored amount:', error);
+      }
       const slippageBps = job.payload.slippage_bps || strategy.slippage_bps;
 
       // Pass tgId to executor so it can fetch chain_settings for:

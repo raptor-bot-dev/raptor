@@ -17,6 +17,7 @@ import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
   TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import {
@@ -315,6 +316,40 @@ const PUMP_FUN_EVENT_AUTHORITY = new PublicKey('Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nas
 const PUMP_FEE_PROGRAM = new PublicKey('pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ');
 // AUDIT FIX: pump.pro program (upgraded pump.fun, late 2025)
 const PUMP_PRO_PROGRAM = new PublicKey(PUMP_PRO_PROGRAM_ID);
+const PUMP_PRO_GLOBAL = process.env.PUMP_PRO_GLOBAL_STATE
+  ? new PublicKey(process.env.PUMP_PRO_GLOBAL_STATE)
+  : PUMP_FUN_GLOBAL;
+const PUMP_PRO_FEE_RECIPIENT = process.env.PUMP_PRO_FEE_RECIPIENT
+  ? new PublicKey(process.env.PUMP_PRO_FEE_RECIPIENT)
+  : PUMP_FUN_FEE_RECIPIENT;
+const PUMP_PRO_EVENT_AUTHORITY = process.env.PUMP_PRO_EVENT_AUTHORITY
+  ? new PublicKey(process.env.PUMP_PRO_EVENT_AUTHORITY)
+  : PUMP_FUN_EVENT_AUTHORITY;
+const PUMP_PRO_FEE_PROGRAM = process.env.PUMP_PRO_FEE_PROGRAM
+  ? new PublicKey(process.env.PUMP_PRO_FEE_PROGRAM)
+  : PUMP_FEE_PROGRAM;
+
+function getProgramAccounts(programId: PublicKey): {
+  global: PublicKey;
+  feeRecipient: PublicKey;
+  eventAuthority: PublicKey;
+  feeProgram: PublicKey;
+} {
+  if (programId.equals(PUMP_PRO_PROGRAM)) {
+    return {
+      global: PUMP_PRO_GLOBAL,
+      feeRecipient: PUMP_PRO_FEE_RECIPIENT,
+      eventAuthority: PUMP_PRO_EVENT_AUTHORITY,
+      feeProgram: PUMP_PRO_FEE_PROGRAM,
+    };
+  }
+  return {
+    global: PUMP_FUN_GLOBAL,
+    feeRecipient: PUMP_FUN_FEE_RECIPIENT,
+    eventAuthority: PUMP_FUN_EVENT_AUTHORITY,
+    feeProgram: PUMP_FEE_PROGRAM,
+  };
+}
 
 /**
  * Derive bonding curve PDA for a mint (pump.fun only - legacy)
@@ -403,10 +438,13 @@ export function deriveUserVolumeAccumulatorPDA(user: PublicKey, programId: Publi
  * Required by pump.fun since September 2025 update for fee handling
  * AUDIT FIX: Added programId parameter for pump.pro support
  */
-export function deriveFeeConfigPDA(programId: PublicKey = PUMP_FUN_PROGRAM): [PublicKey, number] {
+export function deriveFeeConfigPDA(
+  programId: PublicKey = PUMP_FUN_PROGRAM,
+  feeProgramId: PublicKey = PUMP_FEE_PROGRAM
+): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from('fee_config'), programId.toBuffer()],
-    PUMP_FEE_PROGRAM
+    feeProgramId
   );
 }
 
@@ -429,9 +467,10 @@ export function deriveCreatorVaultPDA(creator: PublicKey, programId: PublicKey =
  */
 export async function deriveAssociatedBondingCurve(
   bondingCurve: PublicKey,
-  mint: PublicKey
+  mint: PublicKey,
+  tokenProgramId: PublicKey = TOKEN_2022_PROGRAM_ID
 ): Promise<PublicKey> {
-  return getAssociatedTokenAddress(mint, bondingCurve, true, TOKEN_2022_PROGRAM_ID);
+  return getAssociatedTokenAddress(mint, bondingCurve, true, tokenProgramId);
 }
 
 /**
@@ -441,14 +480,14 @@ export async function deriveAssociatedBondingCurve(
 export function getOrCreateATAInstruction(
   mint: PublicKey,
   owner: PublicKey,
-  payer: PublicKey
+  payer: PublicKey,
+  tokenProgramId: PublicKey = TOKEN_2022_PROGRAM_ID
 ): { ata: PublicKey; instruction: TransactionInstruction | null } {
-  // Use Token-2022 program for pump.fun tokens
   const ata = getAssociatedTokenAddressSync(
     mint,
     owner,
     false,
-    TOKEN_2022_PROGRAM_ID
+    tokenProgramId
   );
 
   // Note: We'll check if account exists before adding this instruction
@@ -457,10 +496,50 @@ export function getOrCreateATAInstruction(
     ata,
     owner,
     mint,
-    TOKEN_2022_PROGRAM_ID
+    tokenProgramId
   );
 
   return { ata, instruction };
+}
+
+// =============================================================================
+// Token Program Detection
+// =============================================================================
+
+/**
+ * Detect which token program a mint uses by checking the mint account owner.
+ * pump.fun tokens created after mid-2024 use Token-2022, but some older tokens
+ * or tokens from other sources may use the standard SPL Token program.
+ *
+ * @returns TOKEN_2022_PROGRAM_ID or TOKEN_PROGRAM_ID
+ */
+export async function getTokenProgramForMint(
+  connection: Connection,
+  mint: PublicKey
+): Promise<PublicKey> {
+  try {
+    const mintInfo = await connection.getAccountInfo(mint);
+    if (!mintInfo) {
+      console.warn(`[getTokenProgramForMint] Mint not found: ${mint.toBase58()}, defaulting to Token-2022`);
+      return TOKEN_2022_PROGRAM_ID;
+    }
+
+    // The mint account owner tells us which token program manages it
+    if (mintInfo.owner.equals(TOKEN_PROGRAM_ID)) {
+      console.log(`[getTokenProgramForMint] Mint ${mint.toBase58()} uses standard SPL Token program`);
+      return TOKEN_PROGRAM_ID;
+    } else if (mintInfo.owner.equals(TOKEN_2022_PROGRAM_ID)) {
+      console.log(`[getTokenProgramForMint] Mint ${mint.toBase58()} uses Token-2022 program`);
+      return TOKEN_2022_PROGRAM_ID;
+    } else {
+      console.warn(`[getTokenProgramForMint] Unknown mint owner: ${mintInfo.owner.toBase58()}, defaulting to Token-2022`);
+      return TOKEN_2022_PROGRAM_ID;
+    }
+  } catch (error) {
+    console.error(`[getTokenProgramForMint] Error detecting token program for ${mint.toBase58()}:`, error);
+    // Default to Token-2022 as most pump.fun tokens use it
+    return TOKEN_2022_PROGRAM_ID;
+  }
 }
 
 // =============================================================================
@@ -535,7 +614,7 @@ export class PumpFunClient {
 
   /**
    * Execute a buy on pump.fun bonding curve
-   * Note: pump.fun uses Token-2022 program for all tokens
+   * AUDIT FIX: Detects correct token program (Token-2022 or SPL Token) dynamically
    */
   async buy(params: PumpFunBuyParams): Promise<PumpFunTradeResult> {
     // Clamp slippage to 99% max (9900 bps) to prevent negative minTokens calculation
@@ -545,14 +624,19 @@ export class PumpFunClient {
 
     console.log(`[PumpFunClient] Buying with ${lamportsToSol(solAmount)} SOL, slippage: ${effectiveSlippageBps}bps, priorityFee: ${priorityFeeSol ?? 'default'} SOL`);
 
-    // Derive PDAs - use Token-2022 for pump.fun tokens
+    // AUDIT FIX: Detect which token program the mint uses (Token-2022 or standard SPL)
+    // Most pump.fun tokens use Token-2022, but some older tokens may use standard SPL
+    const tokenProgramId = await getTokenProgramForMint(this.connection, mint);
+
+    // Derive PDAs
     const [bondingCurve] = deriveBondingCurvePDA(mint);
-    const associatedBondingCurve = await deriveAssociatedBondingCurve(bondingCurve, mint);
+    const associatedBondingCurve = await deriveAssociatedBondingCurve(bondingCurve, mint, tokenProgramId);
+    // AUDIT FIX: Use detected token program for ATA derivation
     const userTokenAccount = await getAssociatedTokenAddress(
       mint,
       this.wallet.publicKey,
       false,
-      TOKEN_2022_PROGRAM_ID
+      tokenProgramId
     );
 
     // Derive volume accumulator PDAs (required since August 2025 pump.fun update)
@@ -560,7 +644,8 @@ export class PumpFunClient {
     const [userVolumeAccumulator] = deriveUserVolumeAccumulatorPDA(this.wallet.publicKey);
 
     // Derive fee config PDA (required since September 2025 pump.fun update)
-    const [feeConfig] = deriveFeeConfigPDA();
+    const { global, feeRecipient, eventAuthority, feeProgram } = getProgramAccounts(PUMP_FUN_PROGRAM);
+    const [feeConfig] = deriveFeeConfigPDA(PUMP_FUN_PROGRAM, feeProgram);
 
     // Get bonding curve state for calculation
     const state = await this.getBondingCurveState(mint);
@@ -613,7 +698,7 @@ export class PumpFunClient {
     );
 
     // Check if user token account exists, if not create it
-    // Use Token-2022 program for pump.fun tokens
+    // AUDIT FIX: Use detected token program for ATA creation
     const userATAInfo = await this.connection.getAccountInfo(userTokenAccount);
     if (!userATAInfo) {
       transaction.add(
@@ -622,7 +707,7 @@ export class PumpFunClient {
           userTokenAccount,
           this.wallet.publicKey,
           mint,
-          TOKEN_2022_PROGRAM_ID
+          tokenProgramId
         )
       );
     }
@@ -630,29 +715,29 @@ export class PumpFunClient {
     // Build buy instruction
     // SECURITY: P0-4 - Use minTokens (with slippage) instead of expectedTokens
     // This protects against MEV sandwich attacks by setting a minimum acceptable output
-    // Note: pump.fun uses Token-2022 program for all tokens
+    // AUDIT FIX: Use detected tokenProgramId (Token-2022 or SPL Token)
     // Note: Volume accumulator accounts added in August 2025 pump.fun update
     const buyInstruction = new TransactionInstruction({
       programId: PUMP_FUN_PROGRAM,
       keys: [
-        { pubkey: PUMP_FUN_GLOBAL, isSigner: false, isWritable: false },
-        { pubkey: PUMP_FUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
+        { pubkey: global, isSigner: false, isWritable: false },
+        { pubkey: feeRecipient, isSigner: false, isWritable: true },
         { pubkey: mint, isSigner: false, isWritable: false },
         { pubkey: bondingCurve, isSigner: false, isWritable: true },
         { pubkey: associatedBondingCurve, isSigner: false, isWritable: true },
         { pubkey: userTokenAccount, isSigner: false, isWritable: true },
         { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: tokenProgramId, isSigner: false, isWritable: false },  // AUDIT FIX: Use detected token program
         { pubkey: creatorVault, isSigner: false, isWritable: true }, // creator_vault (late 2025 update - replaced SysvarRent)
-        { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
+        { pubkey: eventAuthority, isSigner: false, isWritable: false },
         { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
         // Volume accumulator accounts (required since August 2025)
         { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: true },
         { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
         // Fee accounts (required since September 2025)
         { pubkey: feeConfig, isSigner: false, isWritable: false },
-        { pubkey: PUMP_FEE_PROGRAM, isSigner: false, isWritable: false },
+        { pubkey: feeProgram, isSigner: false, isWritable: false },
       ],
       data: encodeBuyData(minTokens, solAmount),
     });
@@ -678,7 +763,7 @@ export class PumpFunClient {
 
   /**
    * Execute a sell on pump.fun/pump.pro bonding curve
-   * Note: pump.fun/pump.pro use Token-2022 program for all tokens
+   * AUDIT FIX: Detects correct token program (Token-2022 or SPL Token) dynamically
    * AUDIT FIX: Added programId support for pump.pro tokens
    */
   async sell(params: PumpFunSellParams): Promise<PumpFunTradeResult> {
@@ -692,14 +777,20 @@ export class PumpFunClient {
 
     console.log(`[PumpFunClient] Selling ${tokenAmount} tokens via ${programName}, slippage: ${effectiveSlippageBps}bps, priorityFee: ${priorityFeeSol ?? 'default'} SOL`);
 
+    // AUDIT FIX: Detect which token program the mint uses (Token-2022 or standard SPL)
+    // This is critical because some tokens may use the standard SPL Token program
+    // while most pump.fun tokens use Token-2022
+    const tokenProgramId = await getTokenProgramForMint(this.connection, mint);
+
     // AUDIT FIX: Derive PDAs using program-agnostic function for pump.pro support
     const [bondingCurve] = deriveBondingCurvePDAForProgram(mint, effectiveProgram);
-    const associatedBondingCurve = await deriveAssociatedBondingCurve(bondingCurve, mint);
+    const associatedBondingCurve = await deriveAssociatedBondingCurve(bondingCurve, mint, tokenProgramId);
+    // AUDIT FIX: Use detected token program for ATA derivation
     const userTokenAccount = await getAssociatedTokenAddress(
       mint,
       this.wallet.publicKey,
       false,
-      TOKEN_2022_PROGRAM_ID
+      tokenProgramId
     );
 
     // AUDIT FIX: Derive volume accumulator PDAs using effectiveProgram for pump.pro support
@@ -707,7 +798,8 @@ export class PumpFunClient {
     const [userVolumeAccumulator] = deriveUserVolumeAccumulatorPDA(this.wallet.publicKey, effectiveProgram);
 
     // AUDIT FIX: Derive fee config PDA using effectiveProgram for pump.pro support
-    const [feeConfig] = deriveFeeConfigPDA(effectiveProgram);
+    const { global, feeRecipient, eventAuthority, feeProgram } = getProgramAccounts(effectiveProgram);
+    const [feeConfig] = deriveFeeConfigPDA(effectiveProgram, feeProgram);
 
     // AUDIT FIX: Get bonding curve state using effectiveProgram for pump.pro support
     const state = await this.getBondingCurveState(mint, effectiveProgram);
@@ -759,28 +851,28 @@ export class PumpFunClient {
 
     // Build sell instruction
     // AUDIT FIX: Use effectiveProgram for pump.pro support
-    // Note: pump.fun/pump.pro use Token-2022 program for all tokens
+    // AUDIT FIX: Use detected tokenProgramId (Token-2022 or SPL Token)
     const sellInstruction = new TransactionInstruction({
       programId: effectiveProgram,  // AUDIT FIX: Use effectiveProgram instead of hardcoded PUMP_FUN_PROGRAM
       keys: [
-        { pubkey: PUMP_FUN_GLOBAL, isSigner: false, isWritable: false },
-        { pubkey: PUMP_FUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
+        { pubkey: global, isSigner: false, isWritable: false },
+        { pubkey: feeRecipient, isSigner: false, isWritable: true },
         { pubkey: mint, isSigner: false, isWritable: false },
         { pubkey: bondingCurve, isSigner: false, isWritable: true },
         { pubkey: associatedBondingCurve, isSigner: false, isWritable: true },
         { pubkey: userTokenAccount, isSigner: false, isWritable: true },
         { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: tokenProgramId, isSigner: false, isWritable: false },  // AUDIT FIX: Use detected token program
         { pubkey: creatorVault, isSigner: false, isWritable: true }, // creator_vault (late 2025 update)
-        { pubkey: PUMP_FUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
+        { pubkey: eventAuthority, isSigner: false, isWritable: false },
         { pubkey: effectiveProgram, isSigner: false, isWritable: false },  // AUDIT FIX: Use effectiveProgram
         // Volume accumulator accounts (required since August 2025)
         { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: true },
         { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
         // Fee accounts (required since September 2025)
         { pubkey: feeConfig, isSigner: false, isWritable: false },
-        { pubkey: PUMP_FEE_PROGRAM, isSigner: false, isWritable: false },
+        { pubkey: feeProgram, isSigner: false, isWritable: false },
       ],
       data: encodeSellData(tokenAmount, minSol),
     });

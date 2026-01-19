@@ -7,6 +7,8 @@ import { getTokenInfo, calculateSellPrice, type PumpFunToken } from './api/pumpf
 import { getTokenByAddress } from './api/dexscreener.js';
 import { getTokenPrice, type PriceResult } from './pricing.js';
 import { getSolPrice } from './api/birdeye.js';
+import { decimalToTokenAmount, PROGRAM_IDS } from './chains/solana.js';
+import { getBondingCurveSnapshot, getMintInfo } from './pumpfun/onchain.js';
 
 // Default values for pump.fun tokens
 const PUMP_FUN_TOTAL_SUPPLY = 1_000_000_000;
@@ -16,6 +18,11 @@ const PUMP_PRO_DECIMALS = 9;
 // Cache for market data (30 second TTL)
 const marketDataCache = new Map<string, { data: MarketData; expiry: number }>();
 const CACHE_TTL_MS = 30_000;
+
+const JUPITER_QUOTE_API = 'https://api.jup.ag/swap/v1/quote';
+const JUPITER_QUOTE_TIMEOUT_MS = 4000;
+const quoteCache = new Map<string, { solOut: number; expiry: number }>();
+const QUOTE_CACHE_TTL_MS = 10_000;
 
 export type MarketDataSource = 'bonding_curve' | 'pumpfun_api' | 'dexscreener' | 'birdeye' | 'jupiter' | 'none';
 
@@ -90,8 +97,8 @@ export async function getMarketData(
     }
   }
 
-  // Determine decimals based on source
-  const decimals = source === 'pump.pro' ? PUMP_PRO_DECIMALS : PUMP_FUN_DECIMALS;
+  const mintInfo = await getMintInfo(mint);
+  const decimals = mintInfo?.decimals ?? (source === 'pump.pro' ? PUMP_PRO_DECIMALS : PUMP_FUN_DECIMALS);
 
   // Try pump.fun API first (works for pump.fun tokens, may work for pump.pro)
   try {
@@ -110,7 +117,7 @@ export async function getMarketData(
     const { data: dexData } = await getTokenByAddress(mint);
     if (dexData?.priceNative && dexData.priceNative > 0) {
       const priceSol = dexData.priceNative;
-      const supply = PUMP_FUN_TOTAL_SUPPLY; // Default, DEXScreener doesn't always have supply
+      const supply = mintInfo?.supply ?? PUMP_FUN_TOTAL_SUPPLY;
       const marketCapSol = priceSol * supply;
 
       const data: MarketData = {
@@ -137,7 +144,7 @@ export async function getMarketData(
     const priceResult = await getTokenPrice(mint);
     if (priceResult.price > 0) {
       const priceSol = priceResult.price;
-      const supply = PUMP_FUN_TOTAL_SUPPLY;
+      const supply = mintInfo?.supply ?? PUMP_FUN_TOTAL_SUPPLY;
       const marketCapSol = priceSol * supply;
 
       const data: MarketData = {
@@ -157,6 +164,42 @@ export async function getMarketData(
     }
   } catch (error) {
     console.warn(`[MarketData] Jupiter price failed for ${mint}:`, error);
+  }
+
+  // Fallback: On-chain bonding curve data (works when pump.fun API is down)
+  try {
+    const snapshot = await getBondingCurveSnapshot(mint);
+    if (snapshot) {
+      const supplyRaw = snapshot.state.tokenTotalSupply;
+      const supply = Number(supplyRaw) / Math.pow(10, decimals);
+      const virtualSolReserves = Number(snapshot.state.virtualSolReserves) / 1e9;
+      const virtualTokenReserves = Number(snapshot.state.virtualTokenReserves) / Math.pow(10, decimals);
+
+      const priceSol = virtualTokenReserves > 0 ? virtualSolReserves / virtualTokenReserves : 0;
+      const marketCapSol = priceSol * supply;
+      const realSol = Number(snapshot.state.realSolReserves) / 1e9;
+      const bondingCurveProgress = Math.min(100, (realSol / 85) * 100);
+
+      const data: MarketData = {
+        mint,
+        priceSol,
+        priceUsd: solPrice ? priceSol * solPrice : null,
+        marketCapSol,
+        marketCapUsd: solPrice ? marketCapSol * solPrice : null,
+        supply,
+        decimals,
+        source: 'bonding_curve',
+        isGraduated: snapshot.state.complete,
+        bondingCurveProgress,
+        virtualSolReserves,
+        virtualTokenReserves,
+      };
+
+      marketDataCache.set(mint, { data, expiry: now + CACHE_TTL_MS });
+      return data;
+    }
+  } catch (error) {
+    console.warn(`[MarketData] On-chain bonding curve fetch failed for ${mint}:`, error);
   }
 
   // Return empty data if all sources fail
@@ -215,10 +258,10 @@ export async function getMarketDataBatch(
  *
  * Uses quote-based calculation when possible:
  * 1. Bonding curve math (for pump.fun/pump.pro tokens not graduated)
- * 2. Spot price fallback (price × tokens)
+ * 2. Jupiter quote (for graduated tokens)
+ * 3. Spot price fallback (price × tokens)
  *
- * Note: Jupiter quote would be ideal for graduated tokens but requires
- * async API calls that are slow for UI. Use spot price for graduated tokens.
+ * Note: Quote calls are cached to reduce UI latency.
  */
 export async function getExpectedSolOut(
   mint: string,
@@ -227,7 +270,7 @@ export async function getExpectedSolOut(
     marketData?: MarketData;
     solPriceUsd?: number;
   } = {}
-): Promise<{ solOut: number; source: 'bonding_curve' | 'spot' }> {
+): Promise<{ solOut: number; source: 'bonding_curve' | 'jupiter' | 'spot' }> {
   // Get market data if not provided
   const data = options.marketData || await getMarketData(mint, { solPriceUsd: options.solPriceUsd });
 
@@ -263,6 +306,13 @@ export async function getExpectedSolOut(
       return { solOut: sellResult.solAmount, source: 'bonding_curve' };
     } catch (error) {
       console.warn(`[MarketData] Bonding curve sell calc failed for ${mint}:`, error);
+    }
+  }
+
+  if (data.isGraduated && data.decimals > 0 && tokensAdjusted > 0) {
+    const solOut = await getJupiterQuoteOut(mint, tokensAdjusted, data.decimals);
+    if (solOut !== null) {
+      return { solOut, source: 'jupiter' };
     }
   }
 
@@ -307,7 +357,7 @@ export async function computeQuotePnl(
     currentValueSol,
     pnlSol,
     pnlPercent,
-    source: source === 'bonding_curve' ? 'bonding_curve' : 'spot',
+    source: source === 'bonding_curve' ? 'bonding_curve' : source,
   };
 }
 
@@ -364,7 +414,58 @@ function priceSourceToMarketDataSource(source: PriceResult['source']): MarketDat
       return 'dexscreener';
     case 'pumpfun':
       return 'pumpfun_api';
+    case 'onchain':
+      return 'bonding_curve';
     default:
       return 'none';
+  }
+}
+
+async function getJupiterQuoteOut(
+  mint: string,
+  tokensAdjusted: number,
+  decimals: number
+): Promise<number | null> {
+  const tokensRaw = decimalToTokenAmount(tokensAdjusted, decimals);
+  if (tokensRaw <= 0n) {
+    return null;
+  }
+
+  const cacheKey = `${mint}:${tokensRaw.toString()}`;
+  const cached = quoteCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && now < cached.expiry) {
+    return cached.solOut;
+  }
+
+  const params = new URLSearchParams({
+    inputMint: mint,
+    outputMint: PROGRAM_IDS.WSOL,
+    amount: tokensRaw.toString(),
+    slippageBps: '100',
+    swapMode: 'ExactIn',
+    onlyDirectRoutes: 'false',
+    asLegacyTransaction: 'false',
+  });
+
+  try {
+    const response = await fetch(`${JUPITER_QUOTE_API}?${params}`, {
+      signal: AbortSignal.timeout(JUPITER_QUOTE_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json() as { outAmount?: string };
+    if (!data.outAmount) {
+      return null;
+    }
+
+    const solOut = Number(BigInt(data.outAmount)) / 1e9;
+    quoteCache.set(cacheKey, { solOut, expiry: now + QUOTE_CACHE_TTL_MS });
+    return solOut;
+  } catch {
+    return null;
   }
 }
