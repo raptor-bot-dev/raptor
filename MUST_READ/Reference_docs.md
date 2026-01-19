@@ -59,6 +59,7 @@ Pointers to useful references. Keep this list short.
 
 ### Official Resources
 - [pump-fun/pump-public-docs](https://github.com/pump-fun/pump-public-docs) - Official protocol documentation
+- Pinned Pump IDL (vendored): `vendor/pump-public-docs/idl/pump.json` (commit `f0ef005c386adeeb783c27fdcc4ddd9d49b255c5`)
 - Program ID: `6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P`
 - Global State: `4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf`
 

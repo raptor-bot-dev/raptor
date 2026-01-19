@@ -32,6 +32,7 @@ import {
   calculateBondingCurveProgress,
 } from '@raptor/shared';
 import bs58 from 'bs58';
+import { resolveFeeRecipient } from './feeRecipient.js';
 
 // Pump.fun program constants
 export const PUMP_FUN_PROGRAM_ID = PROGRAM_IDS.PUMP_FUN;
@@ -310,7 +311,6 @@ export function encodeSellData(tokenAmount: bigint, minSolOutput: bigint): Buffe
 
 const PUMP_FUN_PROGRAM = new PublicKey(PUMP_FUN_PROGRAM_ID);
 const PUMP_FUN_GLOBAL = new PublicKey(PUMP_FUN_GLOBAL_STATE);
-const PUMP_FUN_FEE_RECIPIENT = new PublicKey('CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM');
 const PUMP_FUN_EVENT_AUTHORITY = new PublicKey('Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1');
 // Fee program for pump.fun (Sep 2025 update) - required for buy/sell instructions
 const PUMP_FEE_PROGRAM = new PublicKey('pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ');
@@ -319,9 +319,6 @@ const PUMP_PRO_PROGRAM = new PublicKey(PUMP_PRO_PROGRAM_ID);
 const PUMP_PRO_GLOBAL = process.env.PUMP_PRO_GLOBAL_STATE
   ? new PublicKey(process.env.PUMP_PRO_GLOBAL_STATE)
   : PUMP_FUN_GLOBAL;
-const PUMP_PRO_FEE_RECIPIENT = process.env.PUMP_PRO_FEE_RECIPIENT
-  ? new PublicKey(process.env.PUMP_PRO_FEE_RECIPIENT)
-  : PUMP_FUN_FEE_RECIPIENT;
 const PUMP_PRO_EVENT_AUTHORITY = process.env.PUMP_PRO_EVENT_AUTHORITY
   ? new PublicKey(process.env.PUMP_PRO_EVENT_AUTHORITY)
   : PUMP_FUN_EVENT_AUTHORITY;
@@ -331,21 +328,18 @@ const PUMP_PRO_FEE_PROGRAM = process.env.PUMP_PRO_FEE_PROGRAM
 
 function getProgramAccounts(programId: PublicKey): {
   global: PublicKey;
-  feeRecipient: PublicKey;
   eventAuthority: PublicKey;
   feeProgram: PublicKey;
 } {
   if (programId.equals(PUMP_PRO_PROGRAM)) {
     return {
       global: PUMP_PRO_GLOBAL,
-      feeRecipient: PUMP_PRO_FEE_RECIPIENT,
       eventAuthority: PUMP_PRO_EVENT_AUTHORITY,
       feeProgram: PUMP_PRO_FEE_PROGRAM,
     };
   }
   return {
     global: PUMP_FUN_GLOBAL,
-    feeRecipient: PUMP_FUN_FEE_RECIPIENT,
     eventAuthority: PUMP_FUN_EVENT_AUTHORITY,
     feeProgram: PUMP_FEE_PROGRAM,
   };
@@ -644,7 +638,13 @@ export class PumpFunClient {
     const [userVolumeAccumulator] = deriveUserVolumeAccumulatorPDA(this.wallet.publicKey);
 
     // Derive fee config PDA (required since September 2025 pump.fun update)
-    const { global, feeRecipient, eventAuthority, feeProgram } = getProgramAccounts(PUMP_FUN_PROGRAM);
+    const { global, eventAuthority, feeProgram } = getProgramAccounts(PUMP_FUN_PROGRAM);
+    const feeRecipientResolution = await resolveFeeRecipient({
+      mint: mint.toBase58(),
+      bondingCurve: bondingCurve.toBase58(),
+      programId: PUMP_FUN_PROGRAM_ID,
+    });
+    const feeRecipient = new PublicKey(feeRecipientResolution.feeRecipient);
     const [feeConfig] = deriveFeeConfigPDA(PUMP_FUN_PROGRAM, feeProgram);
 
     // Get bonding curve state for calculation
@@ -798,7 +798,13 @@ export class PumpFunClient {
     const [userVolumeAccumulator] = deriveUserVolumeAccumulatorPDA(this.wallet.publicKey, effectiveProgram);
 
     // AUDIT FIX: Derive fee config PDA using effectiveProgram for pump.pro support
-    const { global, feeRecipient, eventAuthority, feeProgram } = getProgramAccounts(effectiveProgram);
+    const { global, eventAuthority, feeProgram } = getProgramAccounts(effectiveProgram);
+    const feeRecipientResolution = await resolveFeeRecipient({
+      mint: mint.toBase58(),
+      bondingCurve: bondingCurve.toBase58(),
+      programId: effectiveProgram.toBase58(),
+    });
+    const feeRecipient = new PublicKey(feeRecipientResolution.feeRecipient);
     const [feeConfig] = deriveFeeConfigPDA(effectiveProgram, feeProgram);
 
     // AUDIT FIX: Get bonding curve state using effectiveProgram for pump.pro support

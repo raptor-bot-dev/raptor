@@ -3,6 +3,12 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-20
+- **fix(executor): IDL-based fee recipient resolution**
+  - Pump fee recipient now resolves from on-chain Global config via pinned IDL
+  - Mayhem mode selects reserved fee recipients automatically
+  - New override env: `PUMP_OVERRIDE_FEE_RECIPIENT` (escape hatch only)
+  - Vendored Pump IDL: `vendor/pump-public-docs/idl/pump.json` (commit `f0ef005c386adeeb783c27fdcc4ddd9d49b255c5`)
+  - Note: `PUMP_PRO_FEE_RECIPIENT` is no longer used for normal routing
 - **fix(audit): pricing, PnL, and pump.pro execution hardening**
   - Added on-chain bonding curve fallback for pricing and market data
   - Quote-based PnL now uses Jupiter sell quotes for graduated tokens (cached)

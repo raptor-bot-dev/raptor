@@ -38,3 +38,6 @@ npm-debug.log*
 
 # MCP Server Config (contains secrets)
 .mcp.json
+
+# Local settings
+settings.local.json

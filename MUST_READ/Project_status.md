@@ -129,6 +129,10 @@ Single source of truth for current progress. Keep it brief.
   - Real-time PnL calculated on panel open via hybrid pricing module
   - Hybrid pricing: Jupiter API primary, pump.fun API fallback, 30s cache
   - New module: `packages/shared/src/pricing.ts` with `getTokenPrices()` API
+- **IDL-based fee recipient resolution** (2026-01-20):
+  - Pump.fun fee recipients resolved from Global config via pinned IDL
+  - Mayhem mode uses reserved fee recipients (no fixed recipient)
+  - New override: `PUMP_OVERRIDE_FEE_RECIPIENT` (escape hatch only)
 - **Emergency sell "In Progress" bug fixed** (2026-01-19):
   - Root cause: Code checked `status !== 'OPEN'` but database uses `status = 'ACTIVE'`
   - All ACTIVE positions incorrectly showed as "In Progress" blocking emergency sell

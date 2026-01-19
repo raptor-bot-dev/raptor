@@ -27,6 +27,7 @@
     "test:websocket:mainnet": "tsx src/tests/testWebSocket.ts --mainnet"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
     "@raptor/shared": "workspace:*",
     "@solana/spl-token": "^0.4.6",
     "@solana/web3.js": "^1.95.0",
