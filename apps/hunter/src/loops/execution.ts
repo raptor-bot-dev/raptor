@@ -234,6 +234,10 @@ export class ExecutionLoop {
           // Pump.fun tokens have 6 decimals - store adjusted amount for correct PnL calculation
           const PUMP_FUN_DECIMALS = 6;
           const adjustedSizeTokens = (result.tokensReceived || 0) / Math.pow(10, PUMP_FUN_DECIMALS);
+          const entryCostSol = result.amountIn || job.payload.amount_sol || 0;
+          // FIX: Calculate entry price from adjusted values (price = cost / tokens)
+          // result.price is calculated with RAW tokens, but we store ADJUSTED tokens
+          const entryPrice = adjustedSizeTokens > 0 ? entryCostSol / adjustedSizeTokens : 0;
 
           await createPositionV31({
             userId: job.user_id,
@@ -244,8 +248,8 @@ export class ExecutionLoop {
             tokenSymbol: opportunity?.token_symbol || undefined,  // FIX: Pass symbol for position display
             entryExecutionId: executionId,
             entryTxSig: result.txSig,
-            entryCostSol: result.amountIn || job.payload.amount_sol || 0,  // Use actual SOL spent, fallback to reserved
-            entryPrice: result.price || 0,
+            entryCostSol,
+            entryPrice,  // FIX: Use recalculated price that's consistent with adjusted tokens
             sizeTokens: adjustedSizeTokens,  // FIX: Store decimal-adjusted tokens for correct PnL with DEXScreener prices
             // TP/SL engine fields (Phase B audit fix)
             tpPercent: strategy.take_profit_percent,

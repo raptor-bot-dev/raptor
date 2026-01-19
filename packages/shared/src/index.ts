@@ -65,6 +65,9 @@ export * as launchpadDetector from './api/launchpadDetector.js';
 // Direct export for common pumpfun function
 export { getTokenInfo } from './api/pumpfun.js';
 
+// Direct export for common birdeye function
+export { getSolPrice } from './api/birdeye.js';
+
 // === RAPTOR v2.3.1 Security Modules ===
 
 // Security audit logging, health checks, and graceful degradation

@@ -27,9 +27,14 @@ import {
   getPositionByUuid,
   getOrCreateAutoStrategy,
   getTokenPrices,
+  getSolPrice,
 } from '@raptor/shared';
+import { GrammyError } from 'grammy';
 import { executeEmergencySell as executeEmergencySellService } from '../services/emergencySellService.js';
 import { showHome } from './home.js';
+
+// Pump.fun tokens have fixed 1 billion total supply
+const PUMP_FUN_TOTAL_SUPPLY = 1_000_000_000;
 
 /**
  * Handle positions:* and position:* callbacks
@@ -105,12 +110,15 @@ export async function showPositionsList(ctx: MyContext): Promise<void> {
         pnlPercent = ((currentValue - pos.entry_cost_sol) / pos.entry_cost_sol) * 100;
       }
 
+      // FIX: Calculate entry MC from entry price × total supply
+      const entryMcSol = pos.entry_price > 0 ? pos.entry_price * PUMP_FUN_TOTAL_SUPPLY : undefined;
+
       return {
         id: pos.uuid_id,
         symbol: pos.token_symbol || 'Unknown',
         mint: pos.token_mint,
         entrySol: pos.entry_cost_sol,
-        entryMcSol: (pos as any).entry_mc_sol ?? undefined,
+        entryMcSol,
         pnlPercent,
       };
     });
@@ -119,8 +127,17 @@ export async function showPositionsList(ctx: MyContext): Promise<void> {
     const panel = renderPositionsList(listItems, maxPositions);
 
     if (ctx.callbackQuery) {
-      await ctx.editMessageText(panel.text, panel.opts);
-      await ctx.answerCallbackQuery();
+      try {
+        await ctx.editMessageText(panel.text, panel.opts);
+        await ctx.answerCallbackQuery();
+      } catch (error) {
+        // FIX: Ignore "message is not modified" error - happens when refresh doesn't change anything
+        if (error instanceof GrammyError && error.description?.includes('message is not modified')) {
+          await ctx.answerCallbackQuery();
+        } else {
+          throw error;
+        }
+      }
     } else {
       await ctx.reply(panel.text, panel.opts);
     }
@@ -147,7 +164,16 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
       return;
     }
 
-    const strategy = await getOrCreateAutoStrategy(userId, 'sol');
+    // Fetch strategy and SOL price in parallel
+    const [strategy, solPriceUsd] = await Promise.all([
+      getOrCreateAutoStrategy(userId, 'sol'),
+      getSolPrice(),
+    ]);
+
+    // FIX: Calculate entry MC from entry price × total supply (column doesn't exist in DB)
+    const entryMcSol = position.entry_price > 0
+      ? position.entry_price * PUMP_FUN_TOTAL_SUPPLY
+      : 0;
 
     const detailData: PositionDetailData = {
       id: position.uuid_id,
@@ -155,13 +181,14 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
       symbol: position.token_symbol || 'Unknown',
       mint: position.token_mint,
       entryPrice: position.entry_price,
-      entryMcSol: (position as any).entry_mc_sol ?? 0,
+      entryMcSol,
       takeProfitPercent: strategy.take_profit_percent ?? 50,
       stopLossPercent: strategy.stop_loss_percent ?? 20,
       entrySol: position.entry_cost_sol,
       tokenAmount: position.size_tokens ?? 0,
       status: position.status as 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED',
       entryTxSig: position.entry_tx_sig ?? undefined,
+      solPriceUsd: solPriceUsd || undefined,
     };
 
     const panel = renderPositionDetail(detailData);

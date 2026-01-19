@@ -116,7 +116,8 @@ export async function executeEmergencySell(params: {
     };
   }
 
-  const executionId = reservation.execution_id;
+  // FIX: RPC returns reservation_id on success, execution_id only on already-executed
+  const executionId = reservation.reservation_id || reservation.execution_id;
   if (!executionId) {
     return {
       success: false,
