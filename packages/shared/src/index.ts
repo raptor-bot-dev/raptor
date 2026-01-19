@@ -85,3 +85,8 @@ export * from './config.js';
 
 // TP/SL types, utilities, and configuration
 export * from './tpsl.js';
+
+// === RAPTOR v4.4 Hybrid Pricing ===
+
+// Token price fetching with Jupiter + pump.fun fallback
+export * from './pricing.js';

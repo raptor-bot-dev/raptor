@@ -14,6 +14,10 @@ Scope: Autohunt pipeline A-Z (UI -> strategy persistence -> opportunity intake -
 - Token allowlist enforced when configured.
 - Legacy hunt callbacks route to new Arm/Disarm + Settings panels.
 - Settings slippage copy aligned to 1-99%; snipe mode UI normalized to speed/quality.
+- Filter mode policy hardened:
+  - Strict forces quality metadata fetch and fails closed on missing socials/activity.
+  - Moderate fails open on activity API errors; light requires socials only.
+  - Activity check runs once per token and falls back to on-chain bonding curve state.
 
 ## Flow Map (A-Z)
 1) User edits autohunt settings (trade size, TP/SL, slippage, priority, snipe mode).

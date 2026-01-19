@@ -26,6 +26,7 @@ import {
   getUserOpenPositions,
   getPositionByUuid,
   getOrCreateAutoStrategy,
+  getTokenPrices,
 } from '@raptor/shared';
 import { executeEmergencySell as executeEmergencySellService } from '../services/emergencySellService.js';
 import { showHome } from './home.js';
@@ -89,15 +90,30 @@ export async function showPositionsList(ctx: MyContext): Promise<void> {
       return;
     }
 
-    // Map positions to list items (use uuid_id as string identifier)
-    const listItems: PositionListItem[] = positions.map((pos) => ({
-      id: pos.uuid_id,
-      symbol: pos.token_symbol || 'Unknown',
-      mint: pos.token_mint,
-      entrySol: pos.entry_cost_sol,
-      entryMcSol: (pos as any).entry_mc_sol ?? undefined,
-      pnlPercent: pos.unrealized_pnl_percent ?? undefined,
-    }));
+    // Fetch current prices for all position tokens (Jupiter + pump.fun fallback)
+    const mints = positions.map((p) => p.token_mint);
+    const prices = await getTokenPrices(mints);
+
+    // Map positions to list items with real-time PnL calculation
+    const listItems: PositionListItem[] = positions.map((pos) => {
+      const priceResult = prices[pos.token_mint];
+      let pnlPercent: number | undefined;
+
+      // Calculate PnL if we have a valid price and entry data
+      if (priceResult?.price && priceResult.price > 0 && pos.entry_cost_sol > 0 && pos.size_tokens > 0) {
+        const currentValue = priceResult.price * pos.size_tokens;
+        pnlPercent = ((currentValue - pos.entry_cost_sol) / pos.entry_cost_sol) * 100;
+      }
+
+      return {
+        id: pos.uuid_id,
+        symbol: pos.token_symbol || 'Unknown',
+        mint: pos.token_mint,
+        entrySol: pos.entry_cost_sol,
+        entryMcSol: (pos as any).entry_mc_sol ?? undefined,
+        pnlPercent,
+      };
+    });
 
     const maxPositions = strategy.max_positions ?? 2;
     const panel = renderPositionsList(listItems, maxPositions);

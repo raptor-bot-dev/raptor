@@ -240,7 +240,7 @@ export class ExecutionLoop {
             tokenSymbol: opportunity?.token_symbol || undefined,  // FIX: Pass symbol for position display
             entryExecutionId: executionId,
             entryTxSig: result.txSig,
-            entryCostSol: job.payload.amount_sol || 0,
+            entryCostSol: result.amountIn || job.payload.amount_sol || 0,  // Use actual SOL spent, fallback to reserved
             entryPrice: result.price || 0,
             sizeTokens: result.tokensReceived || 0,
             // TP/SL engine fields (Phase B audit fix)
@@ -443,6 +443,7 @@ export class ExecutionLoop {
         success: result.success,
         txSig: result.txHash,
         tokensReceived: result.amountOut,
+        amountIn: result.amountIn,  // Actual SOL spent (after fees)
         price: result.price,
         error: result.error,
       };
@@ -590,6 +591,7 @@ interface TradeResult {
   success: boolean;
   txSig?: string;
   tokensReceived?: number;
+  amountIn?: number;  // Actual SOL spent (for BUY) or tokens sold (for SELL)
   price?: number;
   pnlSol?: number;
   pnlPercent?: number;

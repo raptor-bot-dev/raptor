@@ -11,13 +11,21 @@ import {
   getGlobalSafetyControls,
   idKeyAutoBuy,
   getTokenInfo,
+  calculateBondingCurveProgress,
+  isValidSolanaAddress,
+  lamportsToSol,
+  SOLANA_CONFIG,
+  type BondingCurveState,
   type Strategy,
   type OpportunityV31,
   type FilterMode,
 } from '@raptor/shared';
+import { Connection, PublicKey } from '@solana/web3.js';
 import { PumpFunMonitor, type PumpFunEvent } from '../monitors/pumpfun.js';
 import { scoreOpportunity, type ScoringResult } from '../scoring/scorer.js';
 import { fetchMetadata, type TokenMetadata } from '../utils/metadataFetcher.js';
+
+const solanaConnection = new Connection(SOLANA_CONFIG.rpcUrl, 'confirmed');
 
 // Snipe mode timeout configurations (ms)
 const SNIPE_MODE_TIMEOUTS: Record<string, number> = {
@@ -42,9 +50,16 @@ interface FilterResult {
   reason?: string;
 }
 
+interface ActivityCheckResult {
+  status: 'passed' | 'failed' | 'unavailable' | 'error';
+  reason: string;
+  progress?: number;
+}
+
 interface ModeResult {
   mode: SnipeMode;
   scoring: ScoringResult;
+  metadata: TokenMetadata | null;
   matchingCount: number;
   jobsCreated: number;
 }
@@ -125,8 +140,8 @@ export class OpportunityLoop {
 
       // If auto-execute is disabled, score once and exit without creating jobs
       if (!autoExecuteAllowed) {
-        const { scoring } = await this.scoreWithMode(opportunity, event, canonicalMode);
-        await this.updateOpportunityScore(opportunity, scoring);
+        const { scoring, metadata } = await this.scoreWithMode(opportunity, event, canonicalMode);
+        await this.updateOpportunityScore(opportunity, scoring, metadata);
 
         if (!scoring.qualified) {
           const reason = this.getRejectionReason(scoring);
@@ -146,8 +161,19 @@ export class OpportunityLoop {
         return;
       }
 
-      // 3. Group strategies by snipe mode (speed vs quality)
+      // 3. Group strategies by effective snipe mode (speed vs quality)
+      // Strict mode forces quality metadata regardless of snipe mode setting.
       const strategiesByMode = this.groupStrategiesByMode(strategies);
+
+      // 4. Start activity check once per token if any strategy needs it
+      const activityCheckPromise = this.requiresActivityCheck(strategies)
+        ? this.checkTokenActivity(opportunity.bonding_curve, opportunity.token_mint)
+        : null;
+      if (activityCheckPromise) {
+        console.log(
+          `[OpportunityLoop] Running activity check for ${event.symbol} (${event.mint.slice(0, 8)}...)`
+        );
+      }
 
       let jobsCreated = 0;
       let matchingStrategies = 0;
@@ -160,7 +186,7 @@ export class OpportunityLoop {
         await executingPromise;
       };
 
-      // 4. Score per mode, apply filters, match strategies, and create jobs
+      // 5. Score per mode, apply filters, match strategies, and create jobs
       const modeResults = await Promise.all(
         Array.from(strategiesByMode.entries()).map(async ([mode, modeStrategies]) => {
           const { scoring, metadata } = await this.scoreWithMode(opportunity, event, mode);
@@ -173,21 +199,13 @@ export class OpportunityLoop {
           const result: ModeResult = {
             mode,
             scoring,
+            metadata,
             matchingCount: matching.length,
             jobsCreated: 0,
           };
 
           if (matching.length === 0) {
             return result;
-          }
-
-          // v4.4: Run activity check once if any strategy in this mode needs it
-          let activityCheckResult: FilterResult | null = null;
-          if (this.requiresActivityCheck(matching)) {
-            console.log(
-              `[OpportunityLoop] Running activity check for ${event.symbol} (${event.mint.slice(0, 8)}...)`
-            );
-            activityCheckResult = await this.checkTokenActivity(opportunity.token_mint);
           }
 
           // v4.4: Apply filter mode to each strategy
@@ -197,7 +215,7 @@ export class OpportunityLoop {
               strategy,
               opportunity,
               metadata,
-              activityCheckResult
+              activityCheckPromise
             );
             if (filterResult.passed) {
               filtered.push(strategy);
@@ -234,7 +252,7 @@ export class OpportunityLoop {
 
       const canonicalResult = this.pickCanonicalResult(modeResults);
       if (canonicalResult) {
-        await this.updateOpportunityScore(opportunity, canonicalResult.scoring);
+        await this.updateOpportunityScore(opportunity, canonicalResult.scoring, canonicalResult.metadata);
       }
 
       for (const result of modeResults) {
@@ -294,7 +312,7 @@ export class OpportunityLoop {
    * NOTE: balanced is normalized to quality to reduce modes.
    */
   private getMostThoroughSnipeMode(strategies: Strategy[]): SnipeMode {
-    const modes = strategies.map((s) => this.normalizeSnipeMode(s.snipe_mode));
+    const modes = strategies.map((s) => this.getEffectiveSnipeMode(s));
     const speedCount = modes.filter((m) => m === 'speed').length;
     const qualityCount = modes.filter((m) => m === 'quality').length;
 
@@ -313,11 +331,19 @@ export class OpportunityLoop {
     return DEFAULT_SNIPE_MODE as SnipeMode;
   }
 
+  private getEffectiveSnipeMode(strategy: Strategy): SnipeMode {
+    const filterMode = strategy.filter_mode || DEFAULT_FILTER_MODE;
+    if (filterMode === 'strict') {
+      return 'quality';
+    }
+    return this.normalizeSnipeMode(strategy.snipe_mode);
+  }
+
   private groupStrategiesByMode(strategies: Strategy[]): Map<SnipeMode, Strategy[]> {
     const grouped = new Map<SnipeMode, Strategy[]>();
 
     for (const strategy of strategies) {
-      const mode = this.normalizeSnipeMode(strategy.snipe_mode);
+      const mode = this.getEffectiveSnipeMode(strategy);
       const list = grouped.get(mode) || [];
       list.push(strategy);
       grouped.set(mode, list);
@@ -374,14 +400,21 @@ export class OpportunityLoop {
 
   private async updateOpportunityScore(
     opportunity: OpportunityV31,
-    scoring: ScoringResult
+    scoring: ScoringResult,
+    metadata?: TokenMetadata | null
   ): Promise<void> {
+    // If metadata has symbol and opportunity doesn't, save it
+    const symbolFromMetadata = metadata?.symbol && !opportunity.token_symbol
+      ? metadata.symbol
+      : undefined;
+
     await upsertOpportunity({
       chain: opportunity.chain,
       source: opportunity.source,
       tokenMint: opportunity.token_mint,
       score: scoring.totalScore,
       reasons: scoring.reasons,
+      tokenSymbol: symbolFromMetadata,  // Update symbol if we found it from metadata
     });
   }
 
@@ -477,17 +510,22 @@ export class OpportunityLoop {
   /**
    * Apply filter mode checks for a strategy
    * v4.4: Filter modes control quality vs speed tradeoff
-   * - strict: Require socials + activity check
-   * - moderate: Activity check only (default)
+   * - strict: Require socials + activity check (fail closed on unavailable data)
+   * - moderate: Activity check only (default, fail open on API issues)
    * - light: Require socials only, no delay
    */
   private async applyFilterMode(
     strategy: Strategy,
     opportunity: OpportunityV31,
     metadata: TokenMetadata | null,
-    activityCheckResult: FilterResult | null // Pre-computed for the mode group
+    activityCheckPromise: Promise<ActivityCheckResult> | null
   ): Promise<FilterResult> {
     const mode = strategy.filter_mode || DEFAULT_FILTER_MODE;
+
+    const needsActivity = mode === 'moderate' || mode === 'strict';
+    const activityCheckResult = needsActivity && activityCheckPromise
+      ? await activityCheckPromise
+      : null;
 
     // Light and Strict modes require at least 1 social signal
     if (mode === 'light' || mode === 'strict') {
@@ -500,9 +538,15 @@ export class OpportunityLoop {
     }
 
     // Moderate and Strict modes use the activity check result
-    if (mode === 'moderate' || mode === 'strict') {
-      if (activityCheckResult && !activityCheckResult.passed) {
-        return activityCheckResult;
+    if (needsActivity) {
+      if (!activityCheckResult) {
+        if (mode === 'strict') {
+          return { passed: false, reason: 'activity_unavailable' };
+        }
+      } else if (activityCheckResult.status === 'failed') {
+        return { passed: false, reason: activityCheckResult.reason };
+      } else if (activityCheckResult.status !== 'passed' && mode === 'strict') {
+        return { passed: false, reason: activityCheckResult.reason };
       }
     }
 
@@ -513,36 +557,52 @@ export class OpportunityLoop {
    * Check token activity on bonding curve after a delay
    * Called once per token, shared across strategies in moderate/strict modes
    */
-  private async checkTokenActivity(mint: string): Promise<FilterResult> {
+  private async checkTokenActivity(
+    bondingCurve: string | null,
+    mint: string
+  ): Promise<ActivityCheckResult> {
     // Wait for early activity
     await new Promise((r) => setTimeout(r, ACTIVITY_CHECK_DELAY_MS));
 
     try {
       const tokenInfo = await getTokenInfo(mint);
 
-      if (!tokenInfo) {
-        // API unavailable - allow through (don't block on API issues)
+      if (tokenInfo) {
+        if (tokenInfo.bondingCurveProgress < MIN_BONDING_PROGRESS_PCT) {
+          console.log(
+            `[OpportunityLoop] Activity check: ${mint.slice(0, 8)}... has ${tokenInfo.bondingCurveProgress.toFixed(2)}% progress (< ${MIN_BONDING_PROGRESS_PCT}%), rejecting`
+          );
+          return { status: 'failed', reason: 'no_activity', progress: tokenInfo.bondingCurveProgress };
+        }
+
         console.log(
-          `[OpportunityLoop] Activity check: API unavailable for ${mint.slice(0, 8)}..., allowing through`
+          `[OpportunityLoop] Activity check: ${mint.slice(0, 8)}... has ${tokenInfo.bondingCurveProgress.toFixed(2)}% progress, ${tokenInfo.realSolReserves.toFixed(3)} SOL in curve`
         );
-        return { passed: true, reason: 'api_unavailable_allowed' };
+        return { status: 'passed', reason: 'api_ok', progress: tokenInfo.bondingCurveProgress };
       }
 
-      if (tokenInfo.bondingCurveProgress < MIN_BONDING_PROGRESS_PCT) {
+      const onChain = await this.fetchBondingCurveProgress(bondingCurve);
+      if (!onChain) {
         console.log(
-          `[OpportunityLoop] Activity check: ${mint.slice(0, 8)}... has ${tokenInfo.bondingCurveProgress.toFixed(2)}% progress (< ${MIN_BONDING_PROGRESS_PCT}%), rejecting`
+          `[OpportunityLoop] Activity check: API unavailable and no on-chain data for ${mint.slice(0, 8)}...`
         );
-        return { passed: false, reason: 'no_activity' };
+        return { status: 'unavailable', reason: 'activity_unavailable' };
+      }
+
+      if (onChain.progress < MIN_BONDING_PROGRESS_PCT) {
+        console.log(
+          `[OpportunityLoop] Activity check (on-chain): ${mint.slice(0, 8)}... has ${onChain.progress.toFixed(2)}% progress (< ${MIN_BONDING_PROGRESS_PCT}%), rejecting`
+        );
+        return { status: 'failed', reason: 'no_activity', progress: onChain.progress };
       }
 
       console.log(
-        `[OpportunityLoop] Activity check: ${mint.slice(0, 8)}... has ${tokenInfo.bondingCurveProgress.toFixed(2)}% progress, ${tokenInfo.realSolReserves.toFixed(3)} SOL in curve`
+        `[OpportunityLoop] Activity check (on-chain): ${mint.slice(0, 8)}... has ${onChain.progress.toFixed(2)}% progress, ${onChain.realSol.toFixed(3)} SOL in curve`
       );
-      return { passed: true };
+      return { status: 'passed', reason: 'onchain_ok', progress: onChain.progress };
     } catch (error) {
       console.error('[OpportunityLoop] Activity check error:', error);
-      // On error, allow through
-      return { passed: true, reason: 'error_allowed' };
+      return { status: 'error', reason: 'activity_error' };
     }
   }
 
@@ -554,6 +614,75 @@ export class OpportunityLoop {
       const mode = s.filter_mode || DEFAULT_FILTER_MODE;
       return mode === 'moderate' || mode === 'strict';
     });
+  }
+
+  private async fetchBondingCurveProgress(
+    bondingCurve: string | null
+  ): Promise<{ progress: number; realSol: number } | null> {
+    if (!bondingCurve || !isValidSolanaAddress(bondingCurve)) {
+      return null;
+    }
+
+    try {
+      const accountInfo = await solanaConnection.getAccountInfo(new PublicKey(bondingCurve));
+      if (!accountInfo || accountInfo.data.length < 49) {
+        return null;
+      }
+
+      const state = this.decodeBondingCurveState(Buffer.from(accountInfo.data));
+      if (!state) {
+        return null;
+      }
+
+      const progress = calculateBondingCurveProgress(state);
+      const realSol = lamportsToSol(state.realSolReserves);
+      return { progress, realSol };
+    } catch (error) {
+      console.error('[OpportunityLoop] On-chain bonding curve fetch error:', error);
+      return null;
+    }
+  }
+
+  private decodeBondingCurveState(data: Buffer): BondingCurveState | null {
+    if (data.length < 49) {
+      return null;
+    }
+
+    let offset = 8;
+    const virtualTokenReserves = data.readBigUInt64LE(offset);
+    offset += 8;
+
+    const virtualSolReserves = data.readBigUInt64LE(offset);
+    offset += 8;
+
+    const realTokenReserves = data.readBigUInt64LE(offset);
+    offset += 8;
+
+    const realSolReserves = data.readBigUInt64LE(offset);
+    offset += 8;
+
+    const tokenTotalSupply = data.readBigUInt64LE(offset);
+    offset += 8;
+
+    const complete = data.readUInt8(offset) === 1;
+    offset += 1;
+
+    if (data.length < offset + 32) {
+      return null;
+    }
+
+    const creatorBytes = data.slice(offset, offset + 32);
+    const creator = new PublicKey(creatorBytes).toBase58();
+
+    return {
+      virtualTokenReserves,
+      virtualSolReserves,
+      realTokenReserves,
+      realSolReserves,
+      tokenTotalSupply,
+      complete,
+      creator,
+    };
   }
 
   /**

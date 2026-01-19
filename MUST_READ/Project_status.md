@@ -123,6 +123,12 @@ Single source of truth for current progress. Keep it brief.
   - NotificationPoller uses `parse_mode: 'HTML'` and returns Panel objects
   - Generic notification formats fields with labels instead of raw JSON
   - All notifications include action buttons (Positions, Home, View TX, Chart)
+- **Position tracking data quality** (2026-01-19):
+  - Entry cost now uses actual SOL spent (`result.amountIn`) instead of reserved budget
+  - Token symbol saved back to opportunity when fetched from metadata
+  - Real-time PnL calculated on panel open via hybrid pricing module
+  - Hybrid pricing: Jupiter API primary, pump.fun API fallback, 30s cache
+  - New module: `packages/shared/src/pricing.ts` with `getTokenPrices()` API
 - `pnpm -w lint && pnpm -w build` passes
 
 ## Design Notes
@@ -172,7 +178,22 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-19 (latest): **Three autohunt production bugs fixed**
+- 2026-01-19 (latest): **Position tracking data quality fixes**
+  - P0: Entry cost wrong (0.1 SOL vs actual ~0.0167 SOL)
+    - Root cause: Used reserved budget (`job.payload.amount_sol`) instead of actual spend
+    - Fix: Added `amountIn` to TradeResult interface, mapped from executor result
+    - Position now stores `result.amountIn` (actual SOL spent after fees)
+  - P1: Token symbol "Unknown" - metadata not saved back to opportunity
+    - Root cause: Metadata IS fetched but symbol NOT written back to DB
+    - Fix: `updateOpportunityScore()` now accepts metadata and updates symbol if missing
+    - Added `metadata` field to `ModeResult` interface for proper propagation
+  - P1: PnL shows 0.00% - never updated for active positions
+    - Root cause: No price fetching or PnL calculation for ACTIVE positions
+    - Fix: Created hybrid pricing module (`packages/shared/src/pricing.ts`)
+    - Jupiter Price API primary, pump.fun API fallback, 30s cache
+    - Positions handler now fetches real-time prices and calculates PnL
+  - No paid Jupiter plan needed: Free tier (600 req/min) sufficient until 1000+ users
+- 2026-01-19 (earlier): **Three autohunt production bugs fixed**
   - P0: Position limit bypass - RPC `reserve_trade_budget()` checked `status='OPEN'` but positions use `status='ACTIVE'`
     - Migration 018 fixes queries on lines 204 and 220 to use 'ACTIVE'
   - P1: Token amount wrong ("3467.85B" instead of "3.47M") - raw token amounts not adjusted for decimals

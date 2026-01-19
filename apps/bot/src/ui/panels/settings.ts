@@ -238,7 +238,7 @@ export function renderFilterModeSelection(currentMode: 'strict' | 'moderate' | '
 
   const lines: string[] = [
     stat('Current', modeLabels[currentMode] || 'Moderate'),
-    'Strict: Require socials + activity check (3s delay).',
+    'Strict: Require socials + activity check (full metadata, 3s delay).',
     'Moderate: Activity check only (3s delay, default).',
     'Light: Require socials only, no delay (fastest).',
   ];
