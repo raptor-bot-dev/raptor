@@ -24,6 +24,7 @@ export interface SettingsData {
   prioritySol: number; // Priority fee in SOL (validator tip)
   antiMevEnabled: boolean; // MEV protection via Jito
   snipeMode: 'speed' | 'quality';
+  filterMode: 'strict' | 'moderate' | 'light';
 }
 
 /**
@@ -48,6 +49,14 @@ export function renderSettings(data: SettingsData): Panel {
 
   const snipeModeLabel = data.snipeMode === 'speed' ? 'Speed' : 'Quality';
 
+  // Filter mode labels
+  const filterModeLabels: Record<string, string> = {
+    strict: 'Strict',
+    moderate: 'Moderate',
+    light: 'Light',
+  };
+  const filterModeLabel = filterModeLabels[data.filterMode] || 'Moderate';
+
   const lines: string[] = [
     stat('Trade Size', `${data.tradeSize} SOL`),
     stat('Max Positions', `${data.maxPositions}`),
@@ -56,7 +65,7 @@ export function renderSettings(data: SettingsData): Panel {
     stat('Slippage', `${data.slippageBps / 100}%`),
     stat('Priority Fee', priorityDisplay),
     stat('Snipe Mode', snipeModeLabel),
-    'Speed: faster entry, more skips. Quality: best filtering.',
+    stat('Filter Mode', filterModeLabel),
     stat('MEV Protection', data.antiMevEnabled ? 'ON (Jito)' : 'OFF'),
   ];
 
@@ -75,6 +84,7 @@ export function renderSettings(data: SettingsData): Panel {
     ],
     [
       btn('Edit Snipe Mode', CB.SETTINGS.EDIT_SNIPE_MODE),
+      btn('Edit Filter Mode', CB.SETTINGS.EDIT_FILTER_MODE),
     ],
     [
       btn(data.antiMevEnabled ? 'MEV: ON' : 'MEV: OFF', CB.SETTINGS.TOGGLE_MEV),
@@ -214,6 +224,43 @@ export function renderSnipeModeSelection(currentMode: 'speed' | 'quality'): Pane
   ];
 
   return panel('SNIPE MODE', lines, buttons);
+}
+
+/**
+ * Render filter mode selection panel
+ */
+export function renderFilterModeSelection(currentMode: 'strict' | 'moderate' | 'light'): Panel {
+  const modeLabels: Record<string, string> = {
+    strict: 'Strict',
+    moderate: 'Moderate',
+    light: 'Light',
+  };
+
+  const lines: string[] = [
+    stat('Current', modeLabels[currentMode] || 'Moderate'),
+    'Strict: Require socials + activity check (3s delay).',
+    'Moderate: Activity check only (3s delay, default).',
+    'Light: Require socials only, no delay (fastest).',
+  ];
+
+  // No emojis on buttons per CLAUDE.md - use [x] for selected
+  const strictLabel = currentMode === 'strict' ? '[x] Strict' : 'Strict';
+  const moderateLabel = currentMode === 'moderate' ? '[x] Moderate' : 'Moderate';
+  const lightLabel = currentMode === 'light' ? '[x] Light' : 'Light';
+
+  const buttons: Button[][] = [
+    [
+      btn(strictLabel, CB.SETTINGS.SET_FILTER_MODE_STRICT),
+      btn(moderateLabel, CB.SETTINGS.SET_FILTER_MODE_MODERATE),
+      btn(lightLabel, CB.SETTINGS.SET_FILTER_MODE_LIGHT),
+    ],
+    [
+      btn('Back', CB.SETTINGS.OPEN),
+      homeBtn(),
+    ],
+  ];
+
+  return panel('FILTER MODE', lines, buttons);
 }
 
 /**

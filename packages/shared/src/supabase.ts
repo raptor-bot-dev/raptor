@@ -1439,6 +1439,8 @@ export async function getOrCreateAutoStrategy(userId: number, chain: Chain): Pro
     deployer_denylist: [],
     // v4.3: Snipe mode
     snipe_mode: 'quality' as const,
+    // v4.4: Filter mode
+    filter_mode: 'moderate' as const,
   };
 
   // Check for existing AUTO strategy

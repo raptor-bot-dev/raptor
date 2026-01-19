@@ -2,6 +2,17 @@
 
 Keep this log short and append-only. Use ISO dates.
 
+## 2026-01-19
+- **feat(hunter): token launch filtering modes**
+  - Added 3 configurable filter modes: strict, moderate (default), light
+  - Strict: Require socials + 3s delay + activity check
+  - Moderate: 3s delay + activity check only (checks bondingCurveProgress > 0.5%)
+  - Light: Require at least 1 social signal, no delay (fastest entry)
+  - Activity check uses pump.fun API to verify early buyer interest
+  - Reduces wasted gas and RPC calls on dead tokens
+  - Migration 017 adds filter_mode column to strategies
+  - Settings UI updated with Filter Mode selection
+
 ## 2026-01-18
 - **fix(db): allow retryable auto jobs to reuse executions**
   - Added migration 016 to extend `reserve_trade_budget` with `p_allow_retry`

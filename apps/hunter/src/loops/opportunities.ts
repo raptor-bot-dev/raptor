@@ -10,8 +10,10 @@ import {
   createTradeJob,
   getGlobalSafetyControls,
   idKeyAutoBuy,
+  getTokenInfo,
   type Strategy,
   type OpportunityV31,
+  type FilterMode,
 } from '@raptor/shared';
 import { PumpFunMonitor, type PumpFunEvent } from '../monitors/pumpfun.js';
 import { scoreOpportunity, type ScoringResult } from '../scoring/scorer.js';
@@ -26,7 +28,19 @@ const SNIPE_MODE_TIMEOUTS: Record<string, number> = {
 // Default snipe mode if not specified
 const DEFAULT_SNIPE_MODE = 'quality';
 
+// Default filter mode if not specified
+const DEFAULT_FILTER_MODE: FilterMode = 'moderate';
+
+// Activity check parameters
+const ACTIVITY_CHECK_DELAY_MS = 3000; // 3 seconds
+const MIN_BONDING_PROGRESS_PCT = 0.5; // 0.5% = ~0.4 SOL in curve
+
 type SnipeMode = 'speed' | 'quality';
+
+interface FilterResult {
+  passed: boolean;
+  reason?: string;
+}
 
 interface ModeResult {
   mode: SnipeMode;
@@ -146,10 +160,10 @@ export class OpportunityLoop {
         await executingPromise;
       };
 
-      // 4. Score per mode, match strategies, and create jobs
+      // 4. Score per mode, apply filters, match strategies, and create jobs
       const modeResults = await Promise.all(
         Array.from(strategiesByMode.entries()).map(async ([mode, modeStrategies]) => {
-          const { scoring } = await this.scoreWithMode(opportunity, event, mode);
+          const { scoring, metadata } = await this.scoreWithMode(opportunity, event, mode);
           const matching = scoring.qualified
             ? modeStrategies.filter((s) =>
                 this.strategyMatchesOpportunity(s, opportunity, scoring)
@@ -167,9 +181,42 @@ export class OpportunityLoop {
             return result;
           }
 
+          // v4.4: Run activity check once if any strategy in this mode needs it
+          let activityCheckResult: FilterResult | null = null;
+          if (this.requiresActivityCheck(matching)) {
+            console.log(
+              `[OpportunityLoop] Running activity check for ${event.symbol} (${event.mint.slice(0, 8)}...)`
+            );
+            activityCheckResult = await this.checkTokenActivity(opportunity.token_mint);
+          }
+
+          // v4.4: Apply filter mode to each strategy
+          const filtered: Strategy[] = [];
+          for (const strategy of matching) {
+            const filterResult = await this.applyFilterMode(
+              strategy,
+              opportunity,
+              metadata,
+              activityCheckResult
+            );
+            if (filterResult.passed) {
+              filtered.push(strategy);
+            } else {
+              console.log(
+                `[OpportunityLoop] Strategy ${strategy.name} filtered out: ${filterResult.reason}`
+              );
+            }
+          }
+
+          result.matchingCount = filtered.length;
+
+          if (filtered.length === 0) {
+            return result;
+          }
+
           await ensureExecuting();
 
-          for (const strategy of matching) {
+          for (const strategy of filtered) {
             try {
               await this.createBuyJob(opportunity, strategy);
               result.jobsCreated += 1;
@@ -425,6 +472,88 @@ export class OpportunityLoop {
     }
 
     return true;
+  }
+
+  /**
+   * Apply filter mode checks for a strategy
+   * v4.4: Filter modes control quality vs speed tradeoff
+   * - strict: Require socials + activity check
+   * - moderate: Activity check only (default)
+   * - light: Require socials only, no delay
+   */
+  private async applyFilterMode(
+    strategy: Strategy,
+    opportunity: OpportunityV31,
+    metadata: TokenMetadata | null,
+    activityCheckResult: FilterResult | null // Pre-computed for the mode group
+  ): Promise<FilterResult> {
+    const mode = strategy.filter_mode || DEFAULT_FILTER_MODE;
+
+    // Light and Strict modes require at least 1 social signal
+    if (mode === 'light' || mode === 'strict') {
+      const hasSocial = Boolean(
+        metadata?.twitter || metadata?.website || metadata?.telegram
+      );
+      if (!hasSocial) {
+        return { passed: false, reason: 'no_socials' };
+      }
+    }
+
+    // Moderate and Strict modes use the activity check result
+    if (mode === 'moderate' || mode === 'strict') {
+      if (activityCheckResult && !activityCheckResult.passed) {
+        return activityCheckResult;
+      }
+    }
+
+    return { passed: true };
+  }
+
+  /**
+   * Check token activity on bonding curve after a delay
+   * Called once per token, shared across strategies in moderate/strict modes
+   */
+  private async checkTokenActivity(mint: string): Promise<FilterResult> {
+    // Wait for early activity
+    await new Promise((r) => setTimeout(r, ACTIVITY_CHECK_DELAY_MS));
+
+    try {
+      const tokenInfo = await getTokenInfo(mint);
+
+      if (!tokenInfo) {
+        // API unavailable - allow through (don't block on API issues)
+        console.log(
+          `[OpportunityLoop] Activity check: API unavailable for ${mint.slice(0, 8)}..., allowing through`
+        );
+        return { passed: true, reason: 'api_unavailable_allowed' };
+      }
+
+      if (tokenInfo.bondingCurveProgress < MIN_BONDING_PROGRESS_PCT) {
+        console.log(
+          `[OpportunityLoop] Activity check: ${mint.slice(0, 8)}... has ${tokenInfo.bondingCurveProgress.toFixed(2)}% progress (< ${MIN_BONDING_PROGRESS_PCT}%), rejecting`
+        );
+        return { passed: false, reason: 'no_activity' };
+      }
+
+      console.log(
+        `[OpportunityLoop] Activity check: ${mint.slice(0, 8)}... has ${tokenInfo.bondingCurveProgress.toFixed(2)}% progress, ${tokenInfo.realSolReserves.toFixed(3)} SOL in curve`
+      );
+      return { passed: true };
+    } catch (error) {
+      console.error('[OpportunityLoop] Activity check error:', error);
+      // On error, allow through
+      return { passed: true, reason: 'error_allowed' };
+    }
+  }
+
+  /**
+   * Check if any strategy in the list requires activity check
+   */
+  private requiresActivityCheck(strategies: Strategy[]): boolean {
+    return strategies.some((s) => {
+      const mode = s.filter_mode || DEFAULT_FILTER_MODE;
+      return mode === 'moderate' || mode === 'strict';
+    });
   }
 
   /**

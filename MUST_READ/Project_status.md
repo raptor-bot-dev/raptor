@@ -104,6 +104,15 @@ Single source of truth for current progress. Keep it brief.
   - Legacy hunt callbacks now open Arm/Disarm + Settings
   - Snipe mode normalized to speed/quality in Settings
   - Slippage prompt aligned to 1-99%
+- **Token launch filtering modes** (2026-01-19):
+  - 3 configurable filter modes: strict, moderate (default), light
+  - Strict: Require socials + 3s delay + activity check
+  - Moderate: 3s delay + activity check only (checks bondingCurveProgress > 0.5%)
+  - Light: Require at least 1 social signal, no delay (fastest entry)
+  - Activity check uses pump.fun API to verify early buyer interest
+  - Reduces wasted gas and RPC calls on dead tokens
+  - Migration 017 adds filter_mode column to strategies
+  - Settings UI updated with Filter Mode selection
 - `pnpm -w lint && pnpm -w build` passes
 
 ## Design Notes
@@ -153,7 +162,13 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-18 (latest): **Autohunt retry + lifecycle fixes deployed**
+- 2026-01-19 (latest): **Token launch filtering modes implemented**
+  - Migration 017: filter_mode column (strict/moderate/light)
+  - OpportunityLoop: per-strategy filtering with activity check
+  - Activity check: 3s delay + bondingCurveProgress > 0.5%
+  - Settings UI: Edit Filter Mode button + selection panel
+  - Pending: run lint/build, apply migration 017, commit + push
+- 2026-01-18 (earlier): **Autohunt retry + lifecycle fixes deployed**
   - Migration 016 deployed: `p_allow_retry` in reserve_trade_budget
   - OpportunityLoop: per-mode metadata scoring, no early COMPLETED
   - Legacy hunt callbacks route to new Arm/Disarm + Settings panels

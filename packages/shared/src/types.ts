@@ -49,6 +49,9 @@ export type TradeAction = 'BUY' | 'SELL';
 /** Trade mode for reserve_trade_budget */
 export type TradeMode = 'MANUAL' | 'AUTO';
 
+/** Filter mode for token quality filtering */
+export type FilterMode = 'strict' | 'moderate' | 'light';
+
 /** Cooldown types */
 export type CooldownType = 'MINT' | 'USER_MINT' | 'DEPLOYER';
 
@@ -132,6 +135,9 @@ export interface Strategy {
 
   // v4.3: Snipe mode for metadata fetch timeout
   snipe_mode: 'speed' | 'balanced' | 'quality';
+
+  // v4.4: Filter mode for token quality filtering
+  filter_mode: FilterMode;
 
   created_at: string;
   updated_at: string;

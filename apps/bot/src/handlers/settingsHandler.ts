@@ -14,6 +14,7 @@ import {
   renderEditSlippage,
   renderEditPriority,
   renderSnipeModeSelection,
+  renderFilterModeSelection,
   renderSettingsUpdated,
   type SettingsData,
 } from '../ui/panels/settings.js';
@@ -74,6 +75,22 @@ export async function handleSettingsCallbacks(ctx: MyContext, data: string): Pro
       await setSnipeMode(ctx, 'quality');
       break;
 
+    case CB.SETTINGS.EDIT_FILTER_MODE:
+      await showFilterMode(ctx);
+      break;
+
+    case CB.SETTINGS.SET_FILTER_MODE_STRICT:
+      await setFilterMode(ctx, 'strict');
+      break;
+
+    case CB.SETTINGS.SET_FILTER_MODE_MODERATE:
+      await setFilterMode(ctx, 'moderate');
+      break;
+
+    case CB.SETTINGS.SET_FILTER_MODE_LIGHT:
+      await setFilterMode(ctx, 'light');
+      break;
+
     case CB.SETTINGS.TOGGLE_MEV:
       await toggleMev(ctx);
       break;
@@ -98,6 +115,9 @@ export async function showSettings(ctx: MyContext): Promise<void> {
       getOrCreateChainSettings(userId, 'sol'),
     ]);
     const snipeMode = strategy.snipe_mode === 'speed' ? 'speed' : 'quality';
+    const filterMode = (['strict', 'moderate', 'light'].includes(strategy.filter_mode)
+      ? strategy.filter_mode
+      : 'moderate') as 'strict' | 'moderate' | 'light';
 
     const settingsData: SettingsData = {
       tradeSize: strategy.max_per_trade_sol ?? 0.1,
@@ -108,6 +128,7 @@ export async function showSettings(ctx: MyContext): Promise<void> {
       prioritySol: chainSettings.priority_sol ?? 0.0005,
       antiMevEnabled: chainSettings.anti_mev_enabled ?? true,
       snipeMode,
+      filterMode,
     };
 
     const panel = renderSettings(settingsData);
@@ -305,6 +326,53 @@ async function setSnipeMode(ctx: MyContext, mode: 'speed' | 'quality'): Promise<
     await showSnipeMode(ctx);
   } catch (error) {
     console.error('Error setting snipe mode:', error);
+    await ctx.answerCallbackQuery('Error');
+  }
+}
+
+/**
+ * Show filter mode selection panel
+ */
+async function showFilterMode(ctx: MyContext): Promise<void> {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  try {
+    const strategy = await getOrCreateAutoStrategy(userId, 'sol');
+    const mode = (['strict', 'moderate', 'light'].includes(strategy.filter_mode)
+      ? strategy.filter_mode
+      : 'moderate') as 'strict' | 'moderate' | 'light';
+    const panel = renderFilterModeSelection(mode);
+
+    await ctx.editMessageText(panel.text, panel.opts);
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('Error showing filter mode:', error);
+    await ctx.answerCallbackQuery('Error');
+  }
+}
+
+/**
+ * Set filter mode (strict, moderate, or light)
+ */
+async function setFilterMode(ctx: MyContext, mode: 'strict' | 'moderate' | 'light'): Promise<void> {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  try {
+    const strategy = await getOrCreateAutoStrategy(userId, 'sol');
+
+    // Skip update if already set to this mode (prevents "message not modified" error)
+    if (strategy.filter_mode === mode) {
+      const modeLabels = { strict: 'Strict', moderate: 'Moderate', light: 'Light' };
+      await ctx.answerCallbackQuery(`Already set to ${modeLabels[mode]}`);
+      return;
+    }
+
+    await updateStrategy(strategy.id, { filter_mode: mode });
+    await showFilterMode(ctx);
+  } catch (error) {
+    console.error('Error setting filter mode:', error);
     await ctx.answerCallbackQuery('Error');
   }
 }
