@@ -162,12 +162,12 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-19 (latest): **Token launch filtering modes implemented**
-  - Migration 017: filter_mode column (strict/moderate/light)
+- 2026-01-19 (latest): **Token launch filtering modes deployed**
+  - Migration 017 applied: filter_mode column (strict/moderate/light)
   - OpportunityLoop: per-strategy filtering with activity check
   - Activity check: 3s delay + bondingCurveProgress > 0.5%
   - Settings UI: Edit Filter Mode button + selection panel
-  - Pending: run lint/build, apply migration 017, commit + push
+  - Commit 724969a pushed to origin/main
 - 2026-01-18 (earlier): **Autohunt retry + lifecycle fixes deployed**
   - Migration 016 deployed: `p_allow_retry` in reserve_trade_budget
   - OpportunityLoop: per-mode metadata scoring, no early COMPLETED
