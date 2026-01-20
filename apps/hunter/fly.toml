@@ -6,6 +6,7 @@ primary_region = "iad"
 
 [env]
   NODE_ENV = "production"
+  PUMP_IDL_PATH = "/app/vendor/pump-public-docs/idl/pump.json"
 
 [http_service]
   internal_port = 3001
