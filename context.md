@@ -1,60 +1,70 @@
 # RAPTOR v3 Context - Resume Point
 
-**Date:** 2026-01-19
+**Date:** 2026-01-20
 **Branch:** `main`
-**Status:** Emergency Sell and Pricing Reliability Fixes - COMPLETE
+**Status:** Token-2022 ATA Detection Fix (v136) - DEPLOYED, PENDING VERIFICATION
 
 ---
 
-## Latest: Emergency Sell and Pricing Fixes (2026-01-19)
+## Latest: Token-2022 ATA Detection Fix (2026-01-20 - v136)
 
-### What Was Fixed
+### The Problem
+Emergency sell returned `PREFLIGHT_ZERO_BALANCE` despite wallet holding tokens. User confirmed: "the wallets still hold the tokens so our infrastructure is wrong."
 
-| Issue | Severity | Root Cause | Fix |
-|-------|----------|------------|-----|
-| Emergency sell stuck "In Progress" | **P0** | Code checked `status !== 'OPEN'` but DB uses `'ACTIVE'` | Changed all status checks to 'ACTIVE' |
-| Price fetching failures | **P1** | pump.fun API blocked (530), was only fallback | Added DEXScreener as second fallback |
-| Entry cost wrong (future buys) | **P1** | Executor returned requested amount, not actual spend | Added balance measurement before/after |
+### Root Cause (THE REAL FIX)
+`getTokenBalanceRaw()` in `solanaExecutor.ts` was deriving ATAs using standard SPL token program, but pump.fun tokens use **Token-2022** which derives ATAs at **different addresses**.
+
+```typescript
+// BEFORE (WRONG): Used default token program (standard SPL)
+const ata = await getAssociatedTokenAddress(mint, wallet);
+
+// AFTER (FIXED): Detect and use correct token program
+const tokenProgramId = await getTokenProgramForMint(this.connection, mint);
+const ata = await getAssociatedTokenAddress(mint, wallet, false, tokenProgramId);
+```
+
+Result: Function was checking wrong ATA (0 balance) while real Token-2022 ATA had tokens.
 
 ### Commits (This Session)
-- `82e2625` - fix(bot): emergency sell and pricing reliability
+- `c4a1f50` - fix(executor): detect Token-2022 program for correct ATA in getTokenBalanceRaw
+- `1e24662` - fix(deploy): correct dockerfile path in fly.toml
 
 ### Files Changed
-- `apps/bot/src/handlers/positionsHandler.ts` - status checks
-- `apps/bot/src/ui/panels/positionDetail.ts` - status type and checks
-- `apps/bot/src/commands/positions.ts` - status check
-- `packages/shared/src/types.ts` - PositionStatus type: 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED'
-- `packages/shared/src/pricing.ts` - DEXScreener fallback (v4.5)
-- `apps/executor/src/chains/solana/solanaExecutor.ts` - `getSolBalance()` + `actualSolSpent` capture
+- `apps/executor/src/chains/solana/solanaExecutor.ts` - getTokenBalanceRaw() Token-2022 fix
+- `apps/bot/fly.toml` - dockerfile path `../../Dockerfile.bot` for local deploy
+- `apps/bot/src/services/emergencySellService.ts` - sellPercent: 100 option
+- `apps/hunter/src/loops/execution.ts` - sellPercent option
+- `retros/2026-01-20-retro.md` - NEW: full session retrospective
 
-### Data Fixes (SQL)
-- Updated 4 existing positions with correct entry costs (~0.017 SOL instead of 0.1 SOL)
-- Fixed token symbols: Unknown → HODL, Watcher, REDBULL
+### Deployment History (This Session)
+| Version | Changes | Result |
+|---------|---------|--------|
+| v134 | sellPercent option + preflight checks | `PREFLIGHT_ZERO_BALANCE` (wrong ATA) |
+| v135 | Fly.io autostop fix | Bot stayed running |
+| v136 | Token-2022 ATA detection | **PENDING VERIFICATION** |
 
 ---
 
-## Previous: Position Tracking Data Quality (2026-01-19)
+## Previous Issues Fixed (This Session)
 
-### What Was Fixed
+### Issue 1: Fly.io Bot Not Autostarting
+- Machine had old config (`autostop: true`, `min_machines_running: 0`)
+- fly.toml was correct but machine retained old settings
+- Fixed by redeploying with `flyctl deploy` to apply new config
+- Also fixed dockerfile path: `../../Dockerfile.bot` (relative to fly.toml)
 
-| Issue | Severity | Fix |
-|-------|----------|-----|
-| Entry cost shows reserved budget (0.1 SOL) instead of actual (~0.017) | **P0** | Added `amountIn` to TradeResult, use in position creation |
-| Token symbol "Unknown" | **P1** | Save symbol from metadata to opportunity |
-| PnL shows 0.00% | **P1** | Created hybrid pricing module (Jupiter + pump.fun) |
-
-### Key Files
-- `apps/hunter/src/loops/execution.ts` - `amountIn` mapping
-- `packages/shared/src/pricing.ts` - NEW: Hybrid price fetching
+### Issue 2: Initial Misdiagnosis (10x Token Amount)
+- First thought: decimal multiplication bug causing 10x amount
+- Added `sellPercent` option to use fresh balance from chain
+- This showed `PREFLIGHT_ZERO_BALANCE` which led to the REAL fix
 
 ---
 
 ## Deployment Status
 
-- **Database**: Migrations 014-018 applied
-- **Bot**: v86 - Emergency sell + pricing fixes
-- **Hunter**: v95 - Position tracking fixes
-- **Executor**: v?? - Actual SOL spent capture
+- **Database**: Migrations 014-019 applied
+- **Bot**: v136 - Token-2022 ATA detection fix
+- **Hunter**: v113 - N/A (doesn't execute sells)
 - **Feature Flags**:
   - `TPSL_ENGINE_ENABLED=true` (shadow mode)
   - `LEGACY_POSITION_MONITOR=true` (parallel operation)
@@ -67,15 +77,33 @@ Fly.io auto-deploys from GitHub pushes to `main`.
 
 ## Critical Patterns
 
+### Token-2022 ATA Detection (NEW - CRITICAL)
+**Always detect token program when deriving ATAs for pump.fun tokens.**
+
+```typescript
+// In pumpFun.ts
+export async function getTokenProgramForMint(
+  connection: Connection,
+  mint: PublicKey
+): Promise<PublicKey> {
+  const mintInfo = await connection.getAccountInfo(mint);
+  if (mintInfo && mintInfo.owner.equals(TOKEN_2022_PROGRAM_ID)) {
+    return TOKEN_2022_PROGRAM_ID;
+  }
+  return TOKEN_PROGRAM_ID;
+}
+
+// When deriving ATAs
+const tokenProgramId = await getTokenProgramForMint(connection, mint);
+const ata = await getAssociatedTokenAddress(mint, wallet, false, tokenProgramId);
+```
+
 ### Position Status Values
 **Database uses `'ACTIVE'` for open positions**, not `'OPEN'`.
 
 ```typescript
 // Correct status checks
 if (position.status === 'ACTIVE') { /* open position */ }
-if (position.status !== 'ACTIVE') { /* closing or closed */ }
-
-// PositionStatus type
 type PositionStatus = 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED';
 ```
 
@@ -85,37 +113,48 @@ type PositionStatus = 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED';
 // 1. Jupiter batch API (primary)
 // 2. DEXScreener API (secondary - more reliable)
 // 3. pump.fun API (tertiary - may be blocked)
-// 4. Return { price: 0, source: 'none' } if all fail
 ```
 
 ### Position ID Standard
 **Always use `uuid_id` (UUID) for position operations**, not the integer `id` column.
 
-```typescript
-const position = await createPositionV31({ ... });
-const positionId = position.uuid_id;  // Use this everywhere!
-```
-
 ### Button Labels (No Emojis!)
 ```typescript
 // WRONG - will throw assertNoEmoji error
 btn('Speed ✓', CB.SETTINGS.SET_SNIPE_MODE_SPEED)
-
 // RIGHT - use text indicators
 btn('[x] Speed', CB.SETTINGS.SET_SNIPE_MODE_SPEED)
 ```
 
 ---
 
-## Next Steps
+## Next Steps (Priority Order)
 
-### P0 - Critical
-- [ ] **pump.pro bonding curve support**: `deriveBondingCurvePDA` only checks pump.fun program
-  - When lookup fails, defaults to `graduated=true` → routes to Jupiter → fails
+### P0 - Critical (Must Complete)
+1. **Verify Emergency Sell Fix (v136)**
+   - Test on one of 4 active positions (PUMP, REDBULL, Watcher, HODL)
+   - Watch logs for: `getTokenBalanceRaw: ... tokenProgram=Token-2022, ata=...`
+   - Verify sell transaction confirms on Solscan
+2. **Close Remaining Positions** - If emergency sell works, close all 4
 
 ### P1 - Important
-- [ ] **Max positions setting**: User wants 5 positions instead of 2
-- [ ] **Background price polling**: For scale (1000+ users)
+3. **Test Autohunt End-to-End** - Full cycle with emergency sell
+4. **Max Positions Setting** - User requested 5 instead of 2
+
+### P2 - Nice to Have
+5. **Integration Test for Token-2022 ATA** - Prevent regression
+6. **Integration Test for Fee Recipient** - Mode-aware resolution
+
+---
+
+## Active Positions (Need Emergency Sell Test)
+
+| ID | Mint | Symbol |
+|----|------|--------|
+| 5 | Ahte7zvpjbroToRRoA3MzvuDz6XGFgvWrBPGj1hfpump | PUMP |
+| 6 | BDVhcvNs7PZzfJvoekLvxyR5i9BUT5emwbRhfyU6pump | REDBULL |
+| 7 | 2BVSFGaxPFNPoX1z4orquizM97v4jrxc4XDANQdQpump | Watcher |
+| 8 | HnbVCGDftjvVxpVPBMYj5Xh8WbARiP4hnFiFfKANqEQx | HODL |
 
 ---
 
@@ -131,7 +170,30 @@ git status && git diff --stat
 # View recent commits
 git log --oneline -10
 
-# Check Fly.io logs
+# Check Fly.io status
+fly status -a raptor-bot
+fly releases -a raptor-bot
 fly logs -a raptor-bot
-fly logs -a raptor-hunter
 ```
+
+---
+
+## Key Files for Token-2022 ATA Fix
+
+| Purpose | File | Function |
+|---------|------|----------|
+| Token program detection | `apps/executor/src/chains/solana/pumpFun.ts` | `getTokenProgramForMint()` |
+| Balance check | `apps/executor/src/chains/solana/solanaExecutor.ts` | `getTokenBalanceRaw()` |
+| Emergency sell | `apps/bot/src/services/emergencySellService.ts` | `executeEmergencySell()` |
+| Preflight check | `apps/executor/src/chains/solana/solanaExecutor.ts` | `executeSellWithKeypair()` |
+
+---
+
+## Debug Logs to Watch For
+
+```
+[SolanaExecutor] getTokenBalanceRaw: mint=..., wallet=..., tokenProgram=Token-2022, ata=...
+[SolanaExecutor] Token balance: X (Y.YY)
+```
+
+If these show correct token program and non-zero balance, the fix is working.

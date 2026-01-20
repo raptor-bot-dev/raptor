@@ -139,6 +139,22 @@ Single source of truth for current progress. Keep it brief.
   - Added `getTokenProgramForMint()` to detect TOKEN_PROGRAM_ID vs TOKEN_2022_PROGRAM_ID
   - Mint account owner check determines correct token program
   - ATA derivation uses detected token program (fixes InvalidProgramId error)
+- **v4.6 DECIMALS FIX - Percent-based selling** (2026-01-20):
+  - Changed from `tokensToSell` parameter to `sellPercent: 100` option
+  - Fresh on-chain balance fetched at execution time, not stored values
+  - Eliminates decimal confusion between stored vs actual token amounts
+- **Token-2022 ATA detection in getTokenBalanceRaw** (2026-01-20 - v136):
+  - **ROOT CAUSE FOUND**: `getTokenBalanceRaw()` derived ATA using standard SPL token program
+  - pump.fun tokens use **Token-2022**, which derives ATAs at **different addresses**
+  - Function was checking wrong ATA (0 balance) while real Token-2022 ATA had tokens
+  - Fix: Detect token program with `getTokenProgramForMint()`, pass to `getAssociatedTokenAddress()`
+  - Detailed logging added: `getTokenBalanceRaw: ... tokenProgram=Token-2022, ata=...`
+- **Fly.io autostop configuration fixed** (2026-01-20 - v135):
+  - Bot was stopping due to `autostop: true` and `min_machines_running: 0`
+  - fly.toml had correct settings but machine had old config from previous deploys
+  - Fixed `dockerfile = "../../Dockerfile.bot"` path for local `flyctl deploy`
+  - Redeployed to apply `auto_stop_machines = false`, `min_machines_running = 1`
+  - Telegram long-polling bots require continuous running (incompatible with autostop)
 - **Sell instruction account order fix** (2026-01-20):
   - Discovered buy and sell have DIFFERENT account orders per official IDL
   - Buy: token_program (pos 9), creator_vault (pos 10), includes volume accumulators
@@ -252,7 +268,27 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-20 (latest): **Sell instruction account order fix**
+- 2026-01-20 (latest): **Token-2022 ATA detection fix (v136)**
+  - **Root cause**: `getTokenBalanceRaw()` used `getAssociatedTokenAddress(mint, wallet)` without token program
+  - Default is standard SPL, but pump.fun tokens use **Token-2022** which derives ATAs at **different addresses**
+  - Function was checking wrong ATA (0 balance) while real Token-2022 ATA had tokens
+  - Result: `PREFLIGHT_ZERO_BALANCE` errors when wallet actually had tokens
+  - Fixed `getTokenBalanceRaw()` in `solanaExecutor.ts`:
+    - Added `getTokenProgramForMint()` import from pumpFun.ts
+    - Detect token program (TOKEN_PROGRAM_ID vs TOKEN_2022_PROGRAM_ID)
+    - Pass detected program to `getAssociatedTokenAddress(mint, wallet, false, tokenProgramId)`
+    - Added detailed logging for debugging
+  - Committed: `c4a1f50 fix(executor): detect Token-2022 program for correct ATA in getTokenBalanceRaw`
+  - Deployed: raptor-bot v136
+  - **PENDING TEST**: Emergency sell on one of 4 active positions
+- 2026-01-20 (earlier): **Fly.io autostop fix (v135)**
+  - Bot was stopping automatically due to old machine config
+  - fly.toml had correct settings but machine retained `autostop: true`, `min_machines_running: 0`
+  - Fixed dockerfile path: `../../Dockerfile.bot` (relative to fly.toml location in apps/bot/)
+  - Committed: `1e24662 fix(deploy): correct dockerfile path in fly.toml`
+  - Redeployed via `flyctl deploy` to apply new config
+  - Bot now stays running continuously
+- 2026-01-20 (earlier): **Sell instruction account order fix**
   - Root cause: Sell instruction was using buy instruction's account order
   - Compared vendored IDL with code - discovered buy/sell have DIFFERENT orders:
     - Buy: token_program (9), creator_vault (10), has volume accumulators
@@ -263,7 +299,6 @@ Single source of truth for current progress. Keep it brief.
     - Added detailed comments documenting account order differences
   - Committed: 48da943 fix(executor): sell instruction account order per official IDL
   - Deployed: raptor-bot v121
-  - **PENDING TEST**: Emergency sell on one of 4 active positions
 - 2026-01-20 (earlier): **IDL-based fee recipient + token program detection**
   - Implemented IDL-based fee recipient resolution for pump.fun sells
     - Decodes BondingCurve + Global state from pinned IDL
@@ -445,6 +480,63 @@ Single source of truth for current progress. Keep it brief.
 ---
 
 ## Retrospectives
+
+### 2026-01-20: Token-2022 ATA Detection Fix (v136 - THE REAL FIX)
+
+**Context:** Emergency sell returning `PREFLIGHT_ZERO_BALANCE` despite wallet holding tokens. User confirmed "the wallets still hold the tokens so our infrastructure is wrong."
+
+**Root cause analysis:**
+- `getTokenBalanceRaw()` in `solanaExecutor.ts` used `getAssociatedTokenAddress(mint, wallet)` **without specifying token program**
+- Default behavior is standard SPL Token (`TOKEN_PROGRAM_ID`)
+- **BUT** pump.fun tokens use **Token-2022** (`TOKEN_2022_PROGRAM_ID`)
+- Token-2022 derives ATAs at **different addresses** than standard SPL
+- Function was checking the wrong ATA (standard SPL = 0 balance) while real Token-2022 ATA had tokens
+
+**Timeline of debugging:**
+1. **v134**: Added `sellPercent` option with preflight checks → showed `PREFLIGHT_ZERO_BALANCE` instead of 10x error
+2. **Investigation**: Logs showed `getTokenProgramForMint() Mint X uses Token-2022 program` but `getTokenBalanceRaw()` wasn't using this
+3. **v135**: Fixed Fly.io autostop configuration (unrelated but compounding issue)
+4. **v136**: Fixed `getTokenBalanceRaw()` to detect and use correct token program for ATA derivation
+
+**What went well:**
+- Preflight check caught the issue early with clear error message
+- User feedback "wallets still hold tokens" immediately pointed to infrastructure bug
+- `getTokenProgramForMint()` function already existed, just wasn't being used everywhere
+- Incremental deployment made it easy to isolate issues
+- Detailed logging helped see exactly which ATA was being checked
+
+**What could be improved:**
+- Misdiagnosed root cause initially (thought it was decimal multiplication bug)
+- Didn't connect the dots sooner - saw "Token-2022" in logs but didn't realize balance check wasn't using it
+- Multiple compounding issues (Fly.io autostop + ATA bug) made debugging harder
+- No automated test to catch Token-2022 ATA derivation issues
+
+**Key changes:**
+1. **solanaExecutor.ts** - `getTokenBalanceRaw()`:
+   - Import `getTokenProgramForMint` from pumpFun.ts
+   - Detect token program before deriving ATA
+   - Pass `tokenProgramId` to `getAssociatedTokenAddress(mint, wallet, false, tokenProgramId)`
+   - Log token program and ATA address for debugging
+
+**Lessons learned:**
+1. **Token-2022 ATAs are at different addresses** - Always use detected token program when deriving ATAs
+2. **Fresh on-chain data > stored data** - Fetching balance from chain eliminates decimal confusion
+3. **Read the existing code** - `getTokenProgramForMint()` already existed, just wasn't used everywhere
+4. **Fly.io autostop is bad for Telegram bots** - Long-polling bots need to run continuously
+5. **Preflight checks are valuable** - `PREFLIGHT_ZERO_BALANCE` was clearer than the original 10x error
+
+**Deployment history (this session):**
+| Version | Changes | Result |
+|---------|---------|--------|
+| v134 | sellPercent option, preflight checks | `PREFLIGHT_ZERO_BALANCE` (wrong ATA) |
+| v135 | fly.toml autostop fix | Bot stayed running |
+| v136 | Token-2022 ATA detection | **PENDING VERIFICATION** |
+
+**Pending verification:**
+- Emergency sell test on one of 4 active positions
+- Watch logs for: `getTokenBalanceRaw: ... tokenProgram=Token-2022`
+
+---
 
 ### 2026-01-20: Fly.io GitHub App Deployment Fix
 

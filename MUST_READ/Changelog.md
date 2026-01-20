@@ -2,7 +2,28 @@
 
 Keep this log short and append-only. Use ISO dates.
 
-## 2026-01-20
+## 2026-01-20 (Evening Session - v4.6 DECIMALS FIX)
+- **fix(executor): Token-2022 ATA derivation in getTokenBalanceRaw** (c4a1f50)
+  - **ROOT CAUSE FOUND**: `getTokenBalanceRaw()` was checking wrong ATA (standard SPL instead of Token-2022)
+  - pump.fun tokens use Token-2022 which derives ATAs at different addresses than standard SPL
+  - Function was finding 0 balance (wrong ATA) even when wallet held tokens
+  - Fix: Import `getTokenProgramForMint`, detect token program, use in `getAssociatedTokenAddress()` call
+  - Added debug logging to trace ATA derivation and balance fetches
+- **fix(executor): Percent-based selling with fresh on-chain balance** (v134)
+  - Added `sellPercent` option to `executeSellWithKeypair()` to avoid decimal confusion
+  - Executor now fetches fresh balance from chain at sell time
+  - Added preflight balance check: `PREFLIGHT_ZERO_BALANCE` error for empty wallets
+  - Updated all callers: emergencySellService.ts, execution.ts, sell.ts
+- **fix(deploy): Correct dockerfile path in fly.toml** (1e24662)
+  - Changed `dockerfile = "Dockerfile.bot"` to `dockerfile = "../../Dockerfile.bot"` (relative to fly.toml)
+  - This fixes local `flyctl deploy` from apps/bot directory
+- **fix(infra): Disable Fly.io autostop for Telegram bot** (v135)
+  - Bot was stopping with "excess capacity, autostopping machine"
+  - fly.toml had correct settings but machine had old config
+  - Redeployed to apply: `auto_stop_machines = false`, `min_machines_running = 1`
+  - Telegram bots using long-polling need to run continuously
+
+## 2026-01-20 (Earlier Session)
 - **fix(infra): Fly.io GitHub App deployment - dockerfile path resolution** (8dc2ee1)
   - raptor-bot was running hunter code instead of Telegram bot code
   - Root cause: `apps/bot/fly.toml` had `dockerfile = "../../Dockerfile.bot"` (relative to fly.toml)
