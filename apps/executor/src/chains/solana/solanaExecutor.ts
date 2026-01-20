@@ -60,6 +60,7 @@ import {
   getPumpFunClient,
   deriveBondingCurvePDA,
   findBondingCurveAndProgram,  // AUDIT FIX: For pump.pro support
+  getTokenProgramForMint,  // v4.6: Detect SPL vs Token-2022
 } from './pumpFun.js';
 
 // Re-export for convenience
@@ -164,13 +165,26 @@ export class SolanaExecutor {
       const mint = new PublicKey(tokenMint);
       const wallet = new PublicKey(walletAddress);
 
-      // Try standard SPL token first
-      const ata = await getAssociatedTokenAddress(mint, wallet);
+      // v4.6 FIX: Detect token program (SPL vs Token-2022) for correct ATA derivation
+      // pump.fun tokens use Token-2022, which has ATAs at different addresses than standard SPL
+      const tokenProgramId = await getTokenProgramForMint(this.connection, mint);
+
+      // Derive ATA using the correct token program
+      const ata = await getAssociatedTokenAddress(
+        mint,
+        wallet,
+        false,  // allowOwnerOffCurve
+        tokenProgramId
+      );
+
+      console.log(`[SolanaExecutor] getTokenBalanceRaw: mint=${tokenMint}, wallet=${walletAddress}, tokenProgram=${tokenProgramId.equals(TOKEN_2022_PROGRAM_ID) ? 'Token-2022' : 'SPL'}, ata=${ata.toBase58()}`);
 
       const accountInfo = await this.connection.getTokenAccountBalance(ata);
+      console.log(`[SolanaExecutor] Token balance: ${accountInfo.value.amount} (${accountInfo.value.uiAmountString})`);
       return BigInt(accountInfo.value.amount);
     } catch (error) {
       // Account may not exist yet (balance = 0)
+      console.log(`[SolanaExecutor] getTokenBalanceRaw error (likely no ATA): ${error instanceof Error ? error.message : 'Unknown'}`);
       return BigInt(0);
     }
   }
