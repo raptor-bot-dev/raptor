@@ -2,7 +2,7 @@ app = "raptor-hunter"
 primary_region = "iad"
 
 [build]
-  dockerfile = "../../Dockerfile.hunter"
+  dockerfile = "Dockerfile.hunter"
 
 [env]
   NODE_ENV = "production"
