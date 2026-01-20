@@ -92,6 +92,7 @@ export async function executeEmergencySell(params: {
     tokenMint: position.token_mint,
     amountSol: 0, // SELL doesn't spend SOL budget
     idempotencyKey,
+    allowRetry: true, // Allow retry on FAILED status - emergency sells should always be retryable
   });
 
   logger.debug('Budget reservation result', { reservation });
