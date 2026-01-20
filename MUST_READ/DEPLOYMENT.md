@@ -160,6 +160,26 @@ If you do have an executor key (for fee wallet, relayer, etc.), keep it here as 
 
 For secrets changes, use `fly secrets set` then `fly secrets deploy`.
 
+### Dockerfile Path Requirement (CRITICAL)
+
+**Fly.io GitHub App requires dockerfile paths relative to the REPOSITORY ROOT, not the fly.toml location.**
+
+```toml
+# CORRECT - path relative to repo root
+[build]
+  dockerfile = "Dockerfile.bot"
+
+# WRONG - path relative to fly.toml location
+[build]
+  dockerfile = "../../Dockerfile.bot"
+```
+
+If this is wrong, the GitHub App may use the wrong Dockerfile or fail to build, causing apps to run incorrect code. Each app's `fly.toml` (in `apps/bot/` and `apps/hunter/`) must reference the Dockerfile by name only since they're at the repo root.
+
+### Backup: GitHub Actions Workflow
+
+A GitHub Actions workflow exists at `.github/workflows/deploy.yml` as a backup deployment method. It requires a `FLY_API_TOKEN` secret with deploy permissions. This is NOT the primary deployment method - the Fly.io GitHub App handles auto-deploys.
+
 ---
 
 ## Deployment (per app)

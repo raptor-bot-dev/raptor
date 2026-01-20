@@ -3,6 +3,13 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-20
+- **fix(infra): Fly.io GitHub App deployment - dockerfile path resolution** (8dc2ee1)
+  - raptor-bot was running hunter code instead of Telegram bot code
+  - Root cause: `apps/bot/fly.toml` had `dockerfile = "../../Dockerfile.bot"` (relative to fly.toml)
+  - Fly.io GitHub App expects paths **relative to repo root**, not fly.toml location
+  - Fixed both fly.toml files to use `dockerfile = "Dockerfile.bot"` and `dockerfile = "Dockerfile.hunter"`
+  - Created backup GitHub Actions workflow (`.github/workflows/deploy.yml`) for manual deploys
+  - Both apps now deploy correctly on push to main
 - **fix(executor): IDL-based fee recipient resolution** (ef787c5)
   - Pump fee recipient now resolves from on-chain Global config via pinned IDL
   - Mayhem mode selects reserved fee recipients automatically (no fixed recipient)

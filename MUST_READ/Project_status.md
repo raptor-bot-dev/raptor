@@ -139,6 +139,13 @@ Single source of truth for current progress. Keep it brief.
   - Added `getTokenProgramForMint()` to detect TOKEN_PROGRAM_ID vs TOKEN_2022_PROGRAM_ID
   - Mint account owner check determines correct token program
   - ATA derivation uses detected token program (fixes InvalidProgramId error)
+- **Sell instruction account order fix** (2026-01-20):
+  - Discovered buy and sell have DIFFERENT account orders per official IDL
+  - Buy: token_program (pos 9), creator_vault (pos 10), includes volume accumulators
+  - Sell: creator_vault (pos 9), token_program (pos 10), NO volume accumulators
+  - Fixed sell instruction: swapped positions 9-10, removed unused volume accumulators
+  - Added detailed comments documenting account order differences
+  - Deployed v121 to raptor-bot
 - **Emergency sell "In Progress" bug fixed** (2026-01-19):
   - Root cause: Code checked `status !== 'OPEN'` but database uses `status = 'ACTIVE'`
   - All ACTIVE positions incorrectly showed as "In Progress" blocking emergency sell
@@ -245,7 +252,19 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-20 (latest): **IDL-based fee recipient + token program detection**
+- 2026-01-20 (latest): **Sell instruction account order fix**
+  - Root cause: Sell instruction was using buy instruction's account order
+  - Compared vendored IDL with code - discovered buy/sell have DIFFERENT orders:
+    - Buy: token_program (9), creator_vault (10), has volume accumulators
+    - Sell: creator_vault (9), token_program (10), NO volume accumulators
+  - Fixed pumpFun.ts:
+    - Swapped positions 9 and 10 in sell instruction keys
+    - Removed volume accumulator PDAs from sell method (not needed)
+    - Added detailed comments documenting account order differences
+  - Committed: 48da943 fix(executor): sell instruction account order per official IDL
+  - Deployed: raptor-bot v121
+  - **PENDING TEST**: Emergency sell on one of 4 active positions
+- 2026-01-20 (earlier): **IDL-based fee recipient + token program detection**
   - Implemented IDL-based fee recipient resolution for pump.fun sells
     - Decodes BondingCurve + Global state from pinned IDL
     - Mayhem mode automatically selects reserved fee recipients
@@ -257,8 +276,6 @@ Single source of truth for current progress. Keep it brief.
     - Correctly uses TOKEN_PROGRAM_ID vs TOKEN_2022_PROGRAM_ID
     - Fixes `InvalidProgramId` error on `token_program` account
   - Committed: ef787c5, cf62b67
-  - Deployed: raptor-bot v117 (awaiting v118 with IDL changes)
-  - **PENDING TEST**: Emergency sell on bonding curve position
 - 2026-01-20 (earlier): **Audit follow-ups (pricing + decimals + pump.pro overrides)**
   - On-chain bonding curve fallback added to pricing/market data
   - Quote-based PnL now uses Jupiter sell quotes for graduated tokens
@@ -428,6 +445,94 @@ Single source of truth for current progress. Keep it brief.
 ---
 
 ## Retrospectives
+
+### 2026-01-20: Fly.io GitHub App Deployment Fix
+
+**Context:** raptor-bot was suspended on Fly.io. When manually started, logs showed hunter code (PumpFunMonitor, OpportunityLoop) running instead of Telegram bot code (Grammy).
+
+**Root cause analysis:**
+- Fly.io GitHub App reads `fly.toml` files to determine which Dockerfile to use
+- `apps/bot/fly.toml` had `dockerfile = "../../Dockerfile.bot"` (relative to fly.toml location)
+- Fly.io GitHub App expects dockerfile paths **relative to repository root**, not to fly.toml location
+- Result: Both apps were being deployed with wrong/missing Dockerfile specifications
+- raptor-bot was building with raptor-hunter's code
+
+**Investigation path:**
+1. Initially suspected root `fly.toml` was only pointing to raptor-hunter
+2. Created GitHub Actions workflow as potential fix
+3. Workflow failed with "unauthorized" - token permissions issue
+4. User clarified preference for existing Fly.io GitHub App deployment
+5. Checked Fly.io dashboard - confirmed config paths looked correct
+6. Realized paths in fly.toml were relative to file location, not repo root
+
+**What went well:**
+- User quickly identified that GitHub App was the preferred deployment method
+- Fly MCP tools helped verify app status and releases
+- Fix was simple once root cause understood
+- Both apps now deploy correctly on push to main
+
+**What could be improved:**
+- Should have tested Fly.io GitHub App behavior with relative paths earlier
+- Documentation didn't mention dockerfile path requirements
+- Took multiple debugging rounds before realizing path relativity issue
+
+**Key changes:**
+1. **apps/bot/fly.toml** - Changed `dockerfile = "../../Dockerfile.bot"` to `dockerfile = "Dockerfile.bot"`
+2. **apps/hunter/fly.toml** - Changed `dockerfile = "../../Dockerfile.hunter"` to `dockerfile = "Dockerfile.hunter"`
+3. **Created `.github/workflows/deploy.yml`** - Backup GitHub Actions workflow (not primary method)
+
+**Lessons learned:**
+- Fly.io GitHub App dockerfile paths must be relative to repo root, NOT relative to fly.toml location
+- When debugging deployment issues, verify the actual build system behavior (GitHub App vs flyctl)
+- Always document infrastructure quirks like path resolution rules
+
+---
+
+### 2026-01-20: Sell Instruction Account Order Fix
+
+**Context:** Emergency sell still failing with `InvalidProgramId` after token program detection and fee recipient fixes. Deep research comparing vendored IDL with implementation revealed account order mismatch.
+
+**Root cause analysis:**
+- Sell instruction was using buy instruction's account order
+- Buy and sell have DIFFERENT account orders per the official IDL:
+  - Buy: `token_program` (pos 9), `creator_vault` (pos 10), includes volume accumulators
+  - Sell: `creator_vault` (pos 9), `token_program` (pos 10), NO volume accumulators
+- The code was incorrectly applying buy's account structure to both instructions
+
+**What went well:**
+- Deep research comparing IDL spec vs implementation revealed the issue
+- Vendored IDL served as definitive source of truth
+- Fix was surgical - only changed sell instruction, left buy unchanged
+- Build passed immediately after changes
+- Manual deployment via flyctl succeeded when GitHub Actions had permission issues
+
+**What could be improved:**
+- Should have noticed buy/sell account order differences earlier
+- Original implementation likely copy-pasted buy accounts for sell
+- No unit test comparing instruction accounts to IDL schema
+- Volume accumulators were never needed for sell - wasted gas
+
+**Key changes:**
+1. **pumpFun.ts**:
+   - Swapped positions 9 and 10 in sell instruction keys
+   - Removed `globalVolumeAccumulator` and `userVolumeAccumulator` from sell (not in IDL)
+   - Removed unused PDA derivations from sell method
+   - Added detailed comments documenting account order differences
+
+**Files changed:**
+- `apps/executor/src/chains/solana/pumpFun.ts` - sell instruction account order
+
+**Lessons learned:**
+- Buy and sell instructions can have different account orders - don't assume symmetry
+- Always compare implementation against official IDL, not just other code
+- Volume accumulators appear to be buy-specific (rewards tracking)
+- When debugging transaction errors, compare account order before account values
+
+**Pending verification:**
+- Emergency sell test on one of 4 active positions (PUMP, REDBULL, Watcher, HODL)
+- v121 deployed and running on Fly.io
+
+---
 
 ### 2026-01-20: IDL-based Fee Recipient + Token Program Detection
 
