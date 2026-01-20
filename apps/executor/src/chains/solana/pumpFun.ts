@@ -713,31 +713,32 @@ export class PumpFunClient {
     }
 
     // Build buy instruction
-    // SECURITY: P0-4 - Use minTokens (with slippage) instead of expectedTokens
-    // This protects against MEV sandwich attacks by setting a minimum acceptable output
-    // AUDIT FIX: Use detected tokenProgramId (Token-2022 or SPL Token)
-    // Note: Volume accumulator accounts added in August 2025 pump.fun update
+    // CRITICAL: Buy instruction has DIFFERENT account order than sell instruction (per official IDL)
+    // - Buy: token_program (pos 9), creator_vault (pos 10), HAS volume accumulators (pos 13-14)
+    // - Sell: creator_vault (pos 9), token_program (pos 10), NO volume accumulators
+    // See: vendor/pump-public-docs/idl/pump.json (buy instruction at line 421)
+    // SECURITY: P0-4 - Use minTokens (with slippage) to protect against MEV sandwich attacks
     const buyInstruction = new TransactionInstruction({
       programId: PUMP_FUN_PROGRAM,
       keys: [
-        { pubkey: global, isSigner: false, isWritable: false },
-        { pubkey: feeRecipient, isSigner: false, isWritable: true },
-        { pubkey: mint, isSigner: false, isWritable: false },
-        { pubkey: bondingCurve, isSigner: false, isWritable: true },
-        { pubkey: associatedBondingCurve, isSigner: false, isWritable: true },
-        { pubkey: userTokenAccount, isSigner: false, isWritable: true },
-        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        { pubkey: tokenProgramId, isSigner: false, isWritable: false },  // AUDIT FIX: Use detected token program
-        { pubkey: creatorVault, isSigner: false, isWritable: true }, // creator_vault (late 2025 update - replaced SysvarRent)
-        { pubkey: eventAuthority, isSigner: false, isWritable: false },
-        { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false },
-        // Volume accumulator accounts (required since August 2025)
-        { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: true },
-        { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
+        { pubkey: global, isSigner: false, isWritable: false },           // 1. global
+        { pubkey: feeRecipient, isSigner: false, isWritable: true },      // 2. fee_recipient
+        { pubkey: mint, isSigner: false, isWritable: false },             // 3. mint
+        { pubkey: bondingCurve, isSigner: false, isWritable: true },      // 4. bonding_curve
+        { pubkey: associatedBondingCurve, isSigner: false, isWritable: true }, // 5. associated_bonding_curve
+        { pubkey: userTokenAccount, isSigner: false, isWritable: true },  // 6. associated_user
+        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true }, // 7. user
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // 8. system_program
+        { pubkey: tokenProgramId, isSigner: false, isWritable: false },   // 9. token_program (DIFFERENT from sell!)
+        { pubkey: creatorVault, isSigner: false, isWritable: true },      // 10. creator_vault (DIFFERENT from sell!)
+        { pubkey: eventAuthority, isSigner: false, isWritable: false },   // 11. event_authority
+        { pubkey: PUMP_FUN_PROGRAM, isSigner: false, isWritable: false }, // 12. program
+        // Volume accumulator accounts (required for buy since August 2025, NOT for sell)
+        { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: true },  // 13. global_volume_accumulator
+        { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },    // 14. user_volume_accumulator
         // Fee accounts (required since September 2025)
-        { pubkey: feeConfig, isSigner: false, isWritable: false },
-        { pubkey: feeProgram, isSigner: false, isWritable: false },
+        { pubkey: feeConfig, isSigner: false, isWritable: false },        // 15. fee_config
+        { pubkey: feeProgram, isSigner: false, isWritable: false },       // 16. fee_program
       ],
       data: encodeBuyData(minTokens, solAmount),
     });
@@ -793,9 +794,7 @@ export class PumpFunClient {
       tokenProgramId
     );
 
-    // AUDIT FIX: Derive volume accumulator PDAs using effectiveProgram for pump.pro support
-    const [globalVolumeAccumulator] = deriveGlobalVolumeAccumulatorPDA(effectiveProgram);
-    const [userVolumeAccumulator] = deriveUserVolumeAccumulatorPDA(this.wallet.publicKey, effectiveProgram);
+    // NOTE: Sell instruction does NOT need volume accumulators (only buy does per IDL)
 
     // AUDIT FIX: Derive fee config PDA using effectiveProgram for pump.pro support
     const { global, eventAuthority, feeProgram } = getProgramAccounts(effectiveProgram);
@@ -856,29 +855,28 @@ export class PumpFunClient {
     );
 
     // Build sell instruction
-    // AUDIT FIX: Use effectiveProgram for pump.pro support
-    // AUDIT FIX: Use detected tokenProgramId (Token-2022 or SPL Token)
+    // CRITICAL: Sell instruction has DIFFERENT account order than buy instruction (per official IDL)
+    // - Sell: creator_vault (pos 9), token_program (pos 10), NO volume accumulators
+    // - Buy: token_program (pos 9), creator_vault (pos 10), HAS volume accumulators
+    // See: vendor/pump-public-docs/idl/pump.json (sell instruction at line 3579)
     const sellInstruction = new TransactionInstruction({
-      programId: effectiveProgram,  // AUDIT FIX: Use effectiveProgram instead of hardcoded PUMP_FUN_PROGRAM
+      programId: effectiveProgram,
       keys: [
-        { pubkey: global, isSigner: false, isWritable: false },
-        { pubkey: feeRecipient, isSigner: false, isWritable: true },
-        { pubkey: mint, isSigner: false, isWritable: false },
-        { pubkey: bondingCurve, isSigner: false, isWritable: true },
-        { pubkey: associatedBondingCurve, isSigner: false, isWritable: true },
-        { pubkey: userTokenAccount, isSigner: false, isWritable: true },
-        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        { pubkey: tokenProgramId, isSigner: false, isWritable: false },  // AUDIT FIX: Use detected token program
-        { pubkey: creatorVault, isSigner: false, isWritable: true }, // creator_vault (late 2025 update)
-        { pubkey: eventAuthority, isSigner: false, isWritable: false },
-        { pubkey: effectiveProgram, isSigner: false, isWritable: false },  // AUDIT FIX: Use effectiveProgram
-        // Volume accumulator accounts (required since August 2025)
-        { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: true },
-        { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
-        // Fee accounts (required since September 2025)
-        { pubkey: feeConfig, isSigner: false, isWritable: false },
-        { pubkey: feeProgram, isSigner: false, isWritable: false },
+        { pubkey: global, isSigner: false, isWritable: false },           // 1. global
+        { pubkey: feeRecipient, isSigner: false, isWritable: true },      // 2. fee_recipient
+        { pubkey: mint, isSigner: false, isWritable: false },             // 3. mint
+        { pubkey: bondingCurve, isSigner: false, isWritable: true },      // 4. bonding_curve
+        { pubkey: associatedBondingCurve, isSigner: false, isWritable: true }, // 5. associated_bonding_curve
+        { pubkey: userTokenAccount, isSigner: false, isWritable: true },  // 6. associated_user
+        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true }, // 7. user
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // 8. system_program
+        { pubkey: creatorVault, isSigner: false, isWritable: true },      // 9. creator_vault (DIFFERENT from buy!)
+        { pubkey: tokenProgramId, isSigner: false, isWritable: false },   // 10. token_program (DIFFERENT from buy!)
+        { pubkey: eventAuthority, isSigner: false, isWritable: false },   // 11. event_authority
+        { pubkey: effectiveProgram, isSigner: false, isWritable: false }, // 12. program
+        // NOTE: Sell does NOT have volume accumulators (only buy does per IDL)
+        { pubkey: feeConfig, isSigner: false, isWritable: false },        // 13. fee_config
+        { pubkey: feeProgram, isSigner: false, isWritable: false },       // 14. fee_program
       ],
       data: encodeSellData(tokenAmount, minSol),
     });
