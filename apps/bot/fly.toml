@@ -2,7 +2,7 @@ app = "raptor-bot"
 primary_region = "iad"
 
 [build]
-  dockerfile = "Dockerfile.bot"
+  dockerfile = "../../Dockerfile.bot"
 
 [env]
   NODE_ENV = "production"
