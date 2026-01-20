@@ -530,21 +530,10 @@ export class ExecutionLoop {
         };
       }
 
+      // v4.6 DECIMALS FIX: Use sellPercent option instead of calculating tokensToSell
+      // The executor will fetch fresh balance from chain and calculate the raw amount
+      // This eliminates decimals bugs caused by inconsistent storage formats
       const sellPercent = job.payload.sell_percent || 100;
-      let tokensToSell = position.size_tokens * (sellPercent / 100);
-      const storedDecimals = position.token_decimals ?? null;
-
-      try {
-        const actualDecimals = await solanaExecutor.getTokenDecimals(job.payload.mint);
-        if (storedDecimals !== null && storedDecimals !== actualDecimals) {
-          const diff = storedDecimals - actualDecimals;
-          tokensToSell = diff > 0
-            ? tokensToSell / Math.pow(10, diff)
-            : tokensToSell * Math.pow(10, -diff);
-        }
-      } catch (error) {
-        console.warn('[ExecutionLoop] Token decimals check failed, using stored amount:', error);
-      }
       const slippageBps = job.payload.slippage_bps || strategy.slippage_bps;
 
       // Pass tgId to executor so it can fetch chain_settings for:
@@ -552,9 +541,9 @@ export class ExecutionLoop {
       // - anti_mev_enabled (Jito bundles)
       const result = await solanaExecutor.executeSellWithKeypair(
         job.payload.mint,
-        tokensToSell,
+        0,  // v4.6: tokenAmount is ignored when sellPercent is provided
         keypair,
-        { slippageBps, tgId: job.user_id }
+        { slippageBps, tgId: job.user_id, sellPercent }  // v4.6: Use percent-based selling
       );
 
       if (!result.success) {

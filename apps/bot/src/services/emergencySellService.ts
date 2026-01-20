@@ -66,9 +66,13 @@ export async function executeEmergencySell(params: {
 }): Promise<EmergencySellResult> {
   const { userId, position } = params;
   const chain = position.chain;
+  // v4.6 DECIMALS FIX: Use sellPercent instead of tokensToSell
+  // The executor will fetch fresh balance from chain and calculate the raw amount
+  const sellPercent = 100;
+  // Keep tokensToSell for backward-compatible return value (from position.size_tokens)
   const tokensToSell = position.size_tokens;
 
-  logger.info('Starting emergency sell', { userId, positionId: position.uuid_id, tokensToSell });
+  logger.info('Starting emergency sell', { userId, positionId: position.uuid_id, sellPercent });
 
   // Step 1: Generate idempotency key using exit trigger
   // This ensures only ONE emergency sell per position (regardless of how many times clicked)
@@ -176,16 +180,18 @@ export async function executeEmergencySell(params: {
   });
 
   // Step 6: Execute sell via executor with high slippage for emergency
-  logger.info('Executing emergency sell via executor', { tokensToSell, userId, slippageBps: EMERGENCY_SLIPPAGE_BPS });
+  // v4.6 DECIMALS FIX: Use sellPercent option - executor will fetch fresh balance from chain
+  logger.info('Executing emergency sell via executor', { sellPercent, userId, slippageBps: EMERGENCY_SLIPPAGE_BPS });
 
   try {
     const result = await solanaExecutor.executeSellWithKeypair(
       position.token_mint,
-      tokensToSell,
+      0,  // v4.6: tokenAmount is ignored when sellPercent is provided
       keypair,
       {
         tgId: userId,
         slippageBps: EMERGENCY_SLIPPAGE_BPS, // Override with high slippage
+        sellPercent,  // v4.6: Use percent-based selling with fresh on-chain balance
       }
     );
 

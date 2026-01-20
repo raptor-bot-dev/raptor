@@ -339,14 +339,15 @@ export async function executeManualSell(params: {
 
   // Step 6: Execute sell via executor
   // v3.5: Pass tgId to executor to fetch chain-specific settings (slippage, priority, anti-MEV)
-  logger.info('Executing sell via executor', { tokensToSell, userId });
+  // v4.6 DECIMALS FIX: Use sellPercent option - executor will fetch fresh balance from chain
+  logger.info('Executing sell via executor', { sellPercent, userId });
 
   try {
     const result = await solanaExecutor.executeSellWithKeypair(
       position.token_mint,
-      tokensToSell,
+      0,  // v4.6: tokenAmount is ignored when sellPercent is provided
       keypair,
-      { tgId: userId } // v3.5: Let executor fetch chain settings
+      { tgId: userId, sellPercent }  // v4.6: Use percent-based selling with fresh on-chain balance
     );
 
     if (!result.success) {

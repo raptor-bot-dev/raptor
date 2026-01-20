@@ -1108,9 +1108,11 @@ export class SolanaExecutor {
    * Routes automatically between pump.fun and Jupiter based on graduation status
    *
    * v3.5: Added tgId option for fetching chain settings (slippage, anti-MEV)
+   * v4.6: DECIMALS FIX - Now fetches fresh balance from chain and accepts sellPercent
+   *       This eliminates decimals bugs by using authoritative on-chain data.
    *
    * @param tokenMint - Token to sell
-   * @param tokenAmount - Amount of tokens to sell
+   * @param tokenAmount - DEPRECATED: Use sellPercent option instead. If sellPercent is provided, this is ignored.
    * @param keypair - User's keypair (from bot/hunter)
    * @param options - Sell options
    * @returns Trade result WITHOUT database recording
@@ -1124,10 +1126,11 @@ export class SolanaExecutor {
       tgId?: number;           // v3.5: For chain settings lookup
       priorityFeeSol?: number; // v3.5: Override priority fee
       useJito?: boolean;       // v3.5: Override anti-MEV setting
+      sellPercent?: number;    // v4.6: Sell percentage (1-100). If provided, ignores tokenAmount and fetches fresh balance.
     }
   ): Promise<SolanaTradeResult> {
     console.log(
-      `[SolanaExecutor] Sell ${tokenAmount} tokens of ${tokenMint} with external keypair`
+      `[SolanaExecutor] Sell ${options?.sellPercent ? `${options.sellPercent}%` : tokenAmount + ' tokens'} of ${tokenMint} with external keypair`
     );
 
     try {
@@ -1167,6 +1170,64 @@ export class SolanaExecutor {
         useJito: useJito && this.jitoClient !== null,
       };
 
+      // v4.6 DECIMALS FIX: Fetch fresh balance from chain and compute raw sell amount
+      // This eliminates decimals bugs by using authoritative on-chain data
+      let sellAmountRaw: bigint;
+      let balanceRaw: bigint;
+      let decimals: number;
+      const walletAddress = keypair.publicKey.toBase58();
+
+      if (options?.sellPercent !== undefined) {
+        // Fetch fresh balance from chain (authoritative source)
+        balanceRaw = await this.getTokenBalanceRaw(tokenMint, walletAddress);
+        decimals = await this.getTokenDecimals(tokenMint);
+
+        if (balanceRaw <= 0n) {
+          throw new Error(`PREFLIGHT_ZERO_BALANCE: No tokens to sell. Wallet: ${walletAddress}, Mint: ${tokenMint}`);
+        }
+
+        // Calculate sell amount from percentage
+        const percent = Math.min(100, Math.max(1, options.sellPercent));
+        sellAmountRaw = (balanceRaw * BigInt(percent)) / 100n;
+
+        // Dust protection: if selling >95%, sell everything to avoid dust
+        if (percent >= 95 && sellAmountRaw < balanceRaw) {
+          sellAmountRaw = balanceRaw;
+        }
+
+        console.log(`[SolanaExecutor] v4.6 DECIMALS FIX: Fetched fresh balance from chain`, {
+          balanceRaw: balanceRaw.toString(),
+          sellPercent: percent,
+          sellAmountRaw: sellAmountRaw.toString(),
+          decimals,
+        });
+      } else {
+        // Legacy path: tokenAmount provided directly (for backward compatibility)
+        // WARNING: This path is deprecated and may have decimals issues
+        decimals = await this.getTokenDecimals(tokenMint);
+        balanceRaw = await this.getTokenBalanceRaw(tokenMint, walletAddress);
+
+        // Assume tokenAmount is decimal-adjusted, convert to raw
+        sellAmountRaw = BigInt(Math.floor(tokenAmount * Math.pow(10, decimals)));
+
+        console.warn(`[SolanaExecutor] Using legacy tokenAmount path (deprecated). Consider using sellPercent option.`);
+      }
+
+      // PREFLIGHT CHECK: Ensure we're not trying to sell more than we have
+      if (sellAmountRaw > balanceRaw) {
+        throw new Error(
+          `PREFLIGHT_BALANCE_ERROR: Requested ${sellAmountRaw} but only ${balanceRaw} available. ` +
+          `Mint: ${tokenMint}, Decimals: ${decimals}, Wallet: ${walletAddress}`
+        );
+      }
+
+      if (sellAmountRaw <= 0n) {
+        throw new Error(`PREFLIGHT_ZERO_AMOUNT: Calculated sell amount is zero or negative.`);
+      }
+
+      // For return value, calculate decimal-adjusted amount
+      const tokenAmountForReturn = Number(sellAmountRaw) / Math.pow(10, decimals);
+
       // v3.3 FIX (Issue 6): Jupiter-first routing with pump.fun fallback
       // Jupiter handles most tokens including some bonding curve tokens.
       // Pump.fun direct sell has InvalidProgramId issues, so we try Jupiter first.
@@ -1177,9 +1238,9 @@ export class SolanaExecutor {
       try {
         // Try Jupiter first (handles graduated + some bonding curve)
         console.log('[SolanaExecutor] Attempting Jupiter sell');
-        result = await this.sellViaJupiterWithKeypair(
+        result = await this.sellViaJupiterWithKeypairRaw(
           tokenMint,
-          tokenAmount,
+          sellAmountRaw,
           keypair,
           executeOptions
         );
@@ -1199,9 +1260,10 @@ export class SolanaExecutor {
           const programName = bondingCurveInfo.programId.toBase58().startsWith('pro') ? 'pump.pro' : 'pump.fun';
           console.log(`[SolanaExecutor] Token on ${programName} bonding curve, trying direct sell`);
           try {
-            result = await this.sellViaPumpFunWithKeypair(
+            // v4.6: Use raw method that accepts BigInt directly
+            result = await this.sellViaPumpFunWithKeypairRaw(
               tokenMint,
-              tokenAmount,
+              sellAmountRaw,
               keypair,
               {
                 ...executeOptions,
@@ -1226,12 +1288,15 @@ export class SolanaExecutor {
 
       // P1-2 FIX: Convert lamports to SOL before calculating price
       const solReceived = lamportsToSol(result.solReceived);
-      const price = solReceived / tokenAmount;
+      // v4.6: Use tokenAmountForReturn for accurate price calculation
+      const price = tokenAmountForReturn > 0 ? solReceived / tokenAmountForReturn : 0;
 
       console.log('[SolanaExecutor] Sell successful', {
         txHash: result.txHash,
         solReceivedLamports: result.solReceived.toString(),
         solReceivedSOL: solReceived,
+        sellAmountRaw: sellAmountRaw.toString(),
+        tokenAmountDecimalAdjusted: tokenAmountForReturn,
         price,
         route,
       });
@@ -1240,7 +1305,7 @@ export class SolanaExecutor {
       return {
         success: true,
         txHash: result.txHash,
-        amountIn: tokenAmount,
+        amountIn: tokenAmountForReturn,  // v4.6: Return decimal-adjusted amount
         amountOut: solReceived, // P1-2 FIX: Return SOL, not lamports
         fee: 0, // Fee calculated by caller
         price,
@@ -1251,7 +1316,7 @@ export class SolanaExecutor {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
-        amountIn: tokenAmount,
+        amountIn: tokenAmount,  // Return original tokenAmount for backward compatibility
         amountOut: 0,
         fee: 0,
         price: 0,
@@ -1260,7 +1325,161 @@ export class SolanaExecutor {
   }
 
   /**
+   * v4.6: Sell via pump.fun/pump.pro bonding curve with RAW token amount (BigInt)
+   * This method accepts raw token amount directly, avoiding decimals conversion bugs.
+   */
+  private async sellViaPumpFunWithKeypairRaw(
+    tokenMint: string,
+    tokensRaw: bigint,
+    keypair: Keypair,
+    options?: {
+      slippageBps?: number;
+      priorityFeeSol?: number;
+      useJito?: boolean;
+      programId?: PublicKey;
+    }
+  ): Promise<{ txHash: string; solReceived: bigint }> {
+    const programName = options?.programId?.toBase58().startsWith('pro') ? 'pump.pro' : 'pump.fun';
+    console.log(`[SolanaExecutor] v4.6 RAW: Executing ${programName} sell of ${tokensRaw} raw tokens with external keypair`);
+
+    try {
+      const mint = new PublicKey(tokenMint);
+
+      // Detect program if not provided
+      let programId = options?.programId;
+      if (!programId) {
+        const bondingCurveInfo = await findBondingCurveAndProgram(this.connection, mint);
+        if (bondingCurveInfo) {
+          programId = bondingCurveInfo.programId;
+          console.log(`[SolanaExecutor] Auto-detected program: ${programId.toBase58()}`);
+        }
+      }
+
+      // Create a PumpFunClient with the external keypair
+      const { PumpFunClient } = await import('./pumpFun.js');
+      const client = new PumpFunClient(keypair);
+
+      const slippageBps = options?.slippageBps || 500; // Default 5% slippage
+
+      const result = await client.sell({
+        mint,
+        tokenAmount: tokensRaw,  // Pass raw BigInt directly - NO conversion needed!
+        minSolOut: 0n,
+        slippageBps,
+        priorityFeeSol: options?.priorityFeeSol,
+        programId,
+      });
+
+      console.log(`[SolanaExecutor] ${programName} sell successful: ${result.signature}`);
+
+      return {
+        txHash: result.signature,
+        solReceived: result.solAmount,
+      };
+    } catch (error) {
+      console.error(`[SolanaExecutor] ${programName} sell with keypair failed:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * v4.6: Sell via Jupiter with RAW token amount (BigInt)
+   * This method accepts raw token amount directly, avoiding decimals conversion bugs.
+   */
+  private async sellViaJupiterWithKeypairRaw(
+    tokenMint: string,
+    tokensRaw: bigint,
+    keypair: Keypair,
+    options?: {
+      slippageBps?: number;
+      priorityFeeSol?: number;
+      useJito?: boolean;
+    }
+  ): Promise<{ txHash: string; solReceived: bigint }> {
+    console.log(`[SolanaExecutor] v4.6 RAW: Getting Jupiter sell quote for ${tokensRaw} raw tokens with external keypair`);
+
+    try {
+      const slippageBps = options?.slippageBps || 500; // Default 5% slippage
+
+      // Pass raw BigInt directly to Jupiter - NO conversion needed!
+      const quote = await this.jupiterClient.quoteSell(tokenMint, tokensRaw, slippageBps);
+      const expectedSol = BigInt(quote.outAmount);
+
+      console.log(`[SolanaExecutor] Jupiter quote: ${lamportsToSol(expectedSol)} SOL (slippage: ${quote.slippageBps}bps)`);
+
+      // Get the swap transaction from Jupiter
+      const userPublicKey = keypair.publicKey.toBase58();
+      const swapResponse = await this.jupiterClient.getSwapTransaction(quote, userPublicKey);
+
+      // Deserialize and sign the transaction
+      const { VersionedTransaction } = await import('@solana/web3.js');
+      const transactionBuffer = Buffer.from(swapResponse.swapTransaction, 'base64');
+      const transaction = VersionedTransaction.deserialize(transactionBuffer);
+
+      // Sign the transaction with external keypair
+      transaction.sign([keypair]);
+
+      let txHash: string;
+
+      // Send via Jito if enabled for MEV protection
+      if (options?.useJito && this.jitoClient) {
+        console.log('[SolanaExecutor] Sending sell via Jito for MEV protection');
+        const jitoResult = await this.jitoClient.sendTransaction(transaction, keypair, {
+          priorityFeeSol: options.priorityFeeSol,
+        });
+
+        if (!jitoResult.success) {
+          throw new Error(`Jito bundle failed: ${jitoResult.error}`);
+        }
+
+        const sig = transaction.signatures[0];
+        txHash = sig ? Buffer.from(sig).toString('base64') : jitoResult.bundleId || '';
+
+        if (jitoResult.bundleId && jitoResult.signatures?.[0]) {
+          const confirmed = await this.jitoClient.waitForBundleConfirmation(
+            jitoResult.bundleId,
+            jitoResult.signatures[0],
+            SolanaExecutor.TX_CONFIRM_TIMEOUT_MS
+          );
+          if (!confirmed) {
+            console.warn('[SolanaExecutor] Jito bundle confirmation timeout, checking RPC...');
+          }
+        }
+      } else {
+        // Send via standard RPC
+        console.log('[SolanaExecutor] Sending sell via standard RPC');
+        const rawTransaction = transaction.serialize();
+        txHash = await this.connection.sendRawTransaction(rawTransaction, {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+          maxRetries: 3,
+        });
+
+        console.log(`[SolanaExecutor] Transaction sent: ${txHash}`);
+
+        // Wait for confirmation with timeout
+        await this.confirmTransactionWithTimeout(
+          txHash,
+          transaction.message.recentBlockhash,
+          swapResponse.lastValidBlockHeight
+        );
+      }
+
+      console.log(`[SolanaExecutor] Jupiter sell successful: ${txHash}`);
+
+      return {
+        txHash,
+        solReceived: expectedSol,
+      };
+    } catch (error) {
+      console.error('[SolanaExecutor] Jupiter sell with keypair failed:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Sell via pump.fun/pump.pro bonding curve with external keypair
+   * DEPRECATED: Use sellViaPumpFunWithKeypairRaw instead
    *
    * v3.5: Added options interface update for consistency
    * AUDIT FIX: Added programId support for pump.pro tokens
