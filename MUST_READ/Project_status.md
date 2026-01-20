@@ -133,6 +133,12 @@ Single source of truth for current progress. Keep it brief.
   - Pump.fun fee recipients resolved from Global config via pinned IDL
   - Mayhem mode uses reserved fee recipients (no fixed recipient)
   - New override: `PUMP_OVERRIDE_FEE_RECIPIENT` (escape hatch only)
+  - New files: `feeRecipient.ts`, `pumpIdl.ts` in executor
+  - Vendored IDL: `vendor/pump-public-docs/idl/pump.json`
+- **Token program detection for emergency sell** (2026-01-20):
+  - Added `getTokenProgramForMint()` to detect TOKEN_PROGRAM_ID vs TOKEN_2022_PROGRAM_ID
+  - Mint account owner check determines correct token program
+  - ATA derivation uses detected token program (fixes InvalidProgramId error)
 - **Emergency sell "In Progress" bug fixed** (2026-01-19):
   - Root cause: Code checked `status !== 'OPEN'` but database uses `status = 'ACTIVE'`
   - All ACTIVE positions incorrectly showed as "In Progress" blocking emergency sell
@@ -239,7 +245,21 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-20: **Audit follow-ups (pricing + decimals + pump.pro overrides)**
+- 2026-01-20 (latest): **IDL-based fee recipient + token program detection**
+  - Implemented IDL-based fee recipient resolution for pump.fun sells
+    - Decodes BondingCurve + Global state from pinned IDL
+    - Mayhem mode automatically selects reserved fee recipients
+    - Override env var: `PUMP_OVERRIDE_FEE_RECIPIENT`
+    - New files: `feeRecipient.ts`, `pumpIdl.ts`
+    - Vendored IDL at `vendor/pump-public-docs/idl/pump.json`
+  - Implemented token program detection for emergency sell
+    - `getTokenProgramForMint()` checks mint account owner
+    - Correctly uses TOKEN_PROGRAM_ID vs TOKEN_2022_PROGRAM_ID
+    - Fixes `InvalidProgramId` error on `token_program` account
+  - Committed: ef787c5, cf62b67
+  - Deployed: raptor-bot v117 (awaiting v118 with IDL changes)
+  - **PENDING TEST**: Emergency sell on bonding curve position
+- 2026-01-20 (earlier): **Audit follow-ups (pricing + decimals + pump.pro overrides)**
   - On-chain bonding curve fallback added to pricing/market data
   - Quote-based PnL now uses Jupiter sell quotes for graduated tokens
   - Entry MC fallback uses on-chain mint supply when available
@@ -408,6 +428,68 @@ Single source of truth for current progress. Keep it brief.
 ---
 
 ## Retrospectives
+
+### 2026-01-20: IDL-based Fee Recipient + Token Program Detection
+
+**Context:** Emergency sell still failing with `InvalidProgramId` on `token_program` account after previous fixes. Two root causes identified:
+1. Token program was hardcoded to TOKEN_2022_PROGRAM_ID, but some tokens use standard TOKEN_PROGRAM_ID
+2. Fee recipient resolution was not mode-aware (mayhem mode requires different fee recipients)
+
+**Root cause analysis:**
+- **Token program**: `sell()` in pumpFun.ts hardcoded `TOKEN_2022_PROGRAM_ID` for all tokens
+  - pump.fun/pump.pro tokens can use either legacy SPL Token or Token-2022
+  - Mint account owner determines which program to use
+  - ATA derivation must match the token program
+- **Fee recipient**: Hardcoded fee recipient doesn't work for mayhem mode
+  - Mayhem mode requires reserved fee recipients from Global config
+  - Need to read on-chain state and branch based on mode
+
+**What went well:**
+- IDL-based approach is robust and follows pump.fun's own documentation
+- Token program detection is a clean, simple check (mint account owner)
+- Vendored IDL ensures reproducible builds (no runtime fetch)
+- Code compiles and builds successfully
+- User provided detailed context in PUMPFUN.md that guided implementation
+
+**What could be improved:**
+- Token program hardcoding was a blind spot from initial implementation
+- Fee recipient logic was added ad-hoc without reading the IDL spec
+- Should have implemented both fixes together earlier (they're related)
+- No integration test to catch token program mismatch
+
+**Key changes:**
+1. **pumpFun.ts**:
+   - Added `getTokenProgramForMint()` - reads mint account owner
+   - `sell()` and `buy()` use detected token program
+   - ATA derivation uses detected token program
+   - Fee recipient resolution delegated to `feeRecipient.ts`
+
+2. **feeRecipient.ts** (new):
+   - `resolveFeeRecipient()` - mode-aware resolution
+   - Decodes BondingCurve and Global state from IDL
+   - Selects normal vs mayhem reserved recipients
+   - Caches results for performance
+   - Honors `PUMP_OVERRIDE_FEE_RECIPIENT` env var
+
+3. **pumpIdl.ts** (new):
+   - `loadPumpIdl()` - loads vendored IDL JSON
+   - Borsh decoder setup with clear error messaging
+   - Type definitions for BondingCurve and Global structs
+
+4. **vendor/pump-public-docs/idl/pump.json** (new):
+   - Pinned IDL from pump-public-docs commit `f0ef005c`
+
+**Lessons learned:**
+- Always check mint account owner for token program - don't assume
+- Fee recipient logic should always be mode-aware (normal vs mayhem)
+- Vendoring IDLs is better than runtime fetch for reliability
+- PUMPFUN.md spec document was invaluable for correct implementation
+
+**Pending verification:**
+- Emergency sell test on bonding curve position (4 active positions available)
+- Deployment v118 contains both fixes (awaiting CI/CD)
+
+---
 
 ### 2026-01-19: Emergency Sell Field Name + Entry Price + MC Display
 

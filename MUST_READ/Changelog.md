@@ -3,12 +3,21 @@
 Keep this log short and append-only. Use ISO dates.
 
 ## 2026-01-20
-- **fix(executor): IDL-based fee recipient resolution**
+- **fix(executor): IDL-based fee recipient resolution** (ef787c5)
   - Pump fee recipient now resolves from on-chain Global config via pinned IDL
-  - Mayhem mode selects reserved fee recipients automatically
+  - Mayhem mode selects reserved fee recipients automatically (no fixed recipient)
   - New override env: `PUMP_OVERRIDE_FEE_RECIPIENT` (escape hatch only)
   - Vendored Pump IDL: `vendor/pump-public-docs/idl/pump.json` (commit `f0ef005c386adeeb783c27fdcc4ddd9d49b255c5`)
   - Note: `PUMP_PRO_FEE_RECIPIENT` is no longer used for normal routing
+  - New files:
+    - `apps/executor/src/chains/solana/feeRecipient.ts` - decodes BondingCurve + Global, mode-aware selection
+    - `apps/executor/src/chains/solana/pumpIdl.ts` - IDL locator + Borsh decoder
+  - Dependencies: Added `@coral-xyz/anchor` for IDL decoding
+- **fix(executor): token program detection for emergency sell** (cf62b67)
+  - Added `getTokenProgramForMint()` to detect TOKEN_PROGRAM_ID vs TOKEN_2022_PROGRAM_ID
+  - Mint account owner check determines correct token program
+  - ATA derivation now uses detected token program (no hardcoded Token-2022)
+  - Fixes `InvalidProgramId` error on `token_program` account for emergency sells
 - **fix(audit): pricing, PnL, and pump.pro execution hardening**
   - Added on-chain bonding curve fallback for pricing and market data
   - Quote-based PnL now uses Jupiter sell quotes for graduated tokens (cached)
