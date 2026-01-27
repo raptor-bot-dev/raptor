@@ -9,5 +9,5 @@ RUN npm install -g clawdbot@latest
 # Set working directory for config/memories
 WORKDIR /data
 
-# Default command
-CMD ["clawdbot", "gateway", "start"]
+# Run gateway in foreground mode (Docker)
+CMD ["clawdbot", "gateway"]
