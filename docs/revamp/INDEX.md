@@ -62,7 +62,7 @@ This log is **append-only**. Never edit historical entries.
 ```
 PHASE | DATE (UTC)       | COMMIT HASH | SUMMARY                                    | TEST STATUS
 -------------------------------------------------------------------------------------------------
-0     | 2026-01-27       | (pending)   | Fresh schema, 7 tables, RPC funcs, tests   | GREEN
+0     | 2026-01-27       | 661f004     | Fresh schema, 7 tables, RPC funcs, tests   | GREEN
 ```
 
 Rules:
