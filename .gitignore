@@ -41,3 +41,16 @@ npm-debug.log*
 
 # Local settings
 settings.local.json
+
+# Sensitive files
+railway-env-vars.txt
+*.env.production
+
+# Downloaded tools (should be installed system-wide)
+gh_*/
+
+# Deployment artifacts
+*.tar.gz
+
+# npm lockfile (using pnpm)
+package-lock.json
