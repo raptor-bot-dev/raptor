@@ -1,6 +1,8 @@
 /**
  * RAPTOR Execution Engine v4.0
  * Solana-only build
+ *
+ * Phase 2: Added SwapRouter abstraction for venue-agnostic routing
  */
 
 import { Connection } from '@solana/web3.js';
@@ -9,6 +11,24 @@ import { SOLANA_CONFIG } from '@raptor/shared';
 // Export Solana executor for bot integration
 export { SolanaExecutor, solanaExecutor, JupiterClient, jupiter } from './chains/solana/index.js';
 export type { SolanaTradeResult, SolanaTokenInfo } from './chains/solana/index.js';
+
+// Phase 2: Export router types for venue-agnostic swap execution
+export {
+  RouterFactory,
+  createRouterFactory,
+  JupiterRouter,
+  BagsTradeRouter,
+} from './routers/index.js';
+
+export type {
+  SwapRouter,
+  SwapIntent,
+  SwapQuote,
+  SwapResult,
+  ExecuteOptions,
+  LifecycleState,
+  TradeSide,
+} from './routers/index.js';
 
 async function validateStartupConfiguration(): Promise<void> {
   console.log('🔍 Validating configuration...');

@@ -1,5 +1,9 @@
 // Solana Executor for RAPTOR v2
-// Handles all Solana trades via pump.fun or Jupiter
+// Handles all Solana trades via SwapRouter abstraction (Phase 2)
+//
+// Phase 2: Refactored to use RouterFactory for venue-agnostic routing
+// - BagsTradeRouter: PRE_GRADUATION tokens on Meteora bonding curve
+// - JupiterRouter: POST_GRADUATION tokens and fallback
 //
 // L-1 NOTE: This file uses console.log for logging. For production, these should
 // be migrated to the structured logger from @raptor/shared to ensure sensitive
@@ -51,6 +55,11 @@ import bs58 from 'bs58';
 import { JupiterClient, jupiter } from './jupiter.js';
 import { fetchWithTimeout } from '../../utils/fetchWithTimeout.js';
 import {
+  RouterFactory,
+  type SwapIntent,
+  type LifecycleState,
+} from '../../routers/index.js';
+import {
   calculateBuyOutput,
   calculateSellOutput,
   decodeBondingCurveState,
@@ -98,6 +107,9 @@ export class SolanaExecutor {
   private jitoClient: JitoClient | null = null;
   private running: boolean = false;
 
+  // Phase 2: RouterFactory for venue-agnostic swap routing
+  private routerFactory: RouterFactory;
+
   // H-1 fix: Default timeout for transaction confirmation (30 seconds)
   private static readonly TX_CONFIRM_TIMEOUT_MS = 30000;
 
@@ -107,6 +119,18 @@ export class SolanaExecutor {
     this.jupiterClient = new JupiterClient();
     this.connection = new Connection(this.rpcUrl, 'confirmed');
     this.jitoClient = createJitoClient(this.connection);
+
+    // Phase 2: Initialize RouterFactory with Jito client
+    this.routerFactory = new RouterFactory({
+      jupiter: {
+        rpcUrl: this.rpcUrl,
+        jitoClient: this.jitoClient || undefined,
+      },
+      bags: {
+        rpcUrl: this.rpcUrl,
+        jitoClient: this.jitoClient || undefined,
+      },
+    });
   }
 
   /**
@@ -402,9 +426,10 @@ export class SolanaExecutor {
 
   /**
    * Execute buy with external keypair (for bot integration)
-   * Routes automatically between pump.fun and Jupiter based on graduation status
+   * Phase 2: Routes via RouterFactory (BagsTradeRouter or JupiterRouter)
    *
    * v3.5: Added tgId option for fetching chain settings (slippage, anti-MEV)
+   * Phase 2: Refactored to use RouterFactory for venue-agnostic routing
    *
    * @param tokenMint - Token to buy
    * @param solAmount - Amount in SOL (GROSS - before fee)
@@ -422,6 +447,8 @@ export class SolanaExecutor {
       tgId?: number;           // v3.5: For chain settings lookup
       priorityFeeSol?: number; // v3.5: Override priority fee
       useJito?: boolean;       // v3.5: Override anti-MEV setting
+      lifecycleState?: LifecycleState; // Phase 2: Explicit lifecycle state
+      bondingCurve?: string;   // Phase 2: Bonding curve address for pre-graduation tokens
     }
   ): Promise<SolanaTradeResult> {
     console.log(
@@ -471,52 +498,44 @@ export class SolanaExecutor {
         useJito,
       });
 
-      // Check if token is on bonding curve or graduated
-      const tokenInfo = await this.getTokenInfo(tokenMint);
+      // Phase 2: Use RouterFactory for venue-agnostic routing
+      const swapResult = await this.routerFactory.executeBuy(
+        tokenMint,
+        netAmount,
+        keypair,
+        {
+          slippageBps,
+          lifecycleState: options?.lifecycleState,
+          bondingCurve: options?.bondingCurve,
+          useJito: useJito && this.jitoClient !== null,
+          priorityFeeSol,
+          executionId: `buy-${tokenMint.slice(0, 8)}-${Date.now()}`,
+        }
+      );
 
-      let result;
-      let route: string;
-
-      const executeOptions = {
-        slippageBps,
-        priorityFeeSol,
-        useJito: useJito && this.jitoClient !== null,
-      };
-
-      // v4.5: Track actual SOL spent (differs from requested on pump.fun bonding curve)
-      let actualSolSpent: number;
-
-      if (tokenInfo && !tokenInfo.graduated) {
-        // Use pump.fun bonding curve
-        console.log('[SolanaExecutor] Token on bonding curve, using pump.fun');
-        const pumpResult = await this.buyViaPumpFunWithKeypair(
-          tokenMint,
-          netAmount,
-          keypair,
-          executeOptions
-        );
-        result = { txHash: pumpResult.txHash, tokensReceived: pumpResult.tokensReceived };
-        actualSolSpent = pumpResult.actualSolSpent; // v4.5: Use actual spend from balance change
-        route = useJito ? 'pump.fun (Jito)' : 'pump.fun';
-      } else {
-        // Use Jupiter for graduated tokens
-        console.log('[SolanaExecutor] Token graduated, using Jupiter');
-        result = await this.buyViaJupiterWithKeypair(
-          tokenMint,
-          netAmount,
-          keypair,
-          executeOptions
-        );
-        actualSolSpent = netAmount; // Jupiter uses full requested amount
-        route = useJito ? 'Jupiter (Jito)' : 'Jupiter';
+      if (!swapResult.success) {
+        throw new Error(swapResult.error || 'Swap execution failed');
       }
 
-      // v4.5: Calculate price using ACTUAL SOL spent, not requested amount
-      const price = actualSolSpent / Number(result.tokensReceived);
+      // Phase 2: Extract results from RouterFactory response
+      const route = swapResult.router
+        ? (useJito ? `${swapResult.router} (Jito)` : swapResult.router)
+        : 'unknown';
+
+      // Calculate tokens received from quote
+      const tokensReceived = swapResult.quote?.expectedOutput
+        ? Number(swapResult.quote.expectedOutput)
+        : 0;
+
+      // Calculate price from quote or actualOutput
+      const actualSolSpent = swapResult.quote
+        ? lamportsToSol(swapResult.quote.inputAmount)
+        : netAmount;
+      const price = tokensReceived > 0 ? actualSolSpent / tokensReceived : 0;
 
       console.log('[SolanaExecutor] Buy successful', {
-        txHash: result.txHash,
-        tokensReceived: result.tokensReceived.toString(),
+        txHash: swapResult.signature,
+        tokensReceived,
         actualSolSpent,
         requestedAmount: netAmount,
         price,
@@ -528,9 +547,9 @@ export class SolanaExecutor {
 
       return {
         success: true,
-        txHash: result.txHash,
-        amountIn: actualSolSpent, // v4.5: Return ACTUAL SOL spent, not requested
-        amountOut: Number(result.tokensReceived),
+        txHash: swapResult.signature,
+        amountIn: actualSolSpent,
+        amountOut: tokensReceived,
         fee,
         price,
         route,
@@ -1119,11 +1138,12 @@ export class SolanaExecutor {
 
   /**
    * Execute sell with external keypair (for bot/hunter integration)
-   * Routes automatically between pump.fun and Jupiter based on graduation status
+   * Phase 2: Routes via RouterFactory (BagsTradeRouter or JupiterRouter)
    *
    * v3.5: Added tgId option for fetching chain settings (slippage, anti-MEV)
    * v4.6: DECIMALS FIX - Now fetches fresh balance from chain and accepts sellPercent
    *       This eliminates decimals bugs by using authoritative on-chain data.
+   * Phase 2: Refactored to use RouterFactory for venue-agnostic routing
    *
    * @param tokenMint - Token to sell
    * @param tokenAmount - DEPRECATED: Use sellPercent option instead. If sellPercent is provided, this is ignored.
@@ -1141,6 +1161,9 @@ export class SolanaExecutor {
       priorityFeeSol?: number; // v3.5: Override priority fee
       useJito?: boolean;       // v3.5: Override anti-MEV setting
       sellPercent?: number;    // v4.6: Sell percentage (1-100). If provided, ignores tokenAmount and fetches fresh balance.
+      lifecycleState?: LifecycleState; // Phase 2: Explicit lifecycle state
+      bondingCurve?: string;   // Phase 2: Bonding curve address for pre-graduation tokens
+      positionId?: string;     // Phase 2: Position ID for tracking
     }
   ): Promise<SolanaTradeResult> {
     console.log(
@@ -1177,12 +1200,6 @@ export class SolanaExecutor {
 
       // Default slippage if still not set
       slippageBps = slippageBps ?? 800; // 8%
-
-      const executeOptions = {
-        slippageBps,
-        priorityFeeSol,
-        useJito: useJito && this.jitoClient !== null,
-      };
 
       // v4.6 DECIMALS FIX: Fetch fresh balance from chain and compute raw sell amount
       // This eliminates decimals bugs by using authoritative on-chain data
@@ -1242,72 +1259,41 @@ export class SolanaExecutor {
       // For return value, calculate decimal-adjusted amount
       const tokenAmountForReturn = Number(sellAmountRaw) / Math.pow(10, decimals);
 
-      // v3.3 FIX (Issue 6): Jupiter-first routing with pump.fun fallback
-      // Jupiter handles most tokens including some bonding curve tokens.
-      // Pump.fun direct sell has InvalidProgramId issues, so we try Jupiter first.
-
-      let result;
-      let route: string;
-
-      try {
-        // Try Jupiter first (handles graduated + some bonding curve)
-        console.log('[SolanaExecutor] Attempting Jupiter sell');
-        result = await this.sellViaJupiterWithKeypairRaw(
-          tokenMint,
-          sellAmountRaw,
-          keypair,
-          executeOptions
-        );
-        route = useJito ? 'Jupiter (Jito)' : 'Jupiter';
-        console.log('[SolanaExecutor] Jupiter sell successful');
-      } catch (jupiterError) {
-        // Jupiter failed - check if we can fall back to pump.fun/pump.pro bonding curve
-        console.log('[SolanaExecutor] Jupiter sell failed, checking bonding curve fallback',
-          jupiterError instanceof Error ? jupiterError.message : jupiterError);
-
-        // AUDIT FIX: Use getBondingCurveStateWithProgram to check both pump.fun AND pump.pro
-        // This fixes the issue where pump.pro tokens were incorrectly treated as "graduated"
-        const bondingCurveInfo = await this.getBondingCurveStateWithProgram(tokenMint);
-
-        if (bondingCurveInfo && !bondingCurveInfo.state.complete) {
-          // Token is on bonding curve (pump.fun or pump.pro) - try direct sell
-          const programName = bondingCurveInfo.programId.toBase58().startsWith('pro') ? 'pump.pro' : 'pump.fun';
-          console.log(`[SolanaExecutor] Token on ${programName} bonding curve, trying direct sell`);
-          try {
-            // v4.6: Use raw method that accepts BigInt directly
-            result = await this.sellViaPumpFunWithKeypairRaw(
-              tokenMint,
-              sellAmountRaw,
-              keypair,
-              {
-                ...executeOptions,
-                programId: bondingCurveInfo.programId,  // AUDIT FIX: Pass detected program ID
-              }
-            );
-            route = useJito ? `${programName} (Jito)` : programName;
-            console.log(`[SolanaExecutor] ${programName} sell successful`);
-          } catch (pumpError) {
-            // Both Jupiter and bonding curve sell failed
-            console.error('[SolanaExecutor] Both Jupiter and bonding curve sell failed');
-            throw new Error(
-              `Sell failed via both routes. Jupiter: ${jupiterError instanceof Error ? jupiterError.message : 'Unknown'}. ` +
-              `Bonding curve: ${pumpError instanceof Error ? pumpError.message : 'Unknown'}`
-            );
-          }
-        } else {
-          // Token is graduated or no bonding curve found, Jupiter should have worked - re-throw
-          throw jupiterError;
+      // Phase 2: Use RouterFactory for venue-agnostic routing
+      const swapResult = await this.routerFactory.executeSell(
+        tokenMint,
+        sellAmountRaw,
+        keypair,
+        {
+          slippageBps,
+          lifecycleState: options?.lifecycleState,
+          bondingCurve: options?.bondingCurve,
+          useJito: useJito && this.jitoClient !== null,
+          priorityFeeSol,
+          positionId: options?.positionId,
+          executionId: `sell-${tokenMint.slice(0, 8)}-${Date.now()}`,
         }
+      );
+
+      if (!swapResult.success) {
+        throw new Error(swapResult.error || 'Swap execution failed');
       }
 
-      // P1-2 FIX: Convert lamports to SOL before calculating price
-      const solReceived = lamportsToSol(result.solReceived);
-      // v4.6: Use tokenAmountForReturn for accurate price calculation
+      // Phase 2: Extract results from RouterFactory response
+      const route = swapResult.router
+        ? (useJito ? `${swapResult.router} (Jito)` : swapResult.router)
+        : 'unknown';
+
+      // Calculate SOL received from quote
+      const solReceived = swapResult.quote?.expectedOutput
+        ? lamportsToSol(swapResult.quote.expectedOutput)
+        : 0;
+
+      // Calculate price
       const price = tokenAmountForReturn > 0 ? solReceived / tokenAmountForReturn : 0;
 
       console.log('[SolanaExecutor] Sell successful', {
-        txHash: result.txHash,
-        solReceivedLamports: result.solReceived.toString(),
+        txHash: swapResult.signature,
         solReceivedSOL: solReceived,
         sellAmountRaw: sellAmountRaw.toString(),
         tokenAmountDecimalAdjusted: tokenAmountForReturn,
@@ -1318,9 +1304,9 @@ export class SolanaExecutor {
       // NO recordTrade() - let caller handle DB
       return {
         success: true,
-        txHash: result.txHash,
+        txHash: swapResult.signature,
         amountIn: tokenAmountForReturn,  // v4.6: Return decimal-adjusted amount
-        amountOut: solReceived, // P1-2 FIX: Return SOL, not lamports
+        amountOut: solReceived,
         fee: 0, // Fee calculated by caller
         price,
         route,
