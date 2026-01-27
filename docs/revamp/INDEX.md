@@ -64,6 +64,10 @@ PHASE | DATE (UTC)       | COMMIT HASH | SUMMARY                                
 -------------------------------------------------------------------------------------------------
 0     | 2026-01-27       | 661f004     | Fresh schema, 7 tables, RPC funcs, tests   | GREEN
 1     | 2026-01-27       | 3d1d328     | Bags discovery MVP: parser, source, dedupe | GREEN
+2     | 2026-01-27       | d582f75     | SwapRouter abstraction + BagsTradeRouter   | GREEN
+3     | 2026-01-27       | daceecf     | Lifecycle state machine, graduation monitor| GREEN
+4     | 2026-01-27       | daceecf     | Meteora on-chain detection via logsSubscribe| GREEN
+5     | 2026-01-27       | 6ceeef9     | Circuit breakers, error classification, config validation | GREEN
 ```
 
 Rules:
