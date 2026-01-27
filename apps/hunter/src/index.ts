@@ -9,13 +9,20 @@ import {
   isAutoExecuteEnabled,
   isTpSlEngineEnabled,
   isLegacyPositionMonitorEnabled,
+  isBagsSourceEnabled,
+  getBagsChannelId,
+  getBagsBotToken,
+  getBagsDedupeTtlMs,
+  supabase,
 } from '@raptor/shared';
+import type { LaunchCandidateInsert } from '@raptor/database';
 
 import { OpportunityLoop } from './loops/opportunities.js';
 import { ExecutionLoop } from './loops/execution.js';
 import { PositionMonitorLoop } from './loops/positions.js';
 import { TpSlMonitorLoop } from './loops/tpslMonitor.js';
 import { MaintenanceLoop } from './loops/maintenance.js';
+import { BagsSource, type BagsSignal } from './sources/index.js';
 
 // Global promise rejection handler
 process.on('unhandledRejection', (reason, promise) => {
@@ -71,6 +78,44 @@ async function main() {
     ? new TpSlMonitorLoop(workerId)
     : null;
 
+  // Initialize BagsSource for Telegram signal ingestion (Phase 1)
+  const bagsSourceEnabled = isBagsSourceEnabled();
+  const bagsSource = bagsSourceEnabled
+    ? new BagsSource({
+        botToken: getBagsBotToken(),
+        channelId: getBagsChannelId(),
+        enabled: true,
+        dedupeTtlMs: getBagsDedupeTtlMs(),
+      })
+    : null;
+
+  // Register signal handler for BagsSource
+  if (bagsSource) {
+    bagsSource.onSignal(async (signal: BagsSignal) => {
+      const insert: LaunchCandidateInsert = {
+        mint: signal.mint,
+        symbol: signal.symbol,
+        name: signal.name,
+        launch_source: 'bags',
+        discovery_method: 'telegram',
+        raw_payload: { text: signal.raw, received_at: signal.timestamp },
+        status: 'new',
+      };
+
+      const { error } = await supabase
+        .from('launch_candidates')
+        .upsert(insert, { onConflict: 'mint,launch_source' });
+
+      if (error) {
+        console.error('[BagsSource] Failed to insert launch_candidate:', error.message);
+      } else {
+        console.log(
+          `[BagsSource] Inserted launch_candidate: ${signal.symbol || 'UNKNOWN'} (${signal.mint.slice(0, 12)}...)`
+        );
+      }
+    });
+  }
+
   // Start all loops
   try {
     const startPromises: Promise<void>[] = [
@@ -85,6 +130,9 @@ async function main() {
     if (tpslMonitorLoop) {
       startPromises.push(tpslMonitorLoop.start());
     }
+    if (bagsSource) {
+      startPromises.push(bagsSource.start());
+    }
 
     await Promise.all(startPromises);
 
@@ -97,6 +145,9 @@ async function main() {
     }
     if (tpslMonitorLoop) {
       console.log('   - TP/SL Engine: Event-driven trigger monitoring');
+    }
+    if (bagsSource) {
+      console.log('   - Bags Source: Monitoring Telegram channel');
     }
     console.log('   - Maintenance loop: Cleanup & recovery');
     console.log('');
@@ -120,6 +171,9 @@ async function main() {
     }
     if (tpslMonitorLoop) {
       stopPromises.push(tpslMonitorLoop.stop());
+    }
+    if (bagsSource) {
+      stopPromises.push(bagsSource.stop());
     }
 
     await Promise.all(stopPromises);

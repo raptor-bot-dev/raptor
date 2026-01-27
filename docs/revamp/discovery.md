@@ -81,8 +81,23 @@ Cross-validation:
 
 ## 5. Phase 1 Commit Gate
 
-- Parser + ingestion stable
-- Tests green
-- Docs updated
+- [x] Parser + ingestion stable
+- [x] Tests green (46 bags tests: 29 parser + 17 source)
+- [x] Docs updated
 - Commit message:
   - `phase-1: bags discovery mvp`
+
+### Phase 1 Implementation Summary
+
+Files created:
+- `apps/hunter/src/sources/bagsParser.ts` - Deterministic parser
+- `apps/hunter/src/sources/bagsDeduplicator.ts` - In-memory dedupe with TTL
+- `apps/hunter/src/sources/bagsSource.ts` - Telegram channel monitor using grammy
+- `apps/hunter/src/sources/index.ts` - Module exports
+- `apps/hunter/src/sources/__tests__/bagsParser.test.ts` - 29 parser tests
+- `apps/hunter/src/sources/__tests__/bagsSource.test.ts` - 17 source/dedupe tests
+
+Files modified:
+- `apps/hunter/src/index.ts` - Wired up BagsSource with DB insertion handler
+- `apps/hunter/package.json` - Added grammy and @raptor/database dependencies
+- `packages/shared/src/config.ts` - Added Bags config helpers

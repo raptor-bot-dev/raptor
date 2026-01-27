@@ -156,3 +156,38 @@ export function isTpSlEngineEnabled(): boolean {
 export function isLegacyPositionMonitorEnabled(): boolean {
   return process.env.LEGACY_POSITION_MONITOR !== 'false';
 }
+
+// =============================================================================
+// Bags.fm Discovery Source Configuration (Phase 1)
+// =============================================================================
+
+/**
+ * Check if Bags.fm discovery source is enabled
+ * Set BAGS_SOURCE_ENABLED=true to enable Telegram channel monitoring
+ */
+export function isBagsSourceEnabled(): boolean {
+  return process.env.BAGS_SOURCE_ENABLED === 'true';
+}
+
+/**
+ * Get the Bags.fm Telegram channel ID
+ * Can be @channel_username or numeric channel ID (e.g., -1001234567890)
+ */
+export function getBagsChannelId(): string {
+  return process.env.BAGS_CHANNEL_ID || '';
+}
+
+/**
+ * Get the Bags.fm bot token for channel monitoring
+ * This bot must be added to the target channel
+ */
+export function getBagsBotToken(): string {
+  return process.env.BAGS_BOT_TOKEN || '';
+}
+
+/**
+ * Get the deduplication TTL for Bags signals in milliseconds
+ */
+export function getBagsDedupeTtlMs(): number {
+  return parseInt(process.env.BAGS_DEDUPE_TTL_MS || '60000', 10);
+}

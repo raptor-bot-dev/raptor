@@ -12,9 +12,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@raptor/database": "workspace:*",
     "@raptor/shared": "workspace:*",
     "@raptor/executor": "workspace:*",
     "@solana/web3.js": "^1.95.0",
+    "grammy": "^1.21.0",
     "ws": "^8.16.0"
   },
   "devDependencies": {
