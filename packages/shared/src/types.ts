@@ -306,9 +306,19 @@ export interface PositionV31 {
   opened_at: string;
   closed_at: string | null;
 
+  // Phase 3: Lifecycle tracking
+  lifecycle_state: LifecycleState;
+  pricing_source: PricingSource;
+  graduated_at: string | null;
+  pool_address: string | null;
+
   created_at: string;
   updated_at: string;
 }
+
+// Phase 3: Lifecycle and pricing types
+export type LifecycleState = 'PRE_GRADUATION' | 'POST_GRADUATION' | 'CLOSED';
+export type PricingSource = 'BONDING_CURVE' | 'AMM_POOL';
 
 /** Notification for Telegram delivery */
 export interface Notification {

@@ -65,6 +65,10 @@ export * as launchpadDetector from './api/launchpadDetector.js';
 // Direct export for common pumpfun function
 export { getTokenInfo } from './api/pumpfun.js';
 
+// Direct export for on-chain bonding curve functions
+export { getBondingCurveSnapshot, getMintInfo } from './pumpfun/onchain.js';
+export type { BondingCurveSnapshot, MintInfo } from './pumpfun/onchain.js';
+
 // Direct export for common birdeye function
 export { getSolPrice } from './api/birdeye.js';
 

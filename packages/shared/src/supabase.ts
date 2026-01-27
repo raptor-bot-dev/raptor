@@ -2776,3 +2776,58 @@ export async function resetChainSettings(
   if (error) throw error;
   return data as ChainSettings;
 }
+
+// ============================================================================
+// Phase 3: Graduation Monitor Functions
+// ============================================================================
+
+/**
+ * Atomically transition a position from PRE_GRADUATION to POST_GRADUATION.
+ * This is called when a token's bonding curve is complete (graduated to AMM).
+ * Returns true if the transition occurred, false if position was already graduated/closed.
+ */
+export async function graduatePositionAtomically(
+  positionId: string,
+  poolAddress: string | null
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('graduate_position_atomically', {
+    p_position_id: positionId,
+    p_pool_address: poolAddress,
+  });
+
+  if (error) {
+    console.error('[graduatePositionAtomically] Error:', error);
+    return false;
+  }
+  return data === true;
+}
+
+/**
+ * Get all unique mints that have open pre-graduation positions.
+ * Used by GraduationMonitorLoop to batch bonding curve checks.
+ */
+export async function getGraduationMonitoringMints(): Promise<{ mint: string; position_count: number }[]> {
+  const { data, error } = await supabase.rpc('get_graduation_monitoring_mints');
+
+  if (error) {
+    console.error('[getGraduationMonitoringMints] Error:', error);
+    return [];
+  }
+  return (data || []) as { mint: string; position_count: number }[];
+}
+
+/**
+ * Get all open pre-graduation positions for a specific mint.
+ * Used to graduate all positions when a token graduates.
+ */
+export async function getPreGraduationPositionsByMint(mint: string): Promise<PositionV31[]> {
+  const { data, error } = await supabase.rpc('get_pre_graduation_positions_by_mint', {
+    p_mint: mint,
+  });
+
+  if (error) {
+    console.error('[getPreGraduationPositionsByMint] Error:', error);
+    return [];
+  }
+  return (data || []) as PositionV31[];
+}

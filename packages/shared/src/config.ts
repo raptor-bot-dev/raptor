@@ -191,3 +191,44 @@ export function getBagsBotToken(): string {
 export function getBagsDedupeTtlMs(): number {
   return parseInt(process.env.BAGS_DEDUPE_TTL_MS || '60000', 10);
 }
+
+// =============================================================================
+// Graduation Monitor Configuration (Phase 3)
+// =============================================================================
+
+/**
+ * Check if the graduation monitor is enabled
+ * Set GRADUATION_ENABLED=true to enable lifecycle state monitoring
+ */
+export function isGraduationMonitorEnabled(): boolean {
+  return process.env.GRADUATION_ENABLED === 'true';
+}
+
+/**
+ * Get the graduation monitor poll interval in milliseconds
+ * Default: 10000 (10 seconds)
+ */
+export function getGraduationPollIntervalMs(): number {
+  const interval = parseInt(process.env.GRADUATION_POLL_INTERVAL_MS || '10000', 10);
+  return Math.max(5000, Math.min(interval, 60000)); // Clamp between 5s and 60s
+}
+
+// =============================================================================
+// Meteora On-Chain Detection Configuration (Phase 4)
+// =============================================================================
+
+/**
+ * Check if Meteora on-chain detection is enabled
+ * Set METEORA_ONCHAIN_ENABLED=true to enable WebSocket monitoring of Meteora DBC program
+ */
+export function isMeteoraOnChainEnabled(): boolean {
+  return process.env.METEORA_ONCHAIN_ENABLED === 'true';
+}
+
+/**
+ * Get the Meteora DBC program ID
+ * Default: dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN
+ */
+export function getMeteoraProgramId(): string {
+  return process.env.METEORA_PROGRAM_ID || 'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN';
+}

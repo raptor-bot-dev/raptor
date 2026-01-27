@@ -180,3 +180,109 @@ export async function getTokenPrice(mint: string): Promise<PriceResult> {
 export function clearPriceCache(): void {
   priceCache.clear();
 }
+
+// =============================================================================
+// Phase 3: Position-Aware Pricing
+// =============================================================================
+
+/**
+ * Pricing source type (matches DB constraint)
+ */
+export type PositionPricingSource = 'BONDING_CURVE' | 'AMM_POOL';
+
+/**
+ * Position-like object with pricing source field
+ */
+export interface PriceablePosition {
+  token_mint: string;
+  pricing_source?: PositionPricingSource | null;
+}
+
+/**
+ * Get price for a position, respecting its pricing source.
+ *
+ * This function ensures price consistency across lifecycle transitions:
+ * - PRE_GRADUATION positions use bonding curve pricing
+ * - POST_GRADUATION positions use AMM pool pricing (Jupiter/DEXScreener)
+ *
+ * The fallback chain differs based on pricing source:
+ * - BONDING_CURVE: onchain > pumpfun > jupiter > dexscreener
+ * - AMM_POOL: jupiter > dexscreener > onchain > pumpfun
+ *
+ * @param position Position with token_mint and optional pricing_source
+ * @returns Price result with price and source
+ */
+export async function getPositionPrice(position: PriceablePosition): Promise<PriceResult> {
+  const mint = position.token_mint;
+  const pricingSource = position.pricing_source || 'BONDING_CURVE';
+
+  // For bonding curve positions, prefer on-chain pricing
+  if (pricingSource === 'BONDING_CURVE') {
+    return await getBondingCurvePriceFirst(mint);
+  }
+
+  // For AMM pool positions, prefer Jupiter/DEXScreener
+  return await getAmmPoolPriceFirst(mint);
+}
+
+/**
+ * Get price with bonding curve sources prioritized.
+ * Used for PRE_GRADUATION positions.
+ */
+async function getBondingCurvePriceFirst(mint: string): Promise<PriceResult> {
+  const now = Date.now();
+
+  // Check cache first
+  const cached = priceCache.get(mint);
+  if (cached && now < cached.expiry) {
+    return { price: cached.price, source: cached.source };
+  }
+
+  // 1. Try on-chain bonding curve first
+  try {
+    const snapshot = await getBondingCurveSnapshot(mint);
+    if (snapshot) {
+      const mintInfo = await getMintInfo(mint);
+      const decimals = mintInfo?.decimals ?? 6;
+
+      const solReserves = Number(snapshot.state.virtualSolReserves) / 1e9;
+      const tokenReserves = Number(snapshot.state.virtualTokenReserves) / Math.pow(10, decimals);
+
+      if (tokenReserves > 0) {
+        const price = solReserves / tokenReserves;
+        if (price > 0) {
+          const result: PriceResult = { price, source: 'onchain' };
+          priceCache.set(mint, { ...result, expiry: now + CACHE_TTL_MS });
+          return result;
+        }
+      }
+    }
+  } catch {
+    // Continue to fallbacks
+  }
+
+  // 2. Try pump.fun API
+  try {
+    const tokenInfo = await getTokenInfo(mint);
+    if (tokenInfo?.priceInSol && tokenInfo.priceInSol > 0) {
+      const result: PriceResult = { price: tokenInfo.priceInSol, source: 'pumpfun' };
+      priceCache.set(mint, { ...result, expiry: now + CACHE_TTL_MS });
+      return result;
+    }
+  } catch {
+    // Continue to fallbacks
+  }
+
+  // 3. Fall back to standard getTokenPrice (Jupiter -> DEXScreener)
+  return await getTokenPrice(mint);
+}
+
+/**
+ * Get price with AMM pool sources prioritized.
+ * Used for POST_GRADUATION positions.
+ */
+async function getAmmPoolPriceFirst(mint: string): Promise<PriceResult> {
+  // Standard getTokenPrice already prioritizes Jupiter -> DEXScreener -> pump.fun -> onchain
+  // This is the optimal order for AMM pool pricing
+  return await getTokenPrice(mint);
+}

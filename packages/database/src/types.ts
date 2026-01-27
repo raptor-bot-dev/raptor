@@ -198,6 +198,9 @@ export interface Position {
   exit_execution_id: string | null;
   bonding_curve: string | null;
   metadata: Json | null;
+  // Phase 3: Graduation tracking
+  graduated_at: string | null;
+  pool_address: string | null;
 }
 
 export interface PositionInsert {
@@ -238,6 +241,9 @@ export interface PositionInsert {
   exit_execution_id?: string | null;
   bonding_curve?: string | null;
   metadata?: Json | null;
+  // Phase 3: Graduation tracking
+  graduated_at?: string | null;
+  pool_address?: string | null;
 }
 
 export interface PositionUpdate {
@@ -269,6 +275,9 @@ export interface PositionUpdate {
   exit_execution_id?: string | null;
   bonding_curve?: string | null;
   metadata?: Json | null;
+  // Phase 3: Graduation tracking
+  graduated_at?: string | null;
+  pool_address?: string | null;
 }
 
 export interface Execution {
@@ -457,6 +466,19 @@ export interface Database {
       mark_trigger_failed: {
         Args: { p_position_id: string; p_error?: string };
         Returns: boolean;
+      };
+      // Phase 3: Graduation functions
+      graduate_position_atomically: {
+        Args: { p_position_id: string; p_pool_address?: string };
+        Returns: boolean;
+      };
+      get_pre_graduation_positions_by_mint: {
+        Args: { p_mint: string };
+        Returns: Position[];
+      };
+      get_graduation_monitoring_mints: {
+        Args: Record<string, never>;
+        Returns: { mint: string; position_count: number }[];
       };
     };
     Enums: {

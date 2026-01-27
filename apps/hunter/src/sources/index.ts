@@ -1,6 +1,10 @@
 // =============================================================================
-// RAPTOR Phase 1: Discovery Sources
+// RAPTOR Phase 1-4: Discovery Sources
 // Exports for launchpad discovery layer
+// =============================================================================
+
+// =============================================================================
+// Phase 1: Bags.fm Telegram Source
 // =============================================================================
 
 // Parser
@@ -24,3 +28,25 @@ export {
   type BagsSourceConfig,
   type BagsSignalHandler,
 } from './bagsSource.js';
+
+// =============================================================================
+// Phase 4: Meteora On-Chain Source
+// =============================================================================
+
+// Parser
+export {
+  parseMeteoraLogs,
+  isCreateInstruction,
+  extractAddressesFromLogs,
+  validateCreateEvent,
+  type MeteoraCreateEvent,
+  type MeteoraParseResult,
+} from './meteoraParser.js';
+
+// Source
+export {
+  MeteoraOnChainSource,
+  type MeteoraOnChainSignal,
+  type MeteoraOnChainConfig,
+  type MeteoraSignalHandler,
+} from './meteoraOnChainSource.js';

@@ -13,6 +13,9 @@ import {
   getBagsChannelId,
   getBagsBotToken,
   getBagsDedupeTtlMs,
+  isGraduationMonitorEnabled,
+  isMeteoraOnChainEnabled,
+  getMeteoraProgramId,
   supabase,
 } from '@raptor/shared';
 import type { LaunchCandidateInsert } from '@raptor/database';
@@ -21,8 +24,14 @@ import { OpportunityLoop } from './loops/opportunities.js';
 import { ExecutionLoop } from './loops/execution.js';
 import { PositionMonitorLoop } from './loops/positions.js';
 import { TpSlMonitorLoop } from './loops/tpslMonitor.js';
+import { GraduationMonitorLoop } from './loops/graduationMonitor.js';
 import { MaintenanceLoop } from './loops/maintenance.js';
-import { BagsSource, type BagsSignal } from './sources/index.js';
+import {
+  BagsSource,
+  MeteoraOnChainSource,
+  type BagsSignal,
+  type MeteoraOnChainSignal,
+} from './sources/index.js';
 
 // Global promise rejection handler
 process.on('unhandledRejection', (reason, promise) => {
@@ -54,12 +63,20 @@ async function main() {
   // Check TP/SL engine feature flags
   const tpslEngineEnabled = isTpSlEngineEnabled();
   const legacyPositionMonitorEnabled = isLegacyPositionMonitorEnabled();
+  const graduationMonitorEnabled = isGraduationMonitorEnabled();
+  const meteoraOnChainEnabled = isMeteoraOnChainEnabled();
 
   if (tpslEngineEnabled) {
     console.log('✅ TP/SL Engine: ENABLED (event-driven)');
   }
   if (legacyPositionMonitorEnabled) {
     console.log('✅ Legacy Position Monitor: ENABLED');
+  }
+  if (graduationMonitorEnabled) {
+    console.log('✅ Graduation Monitor: ENABLED (lifecycle tracking)');
+  }
+  if (meteoraOnChainEnabled) {
+    console.log('✅ Meteora On-Chain Source: ENABLED (WebSocket detection)');
   }
   if (!tpslEngineEnabled && !legacyPositionMonitorEnabled) {
     console.warn('⚠️  No position monitor enabled! TP/SL triggers will NOT fire.');
@@ -76,6 +93,9 @@ async function main() {
     : null;
   const tpslMonitorLoop = tpslEngineEnabled
     ? new TpSlMonitorLoop(workerId)
+    : null;
+  const graduationMonitorLoop = graduationMonitorEnabled
+    ? new GraduationMonitorLoop(workerId)
     : null;
 
   // Initialize BagsSource for Telegram signal ingestion (Phase 1)
@@ -116,6 +136,47 @@ async function main() {
     });
   }
 
+  // Initialize MeteoraOnChainSource for on-chain signal detection (Phase 4)
+  const meteoraOnChainSource = meteoraOnChainEnabled
+    ? new MeteoraOnChainSource({
+        programId: getMeteoraProgramId(),
+        enabled: true,
+      })
+    : null;
+
+  // Register signal handler for MeteoraOnChainSource
+  if (meteoraOnChainSource) {
+    meteoraOnChainSource.onSignal(async (signal: MeteoraOnChainSignal) => {
+      const insert: LaunchCandidateInsert = {
+        mint: signal.mint,
+        symbol: null, // On-chain detection doesn't have symbol
+        name: null, // On-chain detection doesn't have name
+        launch_source: 'bags',
+        discovery_method: 'onchain',
+        raw_payload: {
+          bonding_curve: signal.bondingCurve,
+          creator: signal.creator,
+          signature: signal.signature,
+          slot: signal.slot,
+          detected_at: signal.timestamp,
+        },
+        status: 'new',
+      };
+
+      const { error } = await supabase
+        .from('launch_candidates')
+        .upsert(insert, { onConflict: 'mint,launch_source' });
+
+      if (error) {
+        console.error('[MeteoraOnChainSource] Failed to insert launch_candidate:', error.message);
+      } else {
+        console.log(
+          `[MeteoraOnChainSource] Detected on-chain: ${signal.mint.slice(0, 12)}... (tx: ${signal.signature.slice(0, 12)}...)`
+        );
+      }
+    });
+  }
+
   // Start all loops
   try {
     const startPromises: Promise<void>[] = [
@@ -130,8 +191,14 @@ async function main() {
     if (tpslMonitorLoop) {
       startPromises.push(tpslMonitorLoop.start());
     }
+    if (graduationMonitorLoop) {
+      startPromises.push(graduationMonitorLoop.start());
+    }
     if (bagsSource) {
       startPromises.push(bagsSource.start());
+    }
+    if (meteoraOnChainSource) {
+      startPromises.push(meteoraOnChainSource.start());
     }
 
     await Promise.all(startPromises);
@@ -146,8 +213,14 @@ async function main() {
     if (tpslMonitorLoop) {
       console.log('   - TP/SL Engine: Event-driven trigger monitoring');
     }
+    if (graduationMonitorLoop) {
+      console.log('   - Graduation monitor: Lifecycle state tracking');
+    }
     if (bagsSource) {
       console.log('   - Bags Source: Monitoring Telegram channel');
+    }
+    if (meteoraOnChainSource) {
+      console.log('   - Meteora On-Chain: WebSocket program monitoring');
     }
     console.log('   - Maintenance loop: Cleanup & recovery');
     console.log('');
@@ -172,8 +245,14 @@ async function main() {
     if (tpslMonitorLoop) {
       stopPromises.push(tpslMonitorLoop.stop());
     }
+    if (graduationMonitorLoop) {
+      stopPromises.push(graduationMonitorLoop.stop());
+    }
     if (bagsSource) {
       stopPromises.push(bagsSource.stop());
+    }
+    if (meteoraOnChainSource) {
+      stopPromises.push(meteoraOnChainSource.stop());
     }
 
     await Promise.all(stopPromises);
