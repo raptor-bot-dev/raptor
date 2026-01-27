@@ -23,8 +23,9 @@ Key principle: **reuse existing modules** (DB schema, trade models, RPC adapters
 - Receives trade events (buy executed, sell closed, errors) and notifies user.
 
 **Hunter (decision engine)**
-- Watches pump.fun / launch sources and emits candidates.
-- Applies filters (risk rules, wallet constraints, max positions, max buys/hour).
+- Watches launch sources (Bags.fm Telegram, Meteora on-chain) and emits candidates.
+- Applies filters (risk rules, wallet constraints, max positions, cooldowns).
+- Monitors graduation events and on-chain activity via Helius WebSocket.
 - When approved, calls Executor with a concrete trade plan.
 
 **Executor (execution engine)**
@@ -189,3 +190,88 @@ States:
 1. **Atomic DB claim**: `trigger_exit_atomically()` uses `WHERE trigger_state='MONITORING'`
 2. **Idempotency key**: `idKeyExitSell({positionId, trigger, sellPercent})`
 3. **Double protection**: Even if WS duplicates events, only one exit executes
+
+## Discovery Sources (Bags.fm / Meteora Revamp)
+
+### Overview
+
+The discovery layer detects new token launches from multiple sources and normalizes them into candidates for evaluation.
+
+### Sources
+
+**BagsSource** (`apps/hunter/src/sources/bagsSource.ts`)
+- Monitors Bags.fm Telegram channel for launch announcements
+- Parses mint addresses from messages via `bagsParser.ts`
+- Two-layer deduplication: in-memory TTL (60s) + DB unique constraint
+- Circuit breaker: opens after 5 consecutive failures, 60s cooldown
+
+**MeteoraOnChainSource** (`apps/hunter/src/sources/meteoraOnChainSource.ts`)
+- Helius WebSocket `logsSubscribe` for Meteora bonding curve creation
+- Parses create instructions via `meteoraParser.ts`
+- Detects mint, bonding curve, and creator addresses
+- Circuit breaker: same 5-failure / 60s pattern
+
+### Data Flow
+
+```
+Telegram/WebSocket → Parser → Deduplicator → launch_candidates table → OpportunityLoop
+```
+
+## SwapRouter Architecture (Phase 2)
+
+### Overview
+
+The SwapRouter abstraction provides lifecycle-aware routing between different DEX backends.
+
+### Router Selection
+
+**RouterFactory** (`apps/executor/src/routers/routerFactory.ts`)
+- Maintains ordered list of routers
+- First router that `canHandle(intent)` wins
+- Deterministic selection based on `lifecycleState`
+
+**Priority Order:**
+1. **BagsTradeRouter** — PRE_GRADUATION tokens on Meteora bonding curve
+2. **JupiterRouter** — POST_GRADUATION tokens and fallback
+
+### Lifecycle-Aware Routing
+
+```
+PRE_GRADUATION  → BagsTradeRouter (bonding curve API)
+POST_GRADUATION → JupiterRouter (AMM pools)
+```
+
+### Safety Features
+
+- **Slippage clamping**: 0-9900 bps enforced in all routers
+- **Error classification**: `classifyError()` returns RETRYABLE/PERMANENT/UNKNOWN
+- **Circuit breakers**: Prevent cascade failures on API/RPC issues
+
+## Position Lifecycle State Machine
+
+### States
+
+```typescript
+LifecycleState = 'PRE_GRADUATION' | 'POST_GRADUATION' | 'CLOSED'
+TriggerState = 'MONITORING' | 'TRIGGERED' | 'EXECUTING' | 'COMPLETED' | 'FAILED'
+```
+
+### Transitions
+
+**Lifecycle:**
+- PRE_GRADUATION → POST_GRADUATION (via `graduate_position_atomically()`)
+- PRE_GRADUATION → CLOSED (via sell)
+- POST_GRADUATION → CLOSED (via sell)
+
+**Trigger:**
+- MONITORING → TRIGGERED (via `trigger_exit_atomically()`)
+- TRIGGERED → EXECUTING (via `mark_position_executing()`)
+- EXECUTING → COMPLETED (via `mark_trigger_completed()`)
+- EXECUTING → FAILED (via `mark_trigger_failed()`)
+
+### Atomicity
+
+All transitions use:
+- Row-level locking (`FOR UPDATE`)
+- WHERE clause validation (only allowed source states)
+- Single SQL statement (no read-then-write races)

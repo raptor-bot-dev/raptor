@@ -3,9 +3,28 @@
 Single source of truth for current progress. Keep it brief.
 
 ## Current milestone
+**Bags.fm / Meteora Revamp** - COMPLETE ✅ (tagged: `revamp-bags-meteora-v1`)
+
 **Phase B: TP/SL Engine (automatic position exits)** - COMPLETE (audit fixes deployed)
 
 **Phase A: Autohunt-only Telegram bot (minimal UX)** - COMPLETE
+
+### Revamp Phases (All Complete)
+| Phase | Description | Commit |
+|-------|-------------|--------|
+| 0 | DB Bootstrap — fresh schema, 7 tables, RPC functions | 661f004 |
+| 1 | Bags Discovery — parser, source, deduplicator | 3d1d328 |
+| 2 | Execution Refactor — SwapRouter + BagsTradeRouter | d582f75 |
+| 3 | Lifecycle & Pricing — state machine, graduation monitor | daceecf |
+| 4 | On-Chain Detection — Meteora logsSubscribe | daceecf |
+| 5 | Cleanup & Hardening — circuit breakers, error classification | 6ceeef9 |
+
+### Internal Audit Results (2026-01-27)
+- SwapRouter Safety: ✅ PASS
+- Idempotency: ✅ PASS
+- State Machine: ✅ PASS
+- Discovery Hardening: ✅ PASS
+- Database Safety: ✅ PASS
 
 ### Objectives
 - Autohunt execution is reliable (buy/exit/emergency close). ✅
