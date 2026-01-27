@@ -35,7 +35,38 @@ Key principle: **reuse existing modules** (DB schema, trade models, RPC adapters
 
 ### Data stores
 - Supabase/Postgres is the system of record for: users, wallets, config, trades, positions, events.
-- Never store plaintext private keys. If encrypted blobs exist, keep format stable.
+- Never store plaintext private keys. Wallets table stores **public keys only** (self-custody constraint).
+
+## Database Schema (Phase 0 Revamp)
+
+The database schema was rebuilt from scratch for the Bags.fm/Meteora migration. See `docs/revamp/DB_BOOTSTRAP.md` for full details.
+
+### Core Tables (7 total)
+
+| Table | Purpose |
+|-------|---------|
+| `users` | User identity, Telegram linkage, tiering |
+| `wallets` | Public keys associated with users (no private keys) |
+| `settings` | Per-user snap risk controls |
+| `launch_candidates` | Normalized output from discovery layer |
+| `positions` | Position lifecycle with explicit state machine |
+| `executions` | Immutable trade log (idempotency anchor) |
+| `notifications_outbox` | Transactional outbox for crash-safe notifications |
+
+### Key Design Patterns
+
+1. **Explicit State Machines**: Positions have `lifecycle_state` (PRE_GRADUATION → POST_GRADUATION → CLOSED) and `trigger_state` (MONITORING → TRIGGERED → EXECUTING → COMPLETED/FAILED)
+2. **Idempotency**: Executions keyed by `idempotency_key` for exactly-once semantics
+3. **Transactional Outbox**: Notifications use `notifications_outbox` with SKIP LOCKED leasing for crash recovery
+4. **Self-Custody**: Wallets table stores pubkeys only; no private key material in DB
+
+### Migrations
+
+Located in `supabase/migrations/`. Run with:
+```bash
+supabase db reset   # Drop + migrate + seed
+supabase db push    # Apply to remote
+```
 
 ## Primary flows
 
