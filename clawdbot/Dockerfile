@@ -9,5 +9,6 @@ RUN npm install -g clawdbot@latest
 # Set working directory for config/memories
 WORKDIR /data
 
-# Run gateway in foreground mode (Docker)
-CMD ["clawdbot", "gateway"]
+# Run gateway (--allow-unconfigured lets it start without config)
+# Configure via environment variables in Railway
+CMD ["clawdbot", "gateway", "--allow-unconfigured"]
