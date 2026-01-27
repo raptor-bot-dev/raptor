@@ -5,7 +5,7 @@
 
 import { HeliusWsManager, type LogsNotification } from '../monitors/heliusWs.js';
 import { parseMeteoraLogs, validateCreateEvent, type MeteoraCreateEvent } from './meteoraParser.js';
-import { getMeteoraProgramId } from '@raptor/shared';
+import { getMeteoraProgramId, classifyError } from '@raptor/shared';
 
 /**
  * Signal emitted when a new Meteora DBC token is detected on-chain
@@ -69,6 +69,15 @@ export class MeteoraOnChainSource {
     parseFailures: 0,
     signalsEmitted: 0,
     handlerErrors: 0,
+  };
+
+  // Circuit breaker: pause processing after consecutive failures
+  private circuitBreaker = {
+    failures: 0,
+    lastFailure: 0,
+    isOpen: false,
+    threshold: 5,
+    resetTimeMs: 60000, // 60 seconds cooldown
   };
 
   constructor(config: MeteoraOnChainConfig) {
@@ -262,14 +271,32 @@ export class MeteoraOnChainSource {
    * Emit signal to all registered handlers
    */
   private async emitSignal(signal: MeteoraOnChainSignal): Promise<void> {
+    // Check circuit breaker before processing
+    if (!this.checkCircuitBreaker()) {
+      console.log('[MeteoraOnChainSource] Circuit open - skipping signal');
+      return;
+    }
+
+    let hadError = false;
+    let lastError: unknown;
+
     for (const handler of this.handlers) {
       try {
         await handler(signal);
         this.stats.signalsEmitted++;
       } catch (error) {
         this.stats.handlerErrors++;
+        hadError = true;
+        lastError = error;
         console.error('[MeteoraOnChainSource] Handler error:', error);
       }
+    }
+
+    // Update circuit breaker based on outcome
+    if (hadError) {
+      this.recordFailure(lastError);
+    } else {
+      this.recordSuccess();
     }
   }
 
@@ -284,5 +311,55 @@ export class MeteoraOnChainSource {
       signalsEmitted: this.stats.signalsEmitted,
       handlerErrors: this.stats.handlerErrors,
     });
+  }
+
+  // =============================================================================
+  // Circuit Breaker (Phase 5)
+  // =============================================================================
+
+  /**
+   * Check if processing should continue (circuit is closed)
+   */
+  private checkCircuitBreaker(): boolean {
+    if (!this.circuitBreaker.isOpen) {
+      return true;
+    }
+
+    // Check if cooldown period has elapsed
+    if (Date.now() - this.circuitBreaker.lastFailure > this.circuitBreaker.resetTimeMs) {
+      this.circuitBreaker.isOpen = false;
+      this.circuitBreaker.failures = 0;
+      console.log('[MeteoraOnChainSource] Circuit breaker CLOSED - resuming processing');
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Record a failure and potentially open the circuit
+   */
+  private recordFailure(error: unknown): void {
+    this.circuitBreaker.failures++;
+    this.circuitBreaker.lastFailure = Date.now();
+
+    const errorClass = classifyError(error);
+
+    if (this.circuitBreaker.failures >= this.circuitBreaker.threshold) {
+      this.circuitBreaker.isOpen = true;
+      console.warn(
+        `[MeteoraOnChainSource] Circuit breaker OPEN after ${this.circuitBreaker.failures} failures ` +
+          `(last error class: ${errorClass}) - pausing for ${this.circuitBreaker.resetTimeMs / 1000}s`
+      );
+    }
+  }
+
+  /**
+   * Record a success and reset failure count
+   */
+  private recordSuccess(): void {
+    if (this.circuitBreaker.failures > 0) {
+      this.circuitBreaker.failures = 0;
+    }
   }
 }

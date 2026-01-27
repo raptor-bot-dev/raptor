@@ -32,7 +32,6 @@ import {
 } from '../utils/validation.js';
 
 // Import command handlers
-import { handleModeSelection, handleChainSelection } from '../commands/deposit.js';
 // v5.0: Legacy sell handlers no longer used - sells now go through handleSellPctFromMonitor
 import { showMenu } from '../commands/menu.js';
 import { showStart } from '../commands/start.js';

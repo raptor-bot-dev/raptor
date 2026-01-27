@@ -232,3 +232,129 @@ export function isMeteoraOnChainEnabled(): boolean {
 export function getMeteoraProgramId(): string {
   return process.env.METEORA_PROGRAM_ID || 'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN';
 }
+
+// =============================================================================
+// Phase 5: Comprehensive Config Validation
+// =============================================================================
+
+/**
+ * Result of config validation
+ */
+export interface ConfigValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Validate all configuration at startup
+ * Call this before starting any service to fail fast on misconfiguration
+ */
+export function validateAllConfig(context: 'hunter' | 'bot' | 'executor' = 'hunter'): ConfigValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Required for all deployments
+  if (!process.env.SUPABASE_URL) {
+    errors.push('Missing SUPABASE_URL');
+  }
+  if (!process.env.SUPABASE_SERVICE_KEY) {
+    errors.push('Missing SUPABASE_SERVICE_KEY');
+  }
+
+  // Context-specific validation
+  if (context === 'hunter' || context === 'executor') {
+    // Execution requires RPC
+    if (!process.env.SOLANA_RPC_URL) {
+      errors.push('Missing SOLANA_RPC_URL');
+    }
+    if (!process.env.WALLET_ENCRYPTION_KEY) {
+      errors.push('Missing WALLET_ENCRYPTION_KEY');
+    }
+  }
+
+  if (context === 'bot') {
+    if (!process.env.TELEGRAM_BOT_TOKEN) {
+      errors.push('Missing TELEGRAM_BOT_TOKEN');
+    }
+    if (!process.env.WALLET_ENCRYPTION_KEY) {
+      errors.push('Missing WALLET_ENCRYPTION_KEY');
+    }
+  }
+
+  // Discovery source validation
+  if (isBagsSourceEnabled()) {
+    if (!getBagsBotToken()) {
+      errors.push('BAGS_SOURCE_ENABLED=true but missing BAGS_BOT_TOKEN');
+    }
+    if (!getBagsChannelId()) {
+      errors.push('BAGS_SOURCE_ENABLED=true but missing BAGS_CHANNEL_ID');
+    }
+  }
+
+  // Meteora on-chain validation
+  if (isMeteoraOnChainEnabled()) {
+    if (!process.env.SOLANA_WSS_URL) {
+      errors.push('METEORA_ONCHAIN_ENABLED=true but missing SOLANA_WSS_URL');
+    }
+  }
+
+  // Warnings for optional features
+  if (!isAutoExecuteEnabled()) {
+    warnings.push('AUTO_EXECUTE_ENABLED is not true - running in monitor-only mode');
+  }
+
+  if (!isGraduationMonitorEnabled()) {
+    warnings.push('GRADUATION_ENABLED is not true - lifecycle tracking disabled');
+  }
+
+  if (!isTpSlEngineEnabled() && !isLegacyPositionMonitorEnabled()) {
+    warnings.push('No position monitor enabled - TP/SL triggers will not fire');
+  }
+
+  // Production safety checks
+  if (process.env.NODE_ENV === 'production') {
+    const rpcUrl = process.env.SOLANA_RPC_URL || '';
+    if (rpcUrl.includes('devnet') || rpcUrl.includes('testnet')) {
+      errors.push('Devnet/testnet RPC detected in production environment');
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+/**
+ * Validate config and log results
+ * Returns true if valid, throws or exits if not
+ */
+export function validateAndLogConfig(context: 'hunter' | 'bot' | 'executor' = 'hunter'): void {
+  const result = validateAllConfig(context);
+
+  // Log warnings
+  for (const warning of result.warnings) {
+    console.warn(`[Config] ⚠️  ${warning}`);
+  }
+
+  // Log enabled features
+  console.log('[Config] Enabled features:');
+  console.log(`  - Bags Source: ${isBagsSourceEnabled() ? 'YES' : 'NO'}`);
+  console.log(`  - Meteora On-Chain: ${isMeteoraOnChainEnabled() ? 'YES' : 'NO'}`);
+  console.log(`  - Graduation Monitor: ${isGraduationMonitorEnabled() ? 'YES' : 'NO'}`);
+  console.log(`  - TP/SL Engine: ${isTpSlEngineEnabled() ? 'YES' : 'NO'}`);
+  console.log(`  - Auto Execute: ${isAutoExecuteEnabled() ? 'YES' : 'NO'}`);
+
+  // Fail on errors
+  if (!result.valid) {
+    console.error('[Config] ❌ Configuration errors:');
+    for (const error of result.errors) {
+      console.error(`  - ${error}`);
+    }
+    throw new Error(`Configuration invalid: ${result.errors.join(', ')}`);
+  }
+
+  console.log('[Config] ✅ Configuration valid');
+}

@@ -173,3 +173,62 @@ export function parseError(error: unknown): { code: ErrorCode; message: string }
   // Default to program error (non-retryable)
   return { code: ErrorCode.PROGRAM_ERROR, message };
 }
+
+// =============================================================================
+// General Error Classification (Phase 5)
+// For non-trade errors (discovery, config, DB)
+// =============================================================================
+
+/**
+ * General error classification for retry decisions
+ */
+export type ErrorClass = 'RETRYABLE' | 'PERMANENT' | 'UNKNOWN';
+
+/**
+ * Classify any error for retry decisions
+ * Used by discovery sources, monitors, and other non-trade code
+ */
+export function classifyError(error: unknown): ErrorClass {
+  const msg = error instanceof Error ? error.message : String(error);
+  const lower = msg.toLowerCase();
+
+  // Retryable: network issues, timeouts, temporary service issues
+  if (
+    lower.includes('etimedout') ||
+    lower.includes('econnreset') ||
+    lower.includes('econnrefused') ||
+    lower.includes('rate limit') ||
+    lower.includes('429') ||
+    lower.includes('503') ||
+    lower.includes('502') ||
+    lower.includes('timeout') ||
+    lower.includes('temporarily unavailable')
+  ) {
+    return 'RETRYABLE';
+  }
+
+  // Permanent: invalid data, constraint violations, logic errors
+  if (
+    lower.includes('invalid') ||
+    lower.includes('constraint') ||
+    lower.includes('not found') ||
+    lower.includes('does not exist') ||
+    lower.includes('zero liquidity') ||
+    lower.includes('unauthorized') ||
+    lower.includes('forbidden') ||
+    lower.includes('401') ||
+    lower.includes('403')
+  ) {
+    return 'PERMANENT';
+  }
+
+  return 'UNKNOWN';
+}
+
+/**
+ * Check if an error should be retried
+ * Convenience wrapper around classifyError
+ */
+export function shouldRetry(error: unknown): boolean {
+  return classifyError(error) === 'RETRYABLE';
+}

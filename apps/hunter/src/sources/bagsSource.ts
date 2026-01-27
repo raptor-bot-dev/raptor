@@ -6,6 +6,7 @@
 import { Bot } from 'grammy';
 import { parseBagsMessage, type BagsSignal, type BagsParseResult } from './bagsParser.js';
 import { BagsDeduplicator } from './bagsDeduplicator.js';
+import { classifyError } from '@raptor/shared';
 
 /**
  * Configuration for BagsSource.
@@ -51,6 +52,15 @@ export class BagsSource {
     duplicatesFiltered: 0,
     signalsEmitted: 0,
     handlerErrors: 0,
+  };
+
+  // Circuit breaker: pause processing after consecutive failures
+  private circuitBreaker = {
+    failures: 0,
+    lastFailure: 0,
+    isOpen: false,
+    threshold: 5,
+    resetTimeMs: 60000, // 60 seconds cooldown
   };
 
   constructor(config: BagsSourceConfig) {
@@ -191,15 +201,33 @@ export class BagsSource {
         `(${signal.mint.slice(0, 12)}...)`
     );
 
+    // Check circuit breaker before emitting
+    if (!this.checkCircuitBreaker()) {
+      console.log('[BagsSource] Circuit open - skipping signal');
+      return;
+    }
+
     // Emit to handlers
+    let hadError = false;
+    let lastError: unknown;
+
     for (const handler of this.handlers) {
       try {
         await handler(signal);
         this.stats.signalsEmitted++;
       } catch (error) {
         this.stats.handlerErrors++;
+        hadError = true;
+        lastError = error;
         console.error('[BagsSource] Handler error:', error);
       }
+    }
+
+    // Update circuit breaker based on outcome
+    if (hadError) {
+      this.recordFailure(lastError);
+    } else {
+      this.recordSuccess();
     }
   }
 
@@ -249,6 +277,56 @@ export class BagsSource {
     }
 
     return result;
+  }
+
+  // =============================================================================
+  // Circuit Breaker (Phase 5)
+  // =============================================================================
+
+  /**
+   * Check if processing should continue (circuit is closed)
+   */
+  private checkCircuitBreaker(): boolean {
+    if (!this.circuitBreaker.isOpen) {
+      return true;
+    }
+
+    // Check if cooldown period has elapsed
+    if (Date.now() - this.circuitBreaker.lastFailure > this.circuitBreaker.resetTimeMs) {
+      this.circuitBreaker.isOpen = false;
+      this.circuitBreaker.failures = 0;
+      console.log('[BagsSource] Circuit breaker CLOSED - resuming processing');
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Record a failure and potentially open the circuit
+   */
+  private recordFailure(error: unknown): void {
+    this.circuitBreaker.failures++;
+    this.circuitBreaker.lastFailure = Date.now();
+
+    const errorClass = classifyError(error);
+
+    if (this.circuitBreaker.failures >= this.circuitBreaker.threshold) {
+      this.circuitBreaker.isOpen = true;
+      console.warn(
+        `[BagsSource] Circuit breaker OPEN after ${this.circuitBreaker.failures} failures ` +
+          `(last error class: ${errorClass}) - pausing for ${this.circuitBreaker.resetTimeMs / 1000}s`
+      );
+    }
+  }
+
+  /**
+   * Record a success and reset failure count
+   */
+  private recordSuccess(): void {
+    if (this.circuitBreaker.failures > 0) {
+      this.circuitBreaker.failures = 0;
+    }
   }
 }
 
