@@ -10,4 +10,4 @@ RUN npm install -g clawdbot@latest
 WORKDIR /data
 
 # Default command
-CMD ["clawdbot", "gateway", "start", "--headless"]
+CMD ["clawdbot", "gateway", "start"]
