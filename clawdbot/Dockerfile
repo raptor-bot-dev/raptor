@@ -9,6 +9,9 @@ RUN npm install -g clawdbot@latest
 # Set working directory for config/memories
 WORKDIR /data
 
+# Copy workspace files (identity, memory, configs)
+COPY workspace/ /data/
+
 # Run gateway (--allow-unconfigured lets it start without config)
 # Configure via environment variables in Railway
 CMD ["clawdbot", "gateway", "--allow-unconfigured"]
