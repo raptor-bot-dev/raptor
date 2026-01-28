@@ -4,7 +4,7 @@ This file is the working contract for Claude Code while iterating on RAPTOR. Kee
 
 ## Project goals
 
-**Phase A target:** ship a minimal, production-ready **Solana pump.fun Autohunt** product.
+**Phase A target:** ship a minimal, production-ready **Solana Bags.fm Autohunt** product.
 
 MVP must deliver:
 - Autohunt-only trading (remove or hard-disable manual buyer and live trade monitor UX).

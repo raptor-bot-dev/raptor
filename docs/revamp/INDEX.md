@@ -68,7 +68,19 @@ PHASE | DATE (UTC)       | COMMIT HASH | SUMMARY                                
 3     | 2026-01-27       | daceecf     | Lifecycle state machine, graduation monitor| GREEN
 4     | 2026-01-27       | daceecf     | Meteora on-chain detection via logsSubscribe| GREEN
 5     | 2026-01-27       | 6ceeef9     | Circuit breakers, error classification, config validation | GREEN
+X     | 2026-01-28       | 9501945     | Durable trade job queue (SKIP LOCKED leasing) | GREEN
+X     | 2026-01-28       | ff99678     | Notifications outbox (UUID→tgId resolution) | GREEN
 ```
+
+### Security Model: Wallet Custody
+
+RAPTOR uses **server-side encrypted key custody**:
+- Encrypted private keys are stored in the `wallets` table (legacy column: `solana_private_key_encrypted`)
+- Keys are decrypted in-memory only at signing time
+- Key derivation uses per-user salt (Telegram ID)
+- Public key integrity check validates stored address matches derived keypair
+
+This is the chosen production model. The Phase-0 schema comment about "no private keys" is historical and has been updated.
 
 Rules:
 - One row per completed phase

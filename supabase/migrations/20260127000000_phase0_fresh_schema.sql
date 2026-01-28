@@ -37,7 +37,8 @@ CREATE INDEX IF NOT EXISTS idx_users_tier ON users(tier);
 -- ============================================================================
 -- 2. wallets
 -- ============================================================================
--- SECURITY: Only public keys stored. No private keys or encrypted blobs.
+-- SECURITY: Public keys stored here. Encrypted private keys managed in legacy
+-- wallet columns (solana_private_key_encrypted) for server-side signing.
 CREATE TABLE IF NOT EXISTS wallets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -224,7 +225,7 @@ CREATE INDEX IF NOT EXISTS idx_notifications_outbox_user_id ON notifications_out
 -- Comments
 -- ============================================================================
 COMMENT ON TABLE users IS 'User identity and Telegram linkage. No sensitive data.';
-COMMENT ON TABLE wallets IS 'Public keys only. RAPTOR never stores private keys.';
+COMMENT ON TABLE wallets IS 'Wallet public keys. Encrypted private keys managed in legacy columns for server-side signing.';
 COMMENT ON TABLE settings IS 'Per-user snap risk controls and preferences.';
 COMMENT ON TABLE launch_candidates IS 'Normalized output from discovery layer (Bags/pump.fun).';
 COMMENT ON TABLE positions IS 'Position lifecycle with explicit state machine.';
