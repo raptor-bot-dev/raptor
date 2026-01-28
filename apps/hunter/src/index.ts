@@ -32,6 +32,59 @@ import {
   type MeteoraOnChainSignal,
 } from './sources/index.js';
 
+async function upsertLaunchCandidateMerged(insert: LaunchCandidateInsert): Promise<void> {
+  const mint = insert.mint;
+  const launchSource = insert.launch_source;
+
+  const { data: existing, error: fetchError } = await supabase
+    .from('launch_candidates')
+    .select('id,symbol,name,discovery_method,raw_payload,status,first_seen_at')
+    .eq('mint', mint)
+    .eq('launch_source', launchSource)
+    .maybeSingle();
+
+  if (fetchError) {
+    throw fetchError;
+  }
+
+  if (!existing) {
+    const { error } = await supabase.from('launch_candidates').insert(insert);
+    if (error) throw error;
+    return;
+  }
+
+  const existingPayload =
+    existing.raw_payload && typeof existing.raw_payload === 'object' ? (existing.raw_payload as Record<string, unknown>) : {};
+  const incomingPayload =
+    insert.raw_payload && typeof insert.raw_payload === 'object' ? (insert.raw_payload as Record<string, unknown>) : {};
+
+  const mergedPayload = { ...existingPayload, ...incomingPayload };
+
+  // Preserve on-chain as "truth" if already present; otherwise allow upgrade to on-chain.
+  const mergedDiscoveryMethod =
+    existing.discovery_method === 'onchain' || insert.discovery_method === 'onchain'
+      ? 'onchain'
+      : (existing.discovery_method as 'telegram' | 'onchain');
+
+  // Do not reset non-new statuses back to 'new' on duplicate signals.
+  const mergedStatus = existing.status === 'new' ? insert.status : existing.status;
+
+  const updates: Partial<LaunchCandidateInsert> & { status: string } = {
+    symbol: existing.symbol ?? insert.symbol ?? null,
+    name: existing.name ?? insert.name ?? null,
+    discovery_method: mergedDiscoveryMethod,
+    raw_payload: mergedPayload as unknown as LaunchCandidateInsert['raw_payload'],
+    status: mergedStatus,
+  };
+
+  const { error: updateError } = await supabase
+    .from('launch_candidates')
+    .update(updates)
+    .eq('id', existing.id);
+
+  if (updateError) throw updateError;
+}
+
 // Global promise rejection handler
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[FATAL] Unhandled Promise Rejection:', reason);
@@ -116,20 +169,20 @@ async function main() {
         name: signal.name,
         launch_source: 'bags',
         discovery_method: 'telegram',
-        raw_payload: { text: signal.raw, received_at: signal.timestamp },
+        first_seen_at: new Date(signal.timestamp).toISOString(),
+        raw_payload: {
+          telegram: { text: signal.raw, received_at: signal.timestamp },
+        },
         status: 'new',
       };
 
-      const { error } = await supabase
-        .from('launch_candidates')
-        .upsert(insert, { onConflict: 'mint,launch_source' });
-
-      if (error) {
-        console.error('[BagsSource] Failed to insert launch_candidate:', error.message);
-      } else {
+      try {
+        await upsertLaunchCandidateMerged(insert);
         console.log(
-          `[BagsSource] Inserted launch_candidate: ${signal.symbol || 'UNKNOWN'} (${signal.mint.slice(0, 12)}...)`
+          `[BagsSource] Upserted launch_candidate: ${signal.symbol || 'UNKNOWN'} (${signal.mint.slice(0, 12)}...)`
         );
+      } catch (error) {
+        console.error('[BagsSource] Failed to upsert launch_candidate:', (error as Error).message);
       }
     });
   }
@@ -147,30 +200,28 @@ async function main() {
     meteoraOnChainSource.onSignal(async (signal: MeteoraOnChainSignal) => {
       const insert: LaunchCandidateInsert = {
         mint: signal.mint,
-        symbol: null, // On-chain detection doesn't have symbol
-        name: null, // On-chain detection doesn't have name
         launch_source: 'bags',
         discovery_method: 'onchain',
+        first_seen_at: new Date(signal.timestamp).toISOString(),
         raw_payload: {
-          bonding_curve: signal.bondingCurve,
-          creator: signal.creator,
-          signature: signal.signature,
-          slot: signal.slot,
-          detected_at: signal.timestamp,
+          onchain: {
+            bonding_curve: signal.bondingCurve,
+            creator: signal.creator,
+            signature: signal.signature,
+            slot: signal.slot,
+            detected_at: signal.timestamp,
+          },
         },
         status: 'new',
       };
 
-      const { error } = await supabase
-        .from('launch_candidates')
-        .upsert(insert, { onConflict: 'mint,launch_source' });
-
-      if (error) {
-        console.error('[MeteoraOnChainSource] Failed to insert launch_candidate:', error.message);
-      } else {
+      try {
+        await upsertLaunchCandidateMerged(insert);
         console.log(
           `[MeteoraOnChainSource] Detected on-chain: ${signal.mint.slice(0, 12)}... (tx: ${signal.signature.slice(0, 12)}...)`
         );
+      } catch (error) {
+        console.error('[MeteoraOnChainSource] Failed to upsert launch_candidate:', (error as Error).message);
       }
     });
   }

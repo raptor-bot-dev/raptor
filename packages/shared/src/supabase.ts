@@ -1588,9 +1588,8 @@ export async function reserveTradeBudget(params: {
 // ============================================================================
 
 /**
- * Claim trade jobs for processing (STUBBED - RPC doesn't exist in new schema)
- * New schema uses executions table directly, not trade_jobs
- * TODO: Implement execution claiming using new schema
+ * Claim trade jobs for processing via SKIP LOCKED leasing.
+ * Atomically claims up to `limit` jobs, including stale lease takeover.
  */
 export async function claimTradeJobs(
   workerId: string,
@@ -1598,9 +1597,19 @@ export async function claimTradeJobs(
   leaseSeconds: number = 30,
   chain?: Chain
 ): Promise<TradeJob[]> {
-  // Stub: trade_jobs table and RPC don't exist in new schema
-  // Return empty array - no jobs to process until execution layer is migrated
-  return [];
+  const { data, error } = await supabase.rpc('claim_trade_jobs', {
+    p_worker_id: workerId,
+    p_limit: limit,
+    p_lease_seconds: leaseSeconds,
+    p_chain: chain || 'sol',
+  });
+
+  if (error) throw error;
+
+  // RPC returns JSONB array, parse into TradeJob[]
+  const jobs = data as unknown;
+  if (!Array.isArray(jobs)) return [];
+  return jobs as TradeJob[];
 }
 
 /**
