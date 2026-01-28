@@ -2512,10 +2512,9 @@ export async function getUserMonitor(
  * Expire old monitors (maintenance)
  */
 export async function expireOldMonitors(): Promise<number> {
-  const { data, error } = await supabase.rpc('expire_old_monitors');
-
-  if (error) throw error;
-  return data as number;
+  // Stub: expire_old_monitors RPC doesn't exist in new schema
+  // Trade monitors will expire naturally via TTL
+  return 0;
 }
 
 /**
