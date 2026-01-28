@@ -75,18 +75,11 @@ export class OpportunityLoop {
   }
 
   async start(): Promise<void> {
-    console.log('[OpportunityLoop] Starting...');
-    this.running = true;
-
-    // Register handler for pump.fun events
-    this.pumpFunMonitor.onTokenCreate(async (event) => {
-      await this.handleNewToken(event);
-    });
-
-    // Start the monitor
-    await this.pumpFunMonitor.start();
-
-    console.log('[OpportunityLoop] Monitoring launchpads');
+    // BAGS-only mode: OpportunityLoop is disabled.
+    // Discovery is handled by BagsSource (Telegram) and MeteoraOnChainSource (on-chain).
+    // This class used PumpFunMonitor which is no longer supported.
+    console.warn('[OpportunityLoop] DISABLED — BAGS-only mode. Use BagsSource / MeteoraOnChainSource instead.');
+    return;
   }
 
   async stop(): Promise<void> {

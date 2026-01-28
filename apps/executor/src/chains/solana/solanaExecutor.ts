@@ -292,136 +292,20 @@ export class SolanaExecutor {
    * Scheduled for removal in v4.0.
    */
   async executeBuy(
-    tokenMint: string,
-    solAmount: number,
-    tgId: number,
-    mode: TradingMode,
-    options?: {
+    _tokenMint: string,
+    _solAmount: number,
+    _tgId: number,
+    _mode: TradingMode,
+    _options?: {
       skipSafetyCheck?: boolean;
       takeProfitPercent?: number;
       stopLossPercent?: number;
       source?: string;
     }
   ): Promise<SolanaTradeResult> {
-    logger.warn('[DEPRECATED] executeBuy() called - use executeBuyWithKeypair() instead');
-    console.log(
-      `[SolanaExecutor] Buy ${solAmount} SOL of ${tokenMint} for user ${tgId}`
-    );
-
-    // Validate address
-    if (!isValidSolanaAddress(tokenMint)) {
-      return {
-        success: false,
-        error: 'Invalid token mint address',
-        amountIn: solAmount,
-        amountOut: 0,
-        fee: 0,
-        price: 0,
-      };
-    }
-
-    // Check minimum position size
-    if (solAmount < SOLANA_CONFIG.minPositionSize) {
-      return {
-        success: false,
-        error: `Minimum position size is ${SOLANA_CONFIG.minPositionSize} SOL`,
-        amountIn: solAmount,
-        amountOut: 0,
-        fee: 0,
-        price: 0,
-      };
-    }
-
-    // Apply 1% fee
-    const { netAmount, fee } = applyBuyFeeDecimal(solAmount);
-    console.log(`[SolanaExecutor] Net amount: ${netAmount} SOL, Fee: ${fee} SOL`);
-
-    try {
-      // Check if token is on bonding curve or graduated
-      const tokenInfo = await this.getTokenInfo(tokenMint);
-
-      let txHash: string;
-      let tokensReceived: number;
-
-      if (tokenInfo && !tokenInfo.graduated) {
-        // Use pump.fun bonding curve
-        console.log('[SolanaExecutor] Token on bonding curve, using pump.fun');
-        const result = await this.buyViaPumpFun(tokenMint, netAmount);
-        txHash = result.txHash;
-        tokensReceived = result.tokensReceived;
-      } else {
-        // Use Jupiter for graduated tokens
-        console.log('[SolanaExecutor] Token graduated, using Jupiter');
-        const result = await this.buyViaJupiter(tokenMint, netAmount);
-        txHash = result.txHash;
-        tokensReceived = result.tokensReceived;
-      }
-
-      const price = netAmount / tokensReceived;
-
-      // Record trade
-      await recordTrade({
-        tg_id: tgId,
-        chain: 'sol',
-        mode,
-        token_address: tokenMint,
-        token_symbol: tokenInfo?.symbol || 'UNKNOWN',
-        type: 'BUY',
-        amount_in: netAmount.toString(),
-        amount_out: tokensReceived.toString(),
-        price: price.toString(),
-        fee_amount: fee.toString(),
-        source: options?.source || 'manual',
-        tx_hash: txHash,
-        status: 'CONFIRMED',
-      });
-
-      // Record fee
-      await recordFee({
-        tg_id: tgId,
-        chain: 'sol',
-        amount: fee.toString(),
-        token: 'SOL',
-      });
-
-      // Create position
-      await createPosition({
-        tg_id: tgId,
-        chain: 'sol',
-        mode,
-        token_address: tokenMint,
-        token_symbol: tokenInfo?.symbol || 'UNKNOWN',
-        amount_in: netAmount.toString(),
-        tokens_held: tokensReceived.toString(),
-        entry_price: price.toString(),
-        take_profit_percent: options?.takeProfitPercent ?? 50,
-        stop_loss_percent: options?.stopLossPercent ?? 30,
-        source: options?.source || 'manual',
-        score: 0,
-        program_id: tokenInfo?.graduated ? PROGRAM_IDS.RAYDIUM_AMM : PROGRAM_IDS.PUMP_FUN,
-      });
-
-      console.log(`[SolanaExecutor] Buy successful: ${txHash}`);
-
-      return {
-        success: true,
-        txHash,
-        amountIn: netAmount,
-        amountOut: tokensReceived,
-        fee,
-        price,
-      };
-    } catch (error) {
-      console.error('[SolanaExecutor] Buy failed:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        amountIn: solAmount,
-        amountOut: 0,
-        fee: 0,
-        price: 0,
-      };
-    }
+    // BAGS-only mode: deprecated pump.fun execution path removed.
+    // Use executeBuyWithKeypair() via RouterFactory instead.
+    throw new Error('BAGS-only mode: executeBuy() is disabled. Use executeBuyWithKeypair() via RouterFactory.');
   }
 
   /**
@@ -575,101 +459,15 @@ export class SolanaExecutor {
    * Scheduled for removal in v4.0.
    */
   async executeSell(
-    tokenMint: string,
-    tokenAmount: number,
-    tgId: number,
-    mode: TradingMode,
-    position?: Position
+    _tokenMint: string,
+    _tokenAmount: number,
+    _tgId: number,
+    _mode: TradingMode,
+    _position?: Position
   ): Promise<SolanaTradeResult> {
-    logger.warn('[DEPRECATED] executeSell() called - use executeSellWithKeypair() instead');
-    console.log(
-      `[SolanaExecutor] Sell ${tokenAmount} tokens of ${tokenMint} for user ${tgId}`
-    );
-
-    try {
-      // Check if token is on bonding curve or graduated
-      const tokenInfo = await this.getTokenInfo(tokenMint);
-
-      let txHash: string;
-      let solReceived: number;
-
-      if (tokenInfo && !tokenInfo.graduated) {
-        // Use pump.fun bonding curve
-        console.log('[SolanaExecutor] Token on bonding curve, using pump.fun');
-        const result = await this.sellViaPumpFun(tokenMint, tokenAmount);
-        txHash = result.txHash;
-        solReceived = result.solReceived;
-      } else {
-        // Use Jupiter for graduated tokens
-        console.log('[SolanaExecutor] Token graduated, using Jupiter');
-        const result = await this.sellViaJupiter(tokenMint, tokenAmount);
-        txHash = result.txHash;
-        solReceived = result.solReceived;
-      }
-
-      // Apply 1% fee
-      const { netAmount, fee } = applySellFeeDecimal(solReceived);
-
-      const price = solReceived / tokenAmount;
-
-      // Calculate PnL if position provided
-      let pnl: string | null = null;
-      let pnlPercent: number | null = null;
-      if (position) {
-        const entryValue = parseFloat(position.amount_in);
-        pnl = (netAmount - entryValue).toString();
-        pnlPercent = ((netAmount - entryValue) / entryValue) * 100;
-      }
-
-      // Record trade
-      await recordTrade({
-        tg_id: tgId,
-        position_id: position?.id,
-        chain: 'sol',
-        mode,
-        token_address: tokenMint,
-        token_symbol: tokenInfo?.symbol || 'UNKNOWN',
-        type: 'SELL',
-        amount_in: tokenAmount.toString(),
-        amount_out: netAmount.toString(),
-        price: price.toString(),
-        pnl,
-        pnl_percent: pnlPercent,
-        fee_amount: fee.toString(),
-        source: position?.source || 'manual',
-        tx_hash: txHash,
-        status: 'CONFIRMED',
-      });
-
-      // Record fee
-      await recordFee({
-        tg_id: tgId,
-        chain: 'sol',
-        amount: fee.toString(),
-        token: 'SOL',
-      });
-
-      console.log(`[SolanaExecutor] Sell successful: ${txHash}`);
-
-      return {
-        success: true,
-        txHash,
-        amountIn: tokenAmount,
-        amountOut: netAmount,
-        fee,
-        price,
-      };
-    } catch (error) {
-      console.error('[SolanaExecutor] Sell failed:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        amountIn: tokenAmount,
-        amountOut: 0,
-        fee: 0,
-        price: 0,
-      };
-    }
+    // BAGS-only mode: deprecated pump.fun execution path removed.
+    // Use executeSellWithKeypair() via RouterFactory instead.
+    throw new Error('BAGS-only mode: executeSell() is disabled. Use executeSellWithKeypair() via RouterFactory.');
   }
 
   /**
