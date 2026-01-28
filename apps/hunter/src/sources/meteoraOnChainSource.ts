@@ -116,6 +116,8 @@ export class MeteoraOnChainSource {
       return;
     }
 
+    console.warn('[MeteoraOnChainSource] ⚠️  HEURISTIC DETECTION — uses log-pattern regex, not instruction decoding.');
+    console.warn('[MeteoraOnChainSource] Enable only in staging or behind METEORA_ONCHAIN_ENABLED=true.');
     console.log('[MeteoraOnChainSource] Starting...');
     console.log(`[MeteoraOnChainSource] Program ID: ${this.programId}`);
 

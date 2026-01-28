@@ -1,6 +1,13 @@
 // =============================================================================
-// RAPTOR Phase 4: Meteora DBC Parser
-// Parses Meteora Dynamic Bonding Curve instruction logs to detect token creates
+// RAPTOR Phase 4: Meteora DBC Parser (HEURISTIC — F-005)
+// Parses Meteora Dynamic Bonding Curve instruction logs to detect token creates.
+//
+// WARNING: This parser uses log-pattern regex matching, NOT Anchor IDL
+// instruction decoding. It may produce false positives or miss events
+// if Meteora changes their log format. Do not enable in production
+// without the METEORA_ONCHAIN_ENABLED feature flag.
+//
+// Proper IDL decoding is tracked as F-005b.
 // =============================================================================
 
 import { isValidSolanaAddress } from '@raptor/shared';
