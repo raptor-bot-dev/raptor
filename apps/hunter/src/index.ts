@@ -20,7 +20,6 @@ import {
 } from '@raptor/shared';
 import type { LaunchCandidateInsert } from '@raptor/database';
 
-import { OpportunityLoop } from './loops/opportunities.js';
 import { ExecutionLoop } from './loops/execution.js';
 import { PositionMonitorLoop } from './loops/positions.js';
 import { TpSlMonitorLoop } from './loops/tpslMonitor.js';
@@ -83,7 +82,6 @@ async function main() {
   }
 
   // Initialize loops
-  const opportunityLoop = new OpportunityLoop(autoExecuteEnabled);
   const executionLoop = new ExecutionLoop(workerId, autoExecuteEnabled);
   const maintenanceLoop = new MaintenanceLoop();
 
@@ -180,7 +178,6 @@ async function main() {
   // Start all loops
   try {
     const startPromises: Promise<void>[] = [
-      opportunityLoop.start(),
       executionLoop.start(),
       maintenanceLoop.start(),
     ];
@@ -204,8 +201,7 @@ async function main() {
     await Promise.all(startPromises);
 
     console.log('');
-    console.log('✅ RAPTOR Hunter v3.1 is running');
-    console.log('   - Opportunity loop: Monitoring launchpads');
+    console.log('✅ RAPTOR Hunter v3.1 is running (BAGS-only mode)');
     console.log('   - Execution loop: Processing trade jobs');
     if (positionMonitorLoop) {
       console.log('   - Position loop (legacy): Monitoring exit triggers');
@@ -234,7 +230,6 @@ async function main() {
     console.log('\n📦 Shutting down gracefully...');
 
     const stopPromises: Promise<void>[] = [
-      opportunityLoop.stop(),
       executionLoop.stop(),
       maintenanceLoop.stop(),
     ];

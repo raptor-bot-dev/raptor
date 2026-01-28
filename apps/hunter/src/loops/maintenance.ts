@@ -55,75 +55,26 @@ export class MaintenanceLoop {
       console.log(`[MaintenanceLoop] Cleaned up ${staleCount} stale executions`);
     }
 
-    // 2. Expire old opportunities (NEW status older than 60 seconds)
-    await this.expireOldOpportunities();
-
-    // 3. Delete expired cooldowns
-    await this.deleteExpiredCooldowns();
-
-    // 4. Cleanup old delivered notifications (older than 24 hours)
+    // 2. Cleanup old sent notifications (older than 24 hours)
     await this.cleanupOldNotifications();
 
     console.log('[MaintenanceLoop] Maintenance complete');
   }
 
   /**
-   * Expire opportunities that have been NEW for too long
-   */
-  private async expireOldOpportunities(): Promise<void> {
-    const cutoff = new Date(Date.now() - 60000).toISOString(); // 60 seconds ago
-
-    const { data, error } = await supabase
-      .from('opportunities')
-      .update({
-        status: 'EXPIRED',
-        expired_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('status', 'NEW')
-      .lt('detected_at', cutoff)
-      .select('id');
-
-    if (error) {
-      console.error('[MaintenanceLoop] Error expiring opportunities:', error);
-      return;
-    }
-
-    if (data && data.length > 0) {
-      console.log(`[MaintenanceLoop] Expired ${data.length} old opportunities`);
-    }
-  }
-
-  /**
-   * Delete cooldowns that have passed
-   */
-  private async deleteExpiredCooldowns(): Promise<void> {
-    const now = new Date().toISOString();
-
-    const { error } = await supabase
-      .from('cooldowns')
-      .delete()
-      .lt('cooldown_until', now);
-
-    if (error) {
-      console.error('[MaintenanceLoop] Error deleting cooldowns:', error);
-    }
-  }
-
-  /**
-   * Cleanup old delivered notifications
+   * Cleanup old sent notifications (new schema: notifications_outbox)
    */
   private async cleanupOldNotifications(): Promise<void> {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // 24 hours ago
 
     const { error } = await supabase
-      .from('notifications')
+      .from('notifications_outbox')
       .delete()
-      .not('delivered_at', 'is', null)
-      .lt('delivered_at', cutoff);
+      .eq('status', 'sent')
+      .lt('sent_at', cutoff);
 
     if (error) {
-      console.error('[MaintenanceLoop] Error cleaning notifications:', error);
+      console.error('[MaintenanceLoop] Error cleaning notifications_outbox:', error);
     }
   }
 

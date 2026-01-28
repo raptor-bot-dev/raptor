@@ -14,14 +14,13 @@
 --   7. notifications_outbox - Transactional outbox for notifications
 -- ============================================================================
 
--- Enable UUID extension if not already enabled
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- gen_random_uuid() is built into PostgreSQL 13+ (no extension needed)
 
 -- ============================================================================
 -- 1. users
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     telegram_chat_id BIGINT UNIQUE NOT NULL,
     telegram_username TEXT,
@@ -40,7 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_users_tier ON users(tier);
 -- ============================================================================
 -- SECURITY: Only public keys stored. No private keys or encrypted blobs.
 CREATE TABLE IF NOT EXISTS wallets (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     pubkey TEXT UNIQUE NOT NULL,
     label TEXT,
@@ -73,7 +72,7 @@ CREATE TABLE IF NOT EXISTS settings (
 -- 4. launch_candidates
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS launch_candidates (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     mint TEXT NOT NULL,
     symbol TEXT,
     name TEXT,
@@ -96,7 +95,7 @@ CREATE INDEX IF NOT EXISTS idx_launch_candidates_first_seen ON launch_candidates
 -- 5. positions
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS positions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     wallet_id UUID REFERENCES wallets(id),
     mint TEXT NOT NULL,
@@ -158,7 +157,7 @@ CREATE INDEX IF NOT EXISTS idx_positions_trigger_state ON positions(trigger_stat
 -- ============================================================================
 -- Immutable log of trade attempts. Idempotency anchor for exactly-once execution.
 CREATE TABLE IF NOT EXISTS executions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     idempotency_key TEXT UNIQUE NOT NULL,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     position_id UUID REFERENCES positions(id),
@@ -199,7 +198,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_executions_signature ON executions(signatu
 -- Transactional outbox pattern for reliable notification delivery.
 -- Uses SKIP LOCKED leasing for crash-safe processing.
 CREATE TABLE IF NOT EXISTS notifications_outbox (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     type TEXT NOT NULL,
     payload JSONB NOT NULL,
