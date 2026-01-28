@@ -2432,16 +2432,12 @@ export async function upsertTradeMonitor(input: TradeMonitorInput): Promise<Trad
  * Get monitors that need refreshing
  */
 export async function getMonitorsForRefresh(
-  batchSize: number = 20,
-  minAgeSeconds: number = 15
+  _batchSize: number = 20,
+  _minAgeSeconds: number = 15
 ): Promise<TradeMonitor[]> {
-  const { data, error } = await supabase.rpc('get_monitors_for_refresh', {
-    p_batch_size: batchSize,
-    p_min_age_seconds: minAgeSeconds,
-  });
-
-  if (error) throw error;
-  return (data || []) as TradeMonitor[];
+  // Stub: get_monitors_for_refresh RPC doesn't exist in new schema
+  // Trade monitor UI feature is disabled until schema migration
+  return [];
 }
 
 /**
