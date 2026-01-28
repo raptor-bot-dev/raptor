@@ -1709,6 +1709,100 @@ export async function createTradeJob(job: {
 }
 
 // ============================================================================
+// Launch Candidate Functions (Candidate Consumer Loop)
+// ============================================================================
+
+/**
+ * Launch candidate as stored in the database
+ */
+export interface LaunchCandidate {
+  id: string;
+  mint: string;
+  symbol: string | null;
+  name: string | null;
+  launch_source: 'bags' | 'pumpfun';
+  discovery_method: 'telegram' | 'onchain';
+  first_seen_at: string;
+  raw_payload: Record<string, unknown> | null;
+  status: 'new' | 'accepted' | 'rejected' | 'expired';
+  status_reason: string | null;
+  processed_at: string | null;
+}
+
+/**
+ * Get new launch candidates for processing
+ * Returns candidates with status='new' that haven't expired
+ */
+export async function getNewCandidates(
+  limit: number,
+  maxAgeSeconds: number
+): Promise<LaunchCandidate[]> {
+  const minFirstSeen = new Date(Date.now() - maxAgeSeconds * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('launch_candidates')
+    .select('*')
+    .eq('status', 'new')
+    .gte('first_seen_at', minFirstSeen)
+    .order('first_seen_at', { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    console.error('[getNewCandidates] Error:', error.message);
+    return [];
+  }
+  return data as LaunchCandidate[];
+}
+
+/**
+ * Update launch candidate status
+ */
+export async function updateCandidateStatus(
+  candidateId: string,
+  status: 'accepted' | 'rejected' | 'expired',
+  reason?: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('launch_candidates')
+    .update({
+      status,
+      status_reason: reason || null,
+      processed_at: new Date().toISOString(),
+    })
+    .eq('id', candidateId);
+
+  if (error) {
+    console.error('[updateCandidateStatus] Error:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Expire stale candidates (older than maxAgeSeconds with status='new')
+ * Returns the number of expired candidates
+ */
+export async function expireStaleCandidates(maxAgeSeconds: number): Promise<number> {
+  const cutoffTime = new Date(Date.now() - maxAgeSeconds * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('launch_candidates')
+    .update({
+      status: 'expired',
+      status_reason: 'stale_candidate',
+      processed_at: new Date().toISOString(),
+    })
+    .eq('status', 'new')
+    .lt('first_seen_at', cutoffTime)
+    .select('id');
+
+  if (error) {
+    console.error('[expireStaleCandidates] Error:', error.message);
+    return 0;
+  }
+  return data?.length || 0;
+}
+
+// ============================================================================
 // Execution Functions
 // ============================================================================
 

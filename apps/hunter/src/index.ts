@@ -16,6 +16,7 @@ import {
   isGraduationMonitorEnabled,
   isMeteoraOnChainEnabled,
   getMeteoraProgramId,
+  isCandidateConsumerEnabled,
   supabase,
 } from '@raptor/shared';
 import type { LaunchCandidateInsert } from '@raptor/database';
@@ -25,6 +26,7 @@ import { PositionMonitorLoop } from './loops/positions.js';
 import { TpSlMonitorLoop } from './loops/tpslMonitor.js';
 import { GraduationMonitorLoop } from './loops/graduationMonitor.js';
 import { MaintenanceLoop } from './loops/maintenance.js';
+import { CandidateConsumerLoop } from './loops/candidateConsumer.js';
 import {
   BagsSource,
   MeteoraOnChainSource,
@@ -130,6 +132,13 @@ async function main() {
   if (meteoraOnChainEnabled) {
     console.log('✅ Meteora On-Chain Source: ENABLED (WebSocket detection)');
   }
+
+  // Check candidate consumer feature flag
+  const candidateConsumerEnabled = isCandidateConsumerEnabled();
+  if (candidateConsumerEnabled) {
+    console.log('✅ Candidate Consumer: ENABLED (auto-trading from launch_candidates)');
+  }
+
   if (!tpslEngineEnabled && !legacyPositionMonitorEnabled) {
     console.warn('⚠️  No position monitor enabled! TP/SL triggers will NOT fire.');
   }
@@ -147,6 +156,9 @@ async function main() {
     : null;
   const graduationMonitorLoop = graduationMonitorEnabled
     ? new GraduationMonitorLoop(workerId)
+    : null;
+  const candidateConsumerLoop = candidateConsumerEnabled
+    ? new CandidateConsumerLoop(workerId)
     : null;
 
   // Initialize BagsSource for Telegram signal ingestion (Phase 1)
@@ -248,6 +260,9 @@ async function main() {
     if (meteoraOnChainSource) {
       startPromises.push(meteoraOnChainSource.start());
     }
+    if (candidateConsumerLoop) {
+      startPromises.push(candidateConsumerLoop.start());
+    }
 
     await Promise.all(startPromises);
 
@@ -268,6 +283,9 @@ async function main() {
     }
     if (meteoraOnChainSource) {
       console.log('   - Meteora On-Chain: WebSocket program monitoring');
+    }
+    if (candidateConsumerLoop) {
+      console.log('   - Candidate Consumer: Auto-trading from launch_candidates');
     }
     console.log('   - Maintenance loop: Cleanup & recovery');
     console.log('');
@@ -299,6 +317,9 @@ async function main() {
     }
     if (meteoraOnChainSource) {
       stopPromises.push(meteoraOnChainSource.stop());
+    }
+    if (candidateConsumerLoop) {
+      stopPromises.push(candidateConsumerLoop.stop());
     }
 
     await Promise.all(stopPromises);

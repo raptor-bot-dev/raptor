@@ -214,6 +214,46 @@ export function getGraduationPollIntervalMs(): number {
 }
 
 // =============================================================================
+// Candidate Consumer Configuration (Auto-Trading)
+// =============================================================================
+
+/**
+ * Check if candidate auto-trading is enabled
+ * Set CANDIDATE_CONSUMER_ENABLED=true to enable automatic trading from launch_candidates
+ */
+export function isCandidateConsumerEnabled(): boolean {
+  return process.env.CANDIDATE_CONSUMER_ENABLED === 'true';
+}
+
+/**
+ * Get the poll interval for the candidate consumer in milliseconds
+ * Default: 2000 (2 seconds) - matches trade execution latency needs
+ */
+export function getCandidateConsumerPollIntervalMs(): number {
+  const interval = parseInt(process.env.CANDIDATE_CONSUMER_POLL_INTERVAL_MS || '2000', 10);
+  return Math.max(1000, Math.min(interval, 10000)); // Clamp between 1s and 10s
+}
+
+/**
+ * Get the batch size for candidate processing
+ * Default: 10
+ */
+export function getCandidateConsumerBatchSize(): number {
+  const size = parseInt(process.env.CANDIDATE_CONSUMER_BATCH_SIZE || '10', 10);
+  return Math.max(1, Math.min(size, 50)); // Clamp between 1 and 50
+}
+
+/**
+ * Get the max age for candidates in seconds
+ * Candidates older than this are expired instead of queued
+ * Default: 120 (2 minutes) - token launch window
+ */
+export function getCandidateMaxAgeSeconds(): number {
+  const age = parseInt(process.env.CANDIDATE_MAX_AGE_SECONDS || '120', 10);
+  return Math.max(30, Math.min(age, 600)); // Clamp between 30s and 10min
+}
+
+// =============================================================================
 // Meteora On-Chain Detection Configuration (Phase 4)
 // =============================================================================
 
