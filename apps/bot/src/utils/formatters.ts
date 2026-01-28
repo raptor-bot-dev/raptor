@@ -399,7 +399,7 @@ export function formatPosition(position: Position): string {
 
 *Chain:* ${CHAIN_NAME[chain]}
 *Strategy:* ${strategyEmoji} ${strategyName}
-*Status:* ${position.status}
+*Status:* ${(position as any).lifecycle_state || position.status || 'UNKNOWN'}
 
 📈 *Entry:* ${formatCrypto(entryPrice, symbol, 8)}
 📊 *Current:* ${formatCrypto(currentPrice, symbol, 8)}

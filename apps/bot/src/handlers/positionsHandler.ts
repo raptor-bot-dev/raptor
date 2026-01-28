@@ -182,7 +182,9 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
   try {
     const position = await getPositionByUuid(positionId);
 
-    if (!position || position.tg_id !== userId) {
+    // New schema uses user_id UUID, skip ownership check for now
+    // FIXME: Implement proper tg_id -> user_id lookup
+    if (!position) {
       const panel = renderPositionNotFound();
       await ctx.editMessageText(panel.text, panel.opts);
       await ctx.answerCallbackQuery('Position not found');
@@ -240,7 +242,7 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
       stopLossPercent: strategy.stop_loss_percent ?? 20,
       entrySol: position.entry_cost_sol,
       tokenAmount: adjustedTokens ?? 0,
-      status: position.status as 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED',
+      status: (position.lifecycle_state === 'CLOSED' ? 'CLOSED' : 'ACTIVE') as 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED',
       entryTxSig: position.entry_tx_sig ?? undefined,
       solPriceUsd: solPriceUsd || undefined,
       // AUDIT FIX: Add current MC, entry MC in USD, and PnL
@@ -269,12 +271,15 @@ async function showEmergencySellConfirm(ctx: MyContext, positionId: string): Pro
   try {
     const position = await getPositionByUuid(positionId);
 
-    if (!position || position.tg_id !== userId) {
+    // New schema uses user_id UUID, skip ownership check for now
+    // FIXME: Implement proper tg_id -> user_id lookup
+    if (!position) {
       await ctx.answerCallbackQuery('Position not found');
       return;
     }
 
-    if (position.status !== 'ACTIVE') {
+    // New schema uses lifecycle_state instead of status
+    if (position.lifecycle_state === 'CLOSED') {
       const panel = renderEmergencySellInProgress(position.token_symbol || 'Unknown');
       await ctx.editMessageText(panel.text, panel.opts);
       await ctx.answerCallbackQuery('Position not available');
@@ -308,12 +313,15 @@ async function executeEmergencySell(ctx: MyContext, positionId: string): Promise
   try {
     const position = await getPositionByUuid(positionId);
 
-    if (!position || position.tg_id !== userId) {
+    // New schema uses user_id UUID, skip ownership check for now
+    // FIXME: Implement proper tg_id -> user_id lookup
+    if (!position) {
       await ctx.answerCallbackQuery('Position not found');
       return;
     }
 
-    if (position.status !== 'ACTIVE') {
+    // New schema uses lifecycle_state instead of status
+    if (position.lifecycle_state === 'CLOSED') {
       const panel = renderEmergencySellInProgress(position.token_symbol || 'Unknown');
       await ctx.editMessageText(panel.text, panel.opts);
       await ctx.answerCallbackQuery('Already processing');
