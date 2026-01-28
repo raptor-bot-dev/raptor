@@ -2241,7 +2241,7 @@ export async function updateOpportunityStatus(
 // ============================================================================
 
 /**
- * Claim notifications for delivery
+ * Claim notifications for delivery (v2: includes telegram_chat_id via JOIN)
  */
 export async function claimNotifications(
   workerId: string,
@@ -2253,27 +2253,26 @@ export async function claimNotifications(
   });
 
   if (error) throw error;
-  return (data || []) as NotificationV31[];
+
+  // RPC returns JSONB array with telegram_chat_id included
+  const notifications = data as unknown;
+  if (!Array.isArray(notifications)) return [];
+  return notifications as NotificationV31[];
 }
 
 /**
- * Mark notification as delivered
+ * Mark notification as delivered via RPC
  */
 export async function markNotificationDelivered(notificationId: string): Promise<void> {
-  const { error } = await supabase
-    .from('notifications')
-    .update({
-      delivered_at: new Date().toISOString(),
-    })
-    .eq('id', notificationId);
+  const { error } = await supabase.rpc('mark_notification_delivered', {
+    p_notification_id: notificationId,
+  });
 
   if (error) throw error;
 }
 
 /**
- * Mark notification delivery failed
- * FIX: Use RPC for atomic increment (was broken inline supabase.rpc call)
- * FIX: Use delivery_error column (was last_error which doesn't exist)
+ * Mark notification delivery failed via RPC (atomic with retry logic)
  */
 export async function markNotificationFailed(
   notificationId: string,
@@ -2288,19 +2287,51 @@ export async function markNotificationFailed(
 }
 
 /**
- * Create a notification (STUBBED - schema migration pending)
- * New schema uses notifications_outbox with UUID user_id referencing users.id
- * TODO: Implement tg_id -> user UUID lookup
+ * Look up user UUID from Telegram chat ID
+ */
+async function getUserUuidFromTgId(tgId: number): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id')
+    .eq('telegram_chat_id', tgId)
+    .single();
+
+  if (error || !data) return null;
+  return data.id;
+}
+
+/**
+ * Create a notification in the outbox for delivery
+ * Resolves Telegram ID → user UUID, then inserts into notifications_outbox
  */
 export async function createNotification(notification: {
   userId: number;
   type: string;
   payload: Record<string, unknown>;
 }): Promise<NotificationV31 | null> {
-  // Stub: notifications_outbox requires UUID user_id, not telegram integer
-  // Skip notification creation until user lookup is implemented
-  console.warn('[createNotification] Skipped - schema migration pending for user_id lookup');
-  return null;
+  // Resolve tg_id → user UUID
+  const userUuid = await getUserUuidFromTgId(notification.userId);
+  if (!userUuid) {
+    console.warn(`[createNotification] No user found for tg_id=${notification.userId}`);
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('notifications_outbox')
+    .insert({
+      user_id: userUuid,
+      type: notification.type,
+      payload: notification.payload,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[createNotification] Insert failed:', error.message);
+    return null;
+  }
+
+  return data as unknown as NotificationV31;
 }
 
 // ============================================================================

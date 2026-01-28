@@ -142,14 +142,14 @@ export class NotificationPoller {
     try {
       const panel = this.formatNotification(notification);
 
-      await this.bot.api.sendMessage(notification.user_id, panel.text, {
+      await this.bot.api.sendMessage(notification.telegram_chat_id, panel.text, {
         ...panel.opts,
         link_preview_options: { is_disabled: true },
       });
 
       // Mark as delivered
       await markNotificationDelivered(notification.id);
-      logger.debug(`Delivered notification ${notification.id} to user ${notification.user_id}`);
+      logger.debug(`Delivered notification ${notification.id} to chat ${notification.telegram_chat_id}`);
     } catch (error) {
       logger.error(`Failed to deliver notification ${notification.id}`, error);
 

@@ -323,19 +323,16 @@ export type PricingSource = 'BONDING_CURVE' | 'AMM_POOL';
 /** Notification for Telegram delivery */
 export interface Notification {
   id: string;
-  user_id: number;
+  user_id: string;  // UUID referencing users.id
+  telegram_chat_id: number;  // Resolved from users.telegram_chat_id
   type: NotificationType;
   payload: Record<string, unknown>;
 
-  // Delivery
-  delivered_at: string | null;
-  delivery_attempts: number;
-  delivery_error: string | null;  // DB column name (was last_error)
-  next_attempt_at: string;
-
-  // Claiming
-  claimed_by: string | null;
-  claimed_at: string | null;
+  // Status
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  last_error: string | null;
 
   created_at: string;
 }
