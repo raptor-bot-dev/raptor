@@ -33,7 +33,7 @@ export {
 // Phase 4: Meteora On-Chain Source
 // =============================================================================
 
-// Parser
+// Heuristic parser (log-pattern matching)
 export {
   parseMeteoraLogs,
   isCreateInstruction,
@@ -42,6 +42,20 @@ export {
   type MeteoraCreateEvent,
   type MeteoraParseResult,
 } from './meteoraParser.js';
+
+// IDL-based instruction decoder (F-005b)
+export {
+  METEORA_DISCRIMINATORS,
+  METEORA_DBC_PROGRAM_ID,
+  INIT_POOL_ACCOUNT_INDICES,
+  isInitializePoolInstruction,
+  isSwapInstruction,
+  isMigrationInstruction,
+  getInitPoolType,
+  decodeInitPoolInstruction,
+  findAndDecodeCreateInstruction,
+  validateDecodedEvent,
+} from './meteoraInstructionDecoder.js';
 
 // Source
 export {
