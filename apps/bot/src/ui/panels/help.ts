@@ -81,7 +81,7 @@ export function renderAbout(): Panel {
   const lines: string[] = [
     section('RAPTOR Bot'),
     '',
-    'Automated Solana trading on pump.fun',
+    'Automated Solana trading on Bags.fm launches',
     '',
     stat('Version', '3.0.0'),
     stat('Network', 'Solana Mainnet'),

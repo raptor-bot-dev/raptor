@@ -28,7 +28,10 @@ export async function getBondingCurveSnapshot(mint: string): Promise<BondingCurv
   }
 
   const mintKey = new PublicKey(mint);
-  const programIds = [PROGRAM_IDS.PUMP_FUN, PROGRAM_IDS.PUMP_PRO];
+  // Include Meteora DBC for BAGS tokens, with pump.fun as fallback
+  // Note: Meteora DBC uses the same PDA seeds ('bonding-curve') but different account layout
+  // The decoder handles both formats via try/catch
+  const programIds = [PROGRAM_IDS.METEORA_DBC, PROGRAM_IDS.PUMP_FUN, PROGRAM_IDS.PUMP_PRO];
 
   for (const programId of programIds) {
     const programKey = new PublicKey(programId);

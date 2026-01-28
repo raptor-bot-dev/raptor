@@ -7,6 +7,7 @@ import { Connection, VersionedTransaction, Keypair, PublicKey } from '@solana/we
 import { getAssociatedTokenAddress, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { SOLANA_CONFIG, solToLamports, lamportsToSol } from '@raptor/shared';
 import { fetchWithRetry } from '../utils/fetchWithTimeout.js';
+import bs58 from 'bs58';
 import type { JitoClient } from '../chains/solana/jitoClient.js';
 import type {
   SwapRouter,
@@ -17,14 +18,14 @@ import type {
   BagsTradeRouterConfig,
 } from './swapRouter.js';
 
-// Default configuration
-const DEFAULT_BAGS_API_URL = process.env.BAGS_TRADE_API_URL || 'https://api.bags.fm/trade';
+// Default configuration - using official BAGS API v2 (from docs.bags.fm)
+const DEFAULT_BAGS_API_URL = process.env.BAGS_TRADE_API_URL || 'https://public-api-v2.bags.fm/api/v1';
 const TX_CONFIRM_TIMEOUT_MS = 30_000;
 
 /**
- * Bags.fm quote response (expected format - adjust based on actual API)
+ * Bags.fm quote response data (inner response per docs.bags.fm)
  */
-interface BagsQuoteResponse {
+interface BagsQuoteData {
   /** Input amount in smallest units */
   inputAmount: string;
   /** Output amount in smallest units */
@@ -36,19 +37,37 @@ interface BagsQuoteResponse {
   /** Slippage applied */
   slippageBps: number;
   /** Bonding curve address */
-  bondingCurve: string;
+  bondingCurve?: string;
   /** Route metadata */
   route?: unknown;
 }
 
 /**
- * Bags.fm swap response (expected format - adjust based on actual API)
+ * Bags.fm quote response wrapper (per docs.bags.fm API spec)
+ */
+interface BagsQuoteResponse {
+  success: boolean;
+  response?: BagsQuoteData;
+  error?: string;
+}
+
+/**
+ * Bags.fm swap response (per official docs.bags.fm/api-reference/create-swap-transaction)
+ * Response is wrapped in {success, response: {...}} or {success: false, error: "..."}
  */
 interface BagsSwapResponse {
-  /** Base64 encoded versioned transaction */
-  transaction: string;
-  /** Last valid block height */
-  lastValidBlockHeight: number;
+  success: boolean;
+  response?: {
+    /** Base58 encoded VersionedTransaction */
+    swapTransaction: string;
+    /** Compute unit limit for the transaction */
+    computeUnitLimit: number;
+    /** Last valid block height */
+    lastValidBlockHeight: number;
+    /** Prioritization fee in lamports */
+    prioritizationFeeLamports: number;
+  };
+  error?: string;
 }
 
 /**
@@ -143,21 +162,24 @@ export class BagsTradeRouter implements SwapRouter {
 
   /**
    * Get a quote for the swap via Bags.fm trade API.
+   * Uses official BAGS API v2 endpoint per docs.bags.fm
    */
   async quote(intent: SwapIntent): Promise<SwapQuote> {
     const headers = this.getHeaders();
 
+    // Per docs.bags.fm trade tokens guide:
+    // Quote params: inputMint, outputMint, amount, slippageMode, slippageBps
     const requestBody = {
-      mint: intent.mint,
-      side: intent.side,
+      inputMint: intent.side === 'BUY' ? 'So11111111111111111111111111111111111111112' : intent.mint,
+      outputMint: intent.side === 'BUY' ? intent.mint : 'So11111111111111111111111111111111111111112',
       amount: intent.amount.toString(),
+      slippageMode: 'manual',
       slippageBps: intent.slippageBps,
       userPublicKey: intent.userPublicKey,
-      bondingCurve: intent.bondingCurve,
     };
 
     const response = await fetchWithRetry(
-      `${this.bagsApiUrl}/quote`,
+      `${this.bagsApiUrl}/trade/quote`,  // Official endpoint per docs.bags.fm
       {
         method: 'POST',
         headers,
@@ -169,10 +191,17 @@ export class BagsTradeRouter implements SwapRouter {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Bags quote failed: ${errorText}`);
+      throw new Error(`Bags quote failed (HTTP ${response.status}): ${errorText}`);
     }
 
-    const bagsQuote = await response.json() as BagsQuoteResponse;
+    const quoteResponse = await response.json() as BagsQuoteResponse;
+
+    // Handle response wrapper per docs.bags.fm spec
+    if (!quoteResponse.success || !quoteResponse.response) {
+      throw new Error(`Bags quote failed: ${quoteResponse.error || 'Unknown error'}`);
+    }
+
+    const bagsQuote = quoteResponse.response;
 
     const inputAmount = BigInt(bagsQuote.inputAmount);
     const expectedOutput = BigInt(bagsQuote.outputAmount);
@@ -189,7 +218,7 @@ export class BagsTradeRouter implements SwapRouter {
         ? Number(inputAmount) / Number(expectedOutput)
         : Number(expectedOutput) / Number(inputAmount),
       routePlan: {
-        bagsQuote,
+        bagsQuote,  // Pass full quote for swap request
         bondingCurve: bagsQuote.bondingCurve,
       },
       quotedAt: Date.now(),
@@ -198,19 +227,20 @@ export class BagsTradeRouter implements SwapRouter {
 
   /**
    * Build an unsigned versioned transaction from a Bags quote.
+   * Uses official BAGS API v2 endpoint: POST /trade/swap
    */
   async buildTx(quote: SwapQuote, intent: SwapIntent): Promise<VersionedTransaction> {
     const headers = this.getHeaders();
 
+    // Per docs.bags.fm/api-reference/create-swap-transaction:
+    // Request body requires quoteResponse and userPublicKey
     const requestBody = {
       quoteResponse: quote.routePlan,
       userPublicKey: intent.userPublicKey,
-      mint: intent.mint,
-      side: intent.side,
     };
 
     const response = await fetchWithRetry(
-      `${this.bagsApiUrl}/swap`,
+      `${this.bagsApiUrl}/trade/swap`,  // Official endpoint per docs.bags.fm
       {
         method: 'POST',
         headers,
@@ -222,16 +252,23 @@ export class BagsTradeRouter implements SwapRouter {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Bags swap build failed: ${errorText}`);
+      throw new Error(`Bags swap build failed (HTTP ${response.status}): ${errorText}`);
     }
 
     const swapResponse = await response.json() as BagsSwapResponse;
 
-    // Store lastValidBlockHeight in quote for later use
-    quote.lastValidBlockHeight = swapResponse.lastValidBlockHeight;
+    // Handle response wrapper per docs.bags.fm spec
+    if (!swapResponse.success || !swapResponse.response) {
+      throw new Error(`Bags swap build failed: ${swapResponse.error || 'Unknown error'}`);
+    }
 
-    // Deserialize the transaction
-    const transactionBuffer = Buffer.from(swapResponse.transaction, 'base64');
+    const swapData = swapResponse.response;
+
+    // Store lastValidBlockHeight in quote for later use
+    quote.lastValidBlockHeight = swapData.lastValidBlockHeight;
+
+    // Deserialize the transaction - BAGS API returns Base58 encoded (not base64)
+    const transactionBuffer = bs58.decode(swapData.swapTransaction);
     return VersionedTransaction.deserialize(transactionBuffer);
   }
 

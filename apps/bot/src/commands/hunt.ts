@@ -51,7 +51,7 @@ const defaultHuntSettings: Record<Chain, HuntSettings> = {
   sol: {
     enabled: false,
     minScore: 23,
-    launchpads: ['pump.fun'],  // v5.3: pump.fun only - others not implemented
+    launchpads: ['bags'],  // v6.0: BAGS-only mode
     slippageBps: 1500,   // v4.2: 15% default for hunt (higher than manual 10%)
     prioritySol: 0.001,  // v4.2: 0.001 SOL default tip
     snipeMode: 'balanced',  // v4.3: Default to balanced mode
@@ -386,9 +386,9 @@ export async function showLaunchpadSelection(ctx: MyContext, chain: Chain) {
   const allSettings = await getUserHuntSettingsAsync(user.id);
   const settings = allSettings[chain];
 
-  // Available launchpads per chain (pump.fun only - others stubbed out)
+  // Available launchpads per chain (BAGS-only mode)
   const availableLaunchpads: Record<Chain, string[]> = {
-    sol: ['pump.fun'],
+    sol: ['bags'],
   };
 
   const launchpads = availableLaunchpads[chain];
@@ -468,9 +468,9 @@ export async function enableAllLaunchpads(ctx: MyContext, chain: Chain) {
   const user = ctx.from;
   if (!user) return;
 
-  // pump.fun only - others stubbed out
+  // BAGS-only mode
   const availableLaunchpads: Record<Chain, string[]> = {
-    sol: ['pump.fun'],
+    sol: ['bags'],
   };
 
   const settings = await getUserHuntSettingsAsync(user.id);
@@ -836,8 +836,8 @@ export async function setStopLoss(ctx: MyContext, chain: Chain, sl: number) {
 }
 
 /**
- * Show live opportunities from pump.fun
- * Simplified to pump.fun only with numbered list 1-15
+ * Show live opportunities (legacy feature - uses pumpfun API for discovery UI)
+ * Note: Actual trading uses BAGS API via SwapRouter
  */
 export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending') {
   const user = ctx.from;
@@ -846,7 +846,7 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
   try {
     const { pumpfun } = await import('@raptor/shared');
 
-    // Fetch 15 tokens from pump.fun
+    // Fetch 15 tokens (legacy discovery UI)
     const tokens = type === 'new'
       ? await pumpfun.getNewLaunches(15)
       : await pumpfun.getTrendingTokens(15);
@@ -854,7 +854,7 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
     if (tokens.length === 0) {
       try {
         await ctx.editMessageText(
-          `${type === 'new' ? '🌱 *NEW LAUNCHES*' : '🔥 *TRENDING ON PUMP.FUN*'}\n\n` +
+          `${type === 'new' ? '🌱 *NEW LAUNCHES*' : '🔥 *TRENDING*'}\n\n` +
           `No tokens found at the moment.\n` +
           `Try again in a few minutes.`,
           {
@@ -876,8 +876,8 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
 
     // Header
     let message = type === 'new'
-      ? '🌱 *NEW LAUNCHES ON PUMP.FUN*\n\n'
-      : '🔥 *TRENDING ON PUMP.FUN*\n\n';
+      ? '🌱 *NEW LAUNCHES*\n\n'
+      : '🔥 *TRENDING*\n\n';
 
     const keyboard = new InlineKeyboard();
 
@@ -923,11 +923,11 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
       }
     }
   } catch (error) {
-    console.error('[Hunt] PumpFun fetch error:', error);
+    console.error('[Hunt] Token fetch error:', error);
     try {
       await ctx.editMessageText(
         `${type === 'new' ? '🌱 *NEW LAUNCHES*' : '🔥 *TRENDING*'}\n\n` +
-        `⚠️ Error fetching from pump.fun.\nTry again later.`,
+        `⚠️ Error fetching tokens.\nTry again later.`,
         {
           parse_mode: 'Markdown',
           reply_markup: new InlineKeyboard()

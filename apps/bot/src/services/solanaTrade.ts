@@ -249,11 +249,11 @@ function translateExecutorError(error: unknown): string {
   }
 
   if (message.includes('graduated')) {
-    return '❌ Token has graduated from pump.fun. Routing via Jupiter...';
+    return '❌ Token has graduated from bonding curve. Routing via Jupiter...';
   }
 
   if (message.includes('accountnotenoughkeys') || message.includes('3005')) {
-    return '❌ pump.fun program update detected. Please report this error.';
+    return '❌ Bonding curve program error detected. Please report this error.';
   }
 
   // Default: return the actual error message (not generic)

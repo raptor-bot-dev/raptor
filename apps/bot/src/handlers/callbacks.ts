@@ -3490,7 +3490,7 @@ async function handleTradeChainSelected(ctx: MyContext, chain: Chain, address: s
       const progressBar = pumpfun.formatBondingCurveBar(pumpInfo.bondingCurveProgress);
       const links = pumpfun.getPumpFunLinks(address);
 
-      message = `🎰 *BUY ${pumpInfo.symbol}* | Pump.fun
+      message = `🎰 *BUY ${pumpInfo.symbol}* | Bonding Curve
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 *${pumpInfo.name}*
@@ -3507,7 +3507,7 @@ ${progressBar} ${pumpInfo.bondingCurveProgress.toFixed(1)}%
 Slippage: ${buySlippage}%
 Priority: ${gasOrPriority}
 
-🔗 [Pump.fun](${links.pumpfun}) • [DexScreener](${links.dexscreener})
+🔗 [Chart](${links.dexscreener}) • [Solscan](https://solscan.io/token/${address})
 \`${address}\``;
     } else if (tokenInfo) {
       const mcapStr = tokenData.formatLargeNumber(tokenInfo.marketCap);
@@ -3794,7 +3794,7 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
       `Amount: ${solAmount} SOL\n` +
       `Platform Fee (1%): ${fee.toFixed(4)} SOL\n` +
       `Net Buy Amount: ${netAmount.toFixed(4)} SOL\n\n` +
-      `_Finding best route (pump.fun or Jupiter)..._`,
+      `_Finding best route..._`,
       { parse_mode: 'Markdown' }
     );
 
@@ -4459,7 +4459,7 @@ our safety scoring system.
 • Launchpads: Which platforms to monitor
 
 *Supported Launchpads:*
-🟢 pump.fun, PumpSwap, Moonshot`;
+🟢 Bags.fm (Meteora DBC)`;
 
   const keyboard = new InlineKeyboard()
     .text('🦖 Configure Hunt', 'menu_hunt')

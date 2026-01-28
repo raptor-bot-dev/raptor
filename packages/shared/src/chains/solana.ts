@@ -21,6 +21,15 @@ export const PROGRAM_IDS = {
   MOONSHOT: 'MoonCVVNZFSYkqNXP6bxHLPL6QQJiMagDL3qcqUQTrG',
   // Meteora Dynamic Bonding Curve (Bags.fm)
   METEORA_DBC: 'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN',
+  // Meteora DAMM v2 (post-graduation AMM)
+  METEORA_DAMM_V2: 'cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG',
+  // Bags.fm Fee Share programs
+  BAGS_FEE_SHARE_V1: 'FEEhPbKVKnco9EXnaY3i4R5rQVUx91wgVfu8qokixywi', // Legacy
+  BAGS_FEE_SHARE_V2: 'FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK', // Current
+  // Bags.fm Address Lookup Table
+  BAGS_ALT: 'Eq1EVs15EAWww1YtPTtWPzJRLPJoS6VYP9oW9SbNr3yp',
+  // Bags.fm Authority (for on-chain detection)
+  BAGS_AUTHORITY: 'BAGSB9TpGrZxQbEsrEznv5jXXdwyP6AXerN8aVRiAmcv',
   TOKEN_PROGRAM: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   TOKEN_2022_PROGRAM: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
   ASSOCIATED_TOKEN_PROGRAM: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',

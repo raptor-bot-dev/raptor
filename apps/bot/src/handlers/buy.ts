@@ -475,7 +475,7 @@ function translateError(message: string): string {
     return 'Insufficient SOL balance. Please add funds.';
   }
   if (lower.includes('graduated')) {
-    return 'Token has graduated from pump.fun. Routing via Jupiter...';
+    return 'Token has graduated from bonding curve. Routing via Jupiter...';
   }
 
   return message;

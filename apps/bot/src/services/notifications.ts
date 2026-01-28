@@ -323,7 +323,7 @@ export class NotificationPoller {
       tokenSymbol: String(payload.tokenSymbol || '???'),
       tokenMint: String(payload.tokenMint || ''),
       score: Number(payload.score || 0),
-      source: String(payload.source || 'pump.fun'),
+      source: String(payload.source || 'bags'),
     };
     return renderOpportunityDetected(data);
   }
