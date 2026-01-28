@@ -28,10 +28,9 @@ export async function getBondingCurveSnapshot(mint: string): Promise<BondingCurv
   }
 
   const mintKey = new PublicKey(mint);
-  // Include Meteora DBC for BAGS tokens, with pump.fun as fallback
-  // Note: Meteora DBC uses the same PDA seeds ('bonding-curve') but different account layout
-  // The decoder handles both formats via try/catch
-  const programIds = [PROGRAM_IDS.METEORA_DBC, PROGRAM_IDS.PUMP_FUN, PROGRAM_IDS.PUMP_PRO];
+  // BAGS-only mode: Only check Meteora DBC for bonding curve detection
+  // Meteora DBC uses PDA seeds ('bonding-curve') with specific account layout
+  const programIds = [PROGRAM_IDS.METEORA_DBC];
 
   for (const programId of programIds) {
     const programKey = new PublicKey(programId);
