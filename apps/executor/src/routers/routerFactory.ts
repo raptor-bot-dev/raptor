@@ -144,7 +144,10 @@ export class RouterFactory {
       console.log(`${logPrefix} Transaction built`);
 
       // Execute
-      const result = await router.execute(tx, keypair, options);
+      const result = await router.execute(tx, keypair, {
+        ...options,
+        lastValidBlockHeight: quote.lastValidBlockHeight ?? options?.lastValidBlockHeight,
+      });
 
       if (result.success) {
         console.log(`${logPrefix} Swap successful: ${result.signature}`);

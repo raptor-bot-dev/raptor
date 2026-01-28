@@ -16,6 +16,7 @@ import {
   saveHuntSettings,
   getOrCreateAutoStrategy,
   updateStrategy,
+  supabase,
 } from '@raptor/shared';
 import {
   chainsWithBackKeyboard,
@@ -109,8 +110,8 @@ export async function huntCommand(ctx: MyContext) {
   message += `*Min Score:* *${s.minScore}*/100\n`;
   message += `*Position:* *${s.maxPositionSize || 'Auto'} SOL*\n`;
 
-  // Show enabled launchpads
-  message += `*Launchpads:* ${s.launchpads.length > 0 ? s.launchpads.join(', ') : 'None'}\n\n`;
+  // Revamp: BAGS-only discovery source (no multi-launchpad UI language)
+  message += `*Source:* ${s.launchpads.includes('bags') ? 'Bags.fm' : 'None'}\n\n`;
 
   message += '_Auto-snipe new token launches_';
 
@@ -122,7 +123,7 @@ export async function huntCommand(ctx: MyContext) {
     .text('⚙️ Configure', 'hunt_chain_sol')
     .row()
     .text('🌱 New Launches', 'hunt_new')
-    .text('🔥 Trending', 'hunt_trending')
+    .text('🕒 Recent', 'hunt_trending')
     .row()
     .text('« Back', 'menu');
 
@@ -152,8 +153,8 @@ export async function showHunt(ctx: MyContext) {
   message += `*Min Score:* *${s.minScore}*/100\n`;
   message += `*Position:* *${s.maxPositionSize || 'Auto'} SOL*\n`;
 
-  // Show enabled launchpads
-  message += `*Launchpads:* ${s.launchpads.length > 0 ? s.launchpads.join(', ') : 'None'}\n\n`;
+  // Revamp: BAGS-only discovery source (no multi-launchpad UI language)
+  message += `*Source:* ${s.launchpads.includes('bags') ? 'Bags.fm' : 'None'}\n\n`;
 
   message += '_Auto-snipe new token launches_';
 
@@ -165,7 +166,7 @@ export async function showHunt(ctx: MyContext) {
     .text('⚙️ Configure', 'hunt_chain_sol')
     .row()
     .text('🌱 New Launches', 'hunt_new')
-    .text('🔥 Trending', 'hunt_trending')
+    .text('🕒 Recent', 'hunt_trending')
     .row()
     .text('« Back', 'menu');
 
@@ -395,8 +396,8 @@ export async function showLaunchpadSelection(ctx: MyContext, chain: Chain) {
 
   if (launchpads.length === 0) {
     await ctx.editMessageText(
-      `🎯 *Launchpads - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n` +
-      `No specific launchpads configured for this chain.\n` +
+      `🎯 *Source - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n` +
+      `No discovery source configured for this chain.\n` +
       `All new token launches will be monitored.`,
       {
         parse_mode: 'Markdown',
@@ -407,8 +408,8 @@ export async function showLaunchpadSelection(ctx: MyContext, chain: Chain) {
     return;
   }
 
-  let message = `🎯 *Launchpads - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n`;
-  message += 'Select launchpads to monitor:\n\n';
+  let message = `🎯 *Source - ${CHAIN_NAME[chain]}* ${CHAIN_EMOJI[chain]}\n\n`;
+  message += 'Select source to monitor:\n\n';
 
   const keyboard = new InlineKeyboard();
 
@@ -481,7 +482,7 @@ export async function enableAllLaunchpads(ctx: MyContext, chain: Chain) {
   const strategy = await getOrCreateAutoStrategy(user.id, chain);
   await updateStrategy(strategy.id, { allowed_launchpads: [...settings[chain].launchpads] });
 
-  await ctx.answerCallbackQuery({ text: 'All launchpads enabled' });
+  await ctx.answerCallbackQuery({ text: 'Source enabled' });
   await showLaunchpadSelection(ctx, chain);
 }
 
@@ -501,7 +502,7 @@ export async function disableAllLaunchpads(ctx: MyContext, chain: Chain) {
   const strategy = await getOrCreateAutoStrategy(user.id, chain);
   await updateStrategy(strategy.id, { allowed_launchpads: [] });
 
-  await ctx.answerCallbackQuery({ text: 'All launchpads disabled' });
+  await ctx.answerCallbackQuery({ text: 'Source disabled' });
   await showLaunchpadSelection(ctx, chain);
 }
 
@@ -836,25 +837,27 @@ export async function setStopLoss(ctx: MyContext, chain: Chain, sl: number) {
 }
 
 /**
- * Show live opportunities (legacy feature - uses pumpfun API for discovery UI)
- * Note: Actual trading uses BAGS API via SwapRouter
+ * Show recent BAGS launches from the canonical discovery pipeline (launch_candidates).
  */
 export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending') {
   const user = ctx.from;
   if (!user) return;
 
   try {
-    const { pumpfun } = await import('@raptor/shared');
+    const { data: candidates, error } = await supabase
+      .from('launch_candidates')
+      .select('mint,symbol,name,first_seen_at,status')
+      .eq('launch_source', 'bags')
+      .order('first_seen_at', { ascending: false })
+      .limit(15);
 
-    // Fetch 15 tokens (legacy discovery UI)
-    const tokens = type === 'new'
-      ? await pumpfun.getNewLaunches(15)
-      : await pumpfun.getTrendingTokens(15);
+    if (error) throw error;
+    const tokens = candidates || [];
 
     if (tokens.length === 0) {
       try {
         await ctx.editMessageText(
-          `${type === 'new' ? '🌱 *NEW LAUNCHES*' : '🔥 *TRENDING*'}\n\n` +
+          `${type === 'new' ? '🌱 *BAGS — NEW LAUNCHES*' : '🔥 *BAGS — RECENT*'}\n\n` +
           `No tokens found at the moment.\n` +
           `Try again in a few minutes.`,
           {
@@ -876,8 +879,8 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
 
     // Header
     let message = type === 'new'
-      ? '🌱 *NEW LAUNCHES*\n\n'
-      : '🔥 *TRENDING*\n\n';
+      ? '🌱 *BAGS — NEW LAUNCHES*\n\n'
+      : '🔥 *BAGS — RECENT*\n\n';
 
     const keyboard = new InlineKeyboard();
 
@@ -886,22 +889,17 @@ export async function showOpportunities(ctx: MyContext, type: 'new' | 'trending'
       const t = tokens[i];
       const num = i + 1;
 
-      // Format bonding progress
-      const progressEmoji = t.bondingCurveProgress >= 90 ? '🔥'
-        : t.bondingCurveProgress >= 50 ? '📈'
-        : '🌱';
+      const label = (t.symbol || t.name || 'UNKNOWN').toString();
+      const mint = t.mint.toString();
+      const firstSeen = t.first_seen_at ? new Date(t.first_seen_at).toISOString().slice(11, 19) : '—';
+      const status = t.status ? String(t.status).toUpperCase() : '—';
 
-      // Format price compactly
-      const priceStr = t.priceInSol > 0
-        ? t.priceInSol.toFixed(8).replace(/\.?0+$/, '')
-        : '—';
-
-      // Compact format: "1. SYMBOL - 85% bonded | 0.00123 SOL"
-      message += `*${num}.* *${t.symbol}* ${progressEmoji} ${t.bondingCurveProgress.toFixed(0)}% | ${priceStr} SOL\n`;
+      // Compact format: "1. SYMBOL | HH:MM:SSZ | STATUS | MINT..."
+      message += `*${num}.* *${label}* | ${firstSeen}Z | ${status} | \`${mint.slice(0, 8)}…${mint.slice(-6)}\`\n`;
 
       // Add button for first 8 tokens (Telegram button limit)
       if (i < 8) {
-        keyboard.text(`${num}. ${t.symbol}`, `analyze_sol_${t.mint}`);
+        keyboard.text(`${num}. ${label.slice(0, 10)}`, `analyze_sol_${mint}`);
         if ((i + 1) % 2 === 0) keyboard.row();
       }
     }

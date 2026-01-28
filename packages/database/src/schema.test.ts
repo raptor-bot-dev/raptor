@@ -130,7 +130,7 @@ describe('Phase 0 Schema Types', () => {
 
     it('should create valid LaunchCandidateInsert', () => {
       const insert: LaunchCandidateInsert = {
-        mint: 'BagsToken1111111111111111111111111111111111',
+        mint: 'So11111111111111111111111111111111111111112',
         launch_source: 'bags',
         discovery_method: 'telegram',
       };
@@ -165,7 +165,7 @@ describe('Phase 0 Schema Types', () => {
     it('should create valid PositionInsert', () => {
       const insert: PositionInsert = {
         user_id: '11111111-1111-1111-1111-111111111111',
-        mint: 'BagsToken1111111111111111111111111111111111',
+        mint: 'So11111111111111111111111111111111111111112',
         entry_price: 0.000001,
         entry_cost_sol: 0.1,
         size_tokens: 100000,
@@ -184,7 +184,7 @@ describe('Phase 0 Schema Types', () => {
       const insert: ExecutionInsert = {
         idempotency_key: 'buy_test_12345',
         user_id: '11111111-1111-1111-1111-111111111111',
-        mint: 'BagsToken1111111111111111111111111111111111',
+        mint: 'So11111111111111111111111111111111111111112',
         side: 'BUY',
       };
 

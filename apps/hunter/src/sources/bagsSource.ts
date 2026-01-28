@@ -112,11 +112,14 @@ export class BagsSource {
 
       // Handle channel posts
       this.bot.on('channel_post:text', async (ctx) => {
+        // If the bot is in multiple channels, ensure we only process the configured channel.
+        if (!this.isConfiguredChannel(ctx.channelPost.chat.id, ctx.channelPost.chat.username)) return;
         await this.handleChannelPost(ctx.channelPost.text || '', ctx.channelPost.date);
       });
 
       // Handle edited channel posts (in case signals are corrected)
       this.bot.on('edited_channel_post:text', async (ctx) => {
+        if (!this.isConfiguredChannel(ctx.editedChannelPost.chat.id, ctx.editedChannelPost.chat.username)) return;
         await this.handleChannelPost(ctx.editedChannelPost.text || '', ctx.editedChannelPost.date);
       });
 
@@ -229,6 +232,23 @@ export class BagsSource {
     } else {
       this.recordSuccess();
     }
+  }
+
+  private isConfiguredChannel(chatId: number, username?: string | null): boolean {
+    const configured = this.config.channelId;
+    if (typeof configured === 'number') {
+      return chatId === configured;
+    }
+    const configuredStr = String(configured);
+    if (configuredStr.startsWith('@')) {
+      return !!username && `@${username}`.toLowerCase() === configuredStr.toLowerCase();
+    }
+    // Allow numeric IDs passed as strings (e.g. "-100123...")
+    const asNumber = Number(configuredStr);
+    if (!Number.isNaN(asNumber)) {
+      return chatId === asNumber;
+    }
+    return false;
   }
 
   /**

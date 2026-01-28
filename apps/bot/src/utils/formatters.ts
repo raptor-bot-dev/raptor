@@ -619,14 +619,8 @@ export function formatHuntStatus(huntSettings: {
     message += `\n*Snipe Mode:* ${huntSettings.snipeMode}`;
   }
 
-  if (huntSettings.launchpads.length > 0) {
-    message += '\n\n*Active Launchpads:*\n';
-    for (const lp of huntSettings.launchpads) {
-      message += `  • ${lp}\n`;
-    }
-  } else {
-    message += '\n\n*Launchpads:* All';
-  }
+  // Revamp: BAGS-only discovery source (avoid multi-launchpad language).
+  message += `\n\n*Source:* ${huntSettings.launchpads.includes('bags') ? 'Bags.fm' : 'None'}`;
 
   return message.trim();
 }

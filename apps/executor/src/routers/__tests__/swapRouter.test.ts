@@ -221,6 +221,36 @@ describe('RouterFactory', () => {
       expect(router.name).toBe('bags-meteora');
     });
   });
+
+  describe('execution option propagation', () => {
+    it('should pass lastValidBlockHeight from buildTx to execute', async () => {
+      const factory = new RouterFactory();
+      const keypair = Keypair.generate();
+
+      const fakeRouter = {
+        name: 'fake',
+        canHandle: vi.fn(async () => true),
+        quote: vi.fn(async () => createTestQuote('fake', { lastValidBlockHeight: 1 })),
+        buildTx: vi.fn(async (quote: SwapQuote) => {
+          // buildTx is expected to populate lastValidBlockHeight for confirmation strategy
+          quote.lastValidBlockHeight = 999;
+          return {} as unknown as import('@solana/web3.js').VersionedTransaction;
+        }),
+        execute: vi.fn(async () => ({ success: true, signature: 'sig', router: 'fake' })),
+      };
+
+      // Override private routers list for deterministic unit testing
+      (factory as unknown as { routers: unknown[] }).routers = [fakeRouter];
+
+      await factory.executeSwap(createTestIntent(), keypair, { executionId: 'test' });
+
+      expect(fakeRouter.execute).toHaveBeenCalledTimes(1);
+      const options = (fakeRouter.execute as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[2] as {
+        lastValidBlockHeight?: number;
+      };
+      expect(options.lastValidBlockHeight).toBe(999);
+    });
+  });
 });
 
 describe('Router Priority', () => {

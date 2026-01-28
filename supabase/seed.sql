@@ -34,7 +34,7 @@ INSERT INTO wallets (id, user_id, pubkey, label, is_active)
 VALUES (
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     '11111111-1111-1111-1111-111111111111',
-    'DevWa11et111111111111111111111111111111111111',
+    'So11111111111111111111111111111111111111112',
     'Dev Wallet',
     true
 )
@@ -47,7 +47,7 @@ INSERT INTO wallets (id, user_id, pubkey, label, is_active)
 VALUES (
     'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
     '22222222-2222-2222-2222-222222222222',
-    'TestWa11et22222222222222222222222222222222222',
+    'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
     'Test Wallet',
     true
 )
@@ -80,7 +80,7 @@ ON CONFLICT (user_id) DO NOTHING;
 INSERT INTO launch_candidates (id, mint, symbol, name, launch_source, discovery_method, status, raw_payload)
 VALUES (
     'cccccccc-cccc-cccc-cccc-cccccccccccc',
-    'BagsToken1111111111111111111111111111111111',
+    'CuieVDEDtLo7FypA9SbLM9saXFdb1dsshEkyErMqkRQq',
     'BAGS',
     'Bags Test Token',
     'bags',
@@ -92,20 +92,6 @@ ON CONFLICT (mint, launch_source) DO UPDATE SET
     symbol = EXCLUDED.symbol,
     name = EXCLUDED.name,
     raw_payload = EXCLUDED.raw_payload;
-
--- Sample launch candidate (pump.fun for comparison)
-INSERT INTO launch_candidates (id, mint, symbol, name, launch_source, discovery_method, status)
-VALUES (
-    'dddddddd-dddd-dddd-dddd-dddddddddddd',
-    'PumpToken2222222222222222222222222222222222',
-    'PUMP',
-    'Pump Test Token',
-    'pumpfun',
-    'onchain',
-    'rejected'
-)
-ON CONFLICT (mint, launch_source) DO UPDATE SET
-    status = EXCLUDED.status;
 
 -- Sample position (PRE_GRADUATION)
 INSERT INTO positions (
@@ -119,12 +105,12 @@ VALUES (
     'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
     '11111111-1111-1111-1111-111111111111',
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-    'BagsToken1111111111111111111111111111111111',
+    'CuieVDEDtLo7FypA9SbLM9saXFdb1dsshEkyErMqkRQq',
     'BAGS',
     'Bags Test Token',
     'PRE_GRADUATION',
     'BONDING_CURVE',
-    'bags_trade_router',
+    'bags-meteora',
     0.000001,
     0.1,
     100000,
@@ -148,15 +134,15 @@ VALUES (
     'buy_bags_dev_1706000000',
     '11111111-1111-1111-1111-111111111111',
     'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
-    'BagsToken1111111111111111111111111111111111',
+    'CuieVDEDtLo7FypA9SbLM9saXFdb1dsshEkyErMqkRQq',
     'BUY',
     0.1,
     0.1,
     100000,
     0.000001,
-    '5testSig111111111111111111111111111111111111111111111111111111111111',
+    '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
     'confirmed',
-    'bags_trade_router'
+    'bags-meteora'
 )
 ON CONFLICT (idempotency_key) DO NOTHING;
 
@@ -166,7 +152,7 @@ VALUES (
     '00000000-0000-0000-0000-000000000001',
     '11111111-1111-1111-1111-111111111111',
     'POSITION_OPENED',
-    '{"mint": "BagsToken1111111111111111111111111111111111", "symbol": "BAGS", "amount_sol": 0.1}'::jsonb,
+    '{"mint": "CuieVDEDtLo7FypA9SbLM9saXFdb1dsshEkyErMqkRQq", "symbol": "BAGS", "amount_sol": 0.1}'::jsonb,
     'pending'
 )
 ON CONFLICT (id) DO NOTHING;

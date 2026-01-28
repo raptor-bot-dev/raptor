@@ -7,7 +7,7 @@
  * SECURITY: L-010 - Logs validation failures for security monitoring
  */
 
-import type { Chain } from '@raptor/shared';
+import { isValidSolanaAddress, type Chain } from '@raptor/shared';
 import { createLogger } from '@raptor/shared';
 
 const logger = createLogger('Validation');
@@ -133,7 +133,7 @@ export function sanitizeCallbackData(data: string): string {
  */
 export function isValidTokenAddress(address: string, chain: Chain): boolean {
   if (chain === 'sol') {
-    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+    return isValidSolanaAddress(address);
   }
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 }
@@ -172,11 +172,8 @@ export function parseCallbackSegments(
  * Validate launchpad name
  */
 export function isValidLaunchpad(name: string): boolean {
-  const validLaunchpads = [
-    'pump.fun', 'pumpswap', 'moonshot', 'bonk.fun', 'believe.app',
-    'four.meme', 'virtuals.fun', 'wow.xyz', 'base.pump'
-  ];
-  return validLaunchpads.includes(name);
+  // Revamp scope: BAGS-only mode.
+  return name === 'bags';
 }
 
 /**

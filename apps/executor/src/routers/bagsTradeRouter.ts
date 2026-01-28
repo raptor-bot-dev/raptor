@@ -167,6 +167,9 @@ export class BagsTradeRouter implements SwapRouter {
   async quote(intent: SwapIntent): Promise<SwapQuote> {
     const headers = this.getHeaders();
 
+    // Safety: clamp slippage per revamp spec (0-9900 bps) to avoid accidental 100% slippage.
+    const effectiveSlippageBps = Math.max(0, Math.min(Math.trunc(intent.slippageBps), 9900));
+
     // Per docs.bags.fm trade tokens guide:
     // Quote params: inputMint, outputMint, amount, slippageMode, slippageBps
     const requestBody = {
@@ -174,7 +177,7 @@ export class BagsTradeRouter implements SwapRouter {
       outputMint: intent.side === 'BUY' ? intent.mint : 'So11111111111111111111111111111111111111112',
       amount: intent.amount.toString(),
       slippageMode: 'manual',
-      slippageBps: intent.slippageBps,
+      slippageBps: effectiveSlippageBps,
       userPublicKey: intent.userPublicKey,
     };
 
@@ -217,10 +220,9 @@ export class BagsTradeRouter implements SwapRouter {
       pricePerToken: intent.side === 'BUY'
         ? Number(inputAmount) / Number(expectedOutput)
         : Number(expectedOutput) / Number(inputAmount),
-      routePlan: {
-        bagsQuote,  // Pass full quote for swap request
-        bondingCurve: bagsQuote.bondingCurve,
-      },
+      // Persist the quote data exactly as returned from /trade/quote so we can pass it
+      // back to /trade/swap without lossy transformation.
+      routePlan: bagsQuote,
       quotedAt: Date.now(),
     };
   }
@@ -302,9 +304,10 @@ export class BagsTradeRouter implements SwapRouter {
           };
         }
 
-        // Get signature from transaction
-        const sig = tx.signatures[0];
-        signature = sig ? Buffer.from(sig).toString('base64') : jitoResult.bundleId || '';
+        // Prefer explicit signature from Jito result (base58), otherwise derive from signed tx.
+        signature =
+          jitoResult.signatures?.[0] ||
+          (tx.signatures[0] ? bs58.encode(tx.signatures[0]) : jitoResult.bundleId || '');
 
         // Wait for Jito bundle confirmation
         if (jitoResult.bundleId && jitoResult.signatures?.[0]) {
@@ -328,13 +331,19 @@ export class BagsTradeRouter implements SwapRouter {
 
         console.log(`[BagsTradeRouter] Transaction sent: ${signature}`);
 
-        // Wait for confirmation with timeout
-        await this.confirmTransactionWithTimeout(
-          signature,
-          tx.message.recentBlockhash,
-          Number.MAX_SAFE_INTEGER, // Will use quote's lastValidBlockHeight if available
-          options?.confirmTimeoutMs || TX_CONFIRM_TIMEOUT_MS
-        );
+        // Wait for confirmation with timeout. If we have the blockhash expiry window, use it;
+        // otherwise fall back to signature-only confirmation.
+        const timeoutMs = options?.confirmTimeoutMs || TX_CONFIRM_TIMEOUT_MS;
+        if (options?.lastValidBlockHeight !== undefined) {
+          await this.confirmTransactionWithTimeout(
+            signature,
+            tx.message.recentBlockhash,
+            options.lastValidBlockHeight,
+            timeoutMs
+          );
+        } else {
+          await this.confirmSignatureOnlyWithTimeout(signature, timeoutMs);
+        }
       }
 
       return {
@@ -382,6 +391,31 @@ export class BagsTradeRouter implements SwapRouter {
     const confirmation = await Promise.race([confirmPromise, timeoutPromise]);
 
     if (confirmation.value.err) {
+      throw new Error(`Transaction failed on-chain: ${JSON.stringify(confirmation.value.err)}`);
+    }
+  }
+
+  /**
+   * Confirm a transaction using signature-only strategy (fallback).
+   * This is less strict than the blockhash strategy, but avoids false negatives when
+   * lastValidBlockHeight is unavailable.
+   */
+  private async confirmSignatureOnlyWithTimeout(signature: string, timeoutMs: number): Promise<void> {
+    // confirmTransaction has an overload for signature-only in @solana/web3.js.
+    const confirmPromise = (
+      this.connection as unknown as {
+        confirmTransaction: (sig: string, commitment: 'confirmed') => Promise<{ value: { err: unknown | null } }>;
+      }
+    ).confirmTransaction(signature, 'confirmed');
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Transaction confirmation timeout after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+
+    const confirmation = await Promise.race([confirmPromise, timeoutPromise]);
+    if (confirmation?.value?.err) {
       throw new Error(`Transaction failed on-chain: ${JSON.stringify(confirmation.value.err)}`);
     }
   }

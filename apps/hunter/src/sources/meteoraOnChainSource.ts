@@ -220,7 +220,7 @@ export class MeteoraOnChainSource {
       return;
     }
 
-    const { signature, logs } = notification;
+    const { signature, logs, slot } = notification;
 
     // Parse logs to detect create events
     const result = parseMeteoraLogs(logs);
@@ -259,7 +259,7 @@ export class MeteoraOnChainSource {
       bondingCurve: event.bondingCurve,
       creator: event.creator,
       signature,
-      slot: 0, // Slot not available in logs notification
+      slot,
       timestamp: Date.now(),
     };
 

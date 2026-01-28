@@ -1,6 +1,7 @@
 // Solana chain utilities for RAPTOR v2
 
 import { SOLANA_CONFIG } from '../constants.js';
+import bs58 from 'bs58';
 
 // Solana constants
 export const LAMPORTS_PER_SOL = 1_000_000_000;
@@ -51,14 +52,17 @@ export function isValidSolanaAddress(address: string): boolean {
     return false;
   }
 
-  // Check all characters are valid base58
+  // Check all characters are valid base58 (fast path)
   for (const char of address) {
-    if (!BASE58_ALPHABET.includes(char)) {
-      return false;
-    }
+    if (!BASE58_ALPHABET.includes(char)) return false;
   }
 
-  return true;
+  // Validate decode length (Solana pubkeys are exactly 32 bytes)
+  try {
+    return bs58.decode(address).length === 32;
+  } catch {
+    return false;
+  }
 }
 
 /**

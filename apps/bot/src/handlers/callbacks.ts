@@ -2423,7 +2423,7 @@ Tap "Show Keys" to reveal your private keys.`;
       return;
     }
 
-    // Toggle launchpad (hunt_lp_toggle_sol_pump.fun)
+    // Toggle launchpad (hunt_lp_toggle_sol_bags)
     if (data.startsWith('hunt_lp_toggle_')) {
       const rest = data.replace('hunt_lp_toggle_', '');
       const underscoreIdx = rest.indexOf('_');
@@ -3465,7 +3465,7 @@ async function handleTradeChainSelected(ctx: MyContext, chain: Chain, address: s
   const isEvm = chain !== 'sol';
 
   // Fetch all data in parallel for speed
-  const { tokenData, goplus, pumpfun, getOrCreateChainSettings } = await import('@raptor/shared');
+  const { tokenData, goplus, getOrCreateChainSettings } = await import('@raptor/shared');
 
   try {
     // v3.5: Fetch chain settings for slippage/gas display
@@ -3475,41 +3475,15 @@ async function handleTradeChainSelected(ctx: MyContext, chain: Chain, address: s
       ? `${chainSettings.gas_gwei ?? 'Auto'} GWEI`
       : `${chainSettings.priority_sol ?? 0.0001} SOL`;
 
-    // Parallel fetch: DexScreener + GoPlus + PumpFun (if Solana)
-    const [tokenInfo, security, pumpInfo] = await Promise.all([
+    // Parallel fetch: DexScreener + GoPlus
+    const [tokenInfo, security] = await Promise.all([
       tokenData.getTokenInfo(address, chain).catch(() => null),
       goplus.getTokenSecurity(address, chain).catch(() => null),
-      chain === 'sol' ? pumpfun.getTokenInfo(address).catch(() => null) : Promise.resolve(null),
     ]);
 
     let message: string;
 
-    // Check if it's a PumpFun token (not yet graduated)
-    if (pumpInfo && !pumpInfo.complete) {
-      const curveStatus = pumpfun.getBondingCurveStatus(pumpInfo);
-      const progressBar = pumpfun.formatBondingCurveBar(pumpInfo.bondingCurveProgress);
-      const links = pumpfun.getPumpFunLinks(address);
-
-      message = `🎰 *BUY ${pumpInfo.symbol}* | Bonding Curve
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-*${pumpInfo.name}*
-${curveStatus.emoji} ${curveStatus.label}
-
-💰 *Price:* ${pumpInfo.priceInSol.toFixed(9)} SOL
-📊 *MCap:* ${pumpInfo.marketCapSol.toFixed(2)} SOL
-
-*Bonding Curve:*
-${progressBar} ${pumpInfo.bondingCurveProgress.toFixed(1)}%
-💎 ${pumpInfo.realSolReserves.toFixed(2)} / ~85 SOL
-
-*Settings*
-Slippage: ${buySlippage}%
-Priority: ${gasOrPriority}
-
-🔗 [Chart](${links.dexscreener}) • [Solscan](https://solscan.io/token/${address})
-\`${address}\``;
-    } else if (tokenInfo) {
+    if (tokenInfo) {
       const mcapStr = tokenData.formatLargeNumber(tokenInfo.marketCap);
       const liqStr = tokenData.formatLargeNumber(tokenInfo.liquidity);
       const volStr = tokenData.formatLargeNumber(tokenInfo.volume24h);
@@ -4442,7 +4416,7 @@ and automatically buys tokens that pass
 our safety scoring system.
 
 *How It Works:*
-1. New token detected on launchpad
+1. New token detected from source
 2. Safety analysis runs (0-100 score)
 3. If score >= your minimum, buy executes
 4. Position tracked with your strategy
@@ -4456,9 +4430,9 @@ our safety scoring system.
 *Configurable Settings:*
 • Min Score: Higher = safer, fewer trades
 • Position Size: Max bet per trade
-• Launchpads: Which platforms to monitor
+• Source: Bags.fm (BAGS-only)
 
-*Supported Launchpads:*
+*Source:*
 🟢 Bags.fm (Meteora DBC)`;
 
   const keyboard = new InlineKeyboard()

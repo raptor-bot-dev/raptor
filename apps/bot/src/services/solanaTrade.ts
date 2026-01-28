@@ -35,7 +35,7 @@ export interface SolanaBuyResult {
   fee?: number;          // Platform fee
   amountOut?: number;    // Tokens received
   pricePerToken?: number;
-  route?: string;        // 'pump.fun' or 'Jupiter'
+  route?: string;        // 'bags-meteora' or 'jupiter'
 }
 
 export interface SolanaSellResult {
@@ -49,7 +49,7 @@ export interface SolanaSellResult {
 
 /**
  * Execute a buy transaction on Solana
- * Routes automatically between pump.fun and Jupiter via executor
+ * Routes automatically between Bags (bonding curve) and Jupiter via executor
  */
 export async function executeSolanaBuy(
   tgId: number,
@@ -262,7 +262,7 @@ function translateExecutorError(error: unknown): string {
 
 /**
  * Execute a sell transaction on Solana
- * Routes automatically between pump.fun and Jupiter via executor
+ * Routes automatically between Bags (bonding curve) and Jupiter via executor
  */
 export async function executeSolanaSell(
   tgId: number,

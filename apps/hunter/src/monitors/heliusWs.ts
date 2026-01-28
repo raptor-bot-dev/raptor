@@ -14,6 +14,7 @@ export interface LogsNotification {
   signature: string;
   err: unknown | null;
   logs: string[];
+  slot: number;
 }
 
 /**
@@ -258,7 +259,14 @@ export class HeliusWsManager extends EventEmitter {
 
       // Logs notification
       if (message.method === 'logsNotification' && message.params?.result?.value) {
-        this.handleLogsNotification(message.params.subscription, message.params.result.value);
+        const slot = Number(message.params.result.context?.slot ?? 0);
+        const value = message.params.result.value;
+        this.handleLogsNotification(message.params.subscription, {
+          signature: value.signature,
+          err: value.err ?? null,
+          logs: Array.isArray(value.logs) ? value.logs : [],
+          slot: Number.isFinite(slot) ? slot : 0,
+        });
         return;
       }
 

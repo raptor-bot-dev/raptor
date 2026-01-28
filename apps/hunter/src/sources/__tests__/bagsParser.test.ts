@@ -6,12 +6,12 @@
 import { describe, it, expect } from 'vitest';
 import { parseBagsMessage, isValidMintAddress, type BagsParseResult } from '../bagsParser.js';
 
-// Valid test addresses (base58, correct length, no invalid chars)
-const VALID_MINT = 'BagsToken1111111111111111111111111111111111';
-const VALID_MINT_2 = 'So11111111111111111111111111111111111111112';
+// Valid test addresses (base58, decode to 32 bytes)
+const VALID_MINT = 'So11111111111111111111111111111111111111112';
+const VALID_MINT_2 = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
 // Invalid addresses
-const INVALID_MINT_TOO_SHORT = 'BagsToken1111';
+const INVALID_MINT_TOO_SHORT = 'So1111';
 const INVALID_MINT_BAD_CHARS = 'BagsToken0OIl111111111111111111111111111111'; // Contains 0, O, I, l
 
 describe('parseBagsMessage', () => {

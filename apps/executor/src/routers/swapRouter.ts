@@ -29,6 +29,11 @@ export interface ExecuteOptions {
   priorityFeeSol?: number;
   /** Timeout in milliseconds for transaction confirmation */
   confirmTimeoutMs?: number;
+  /**
+   * Last valid block height for the transaction's recentBlockhash.
+   * If omitted, routers will fall back to signature-only confirmation.
+   */
+  lastValidBlockHeight?: number;
 }
 
 /**

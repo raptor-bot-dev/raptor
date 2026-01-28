@@ -1,0 +1,1707 @@
+# PURGE SCAN (generated 2026-01-28T12:27:51Z)
+
+## pump.fun / pumpfun / pumpswap
+./docs/Project_status.md-75-  - Now includes `meta.loadedAddresses.writable` and `readonly`
+./docs/Project_status.md:76:  - Fixes parse failures when pump.fun program ID is in an ALT
+./docs/Project_status.md-77-- **create_v2 discriminator support** (2026-01-18):
+./docs/Project_status.md:78:  - pump.fun now uses `create_v2` instruction instead of legacy `create`
+./docs/Project_status.md:79:  - Added CREATE_V2_DISCRIMINATOR for current pump.fun protocol
+./docs/Project_status.md-80-  - Monitor checks for both legacy and current discriminators
+./docs/Project_status.md-81-- **pump.pro program support** (2026-01-18):
+./docs/Project_status.md:82:  - pump.fun migrated most token creation to new pump.pro program
+./docs/Project_status.md-83-  - Program ID: `proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`
+./docs/Project_status.md-84-  - Added PUMP_PRO to PROGRAM_IDS in shared config
+./docs/Project_status.md:85:  - Monitor subscribes to both pump.fun and pump.pro logs
+./docs/Project_status.md-86-  - Parsing handles Create instructions from both programs
+--
+./docs/Project_status.md-130-  - Light: Require at least 1 social signal, no delay (fastest entry)
+./docs/Project_status.md:131:  - Activity check uses pump.fun API to verify early buyer interest
+./docs/Project_status.md-132-  - Reduces wasted gas and RPC calls on dead tokens
+--
+./docs/Project_status.md-148-  - Real-time PnL calculated on panel open via hybrid pricing module
+./docs/Project_status.md:149:  - Hybrid pricing: Jupiter API primary, pump.fun API fallback, 30s cache
+./docs/Project_status.md-150-  - New module: `packages/shared/src/pricing.ts` with `getTokenPrices()` API
+--
+./docs/Project_status.md-166-  - **ROOT CAUSE FOUND**: `getTokenBalanceRaw()` derived ATA using standard SPL token program
+./docs/Project_status.md:167:  - pump.fun tokens use **Token-2022**, which derives ATAs at **different addresses**
+./docs/Project_status.md-168-  - Function was checking wrong ATA (0 balance) while real Token-2022 ATA had tokens
+--
+./docs/Project_status.md-188-- **Pricing reliability improved** (2026-01-19):
+./docs/Project_status.md:189:  - pump.fun API returning 530 (Cloudflare blocked) caused price fetch failures
+./docs/Project_status.md:190:  - Added DEXScreener as second fallback: Jupiter → DEXScreener → pump.fun
+./docs/Project_status.md-191-  - Pricing module version bumped to v4.5
+./docs/Project_status.md-192-- **Executor captures actual SOL spent** (2026-01-19):
+./docs/Project_status.md:193:  - pump.fun bonding curve uses less SOL than requested
+./docs/Project_status.md-194-  - Added balance measurement before/after buy to capture actual spend
+--
+./docs/Project_status.md-209-  - `entry_mc_sol` column doesn't exist in DB
+./docs/Project_status.md:210:  - Now calculated from entry price × 1B (pump.fun fixed supply)
+./docs/Project_status.md-211-  - SOL price fetched for USD display
+--
+./docs/Project_status.md-229-### P0 - Critical (affects trading)
+./docs/Project_status.md:230:- [x] ~~**pump.pro bonding curve support**: `deriveBondingCurvePDA` only checks pump.fun program~~ DONE (2026-01-19)
+./docs/Project_status.md-231-  - Added `deriveBondingCurvePDAForProgram()` - program-agnostic PDA derivation
+./docs/Project_status.md:232:  - Added `findBondingCurveAndProgram()` - checks both pump.fun AND pump.pro
+./docs/Project_status.md-233-  - All PDA derivation functions now accept programId parameter
+--
+./docs/Project_status.md-253-- [ ] Production smoke testing with real wallet
+./docs/Project_status.md:254:- [ ] Re-enable metadata hard stops when pump.fun API is stable for pump.pro tokens
+./docs/Project_status.md-255-
+--
+./docs/Project_status.md-291-  - **Root cause**: `getTokenBalanceRaw()` used `getAssociatedTokenAddress(mint, wallet)` without token program
+./docs/Project_status.md:292:  - Default is standard SPL, but pump.fun tokens use **Token-2022** which derives ATAs at **different addresses**
+./docs/Project_status.md-293-  - Function was checking wrong ATA (0 balance) while real Token-2022 ATA had tokens
+--
+./docs/Project_status.md-321-- 2026-01-20 (earlier): **IDL-based fee recipient + token program detection**
+./docs/Project_status.md:322:  - Implemented IDL-based fee recipient resolution for pump.fun sells
+./docs/Project_status.md-323-    - Decodes BondingCurve + Global state from pinned IDL
+--
+./docs/Project_status.md-349-  - **Phase 4: Execution Entry Data**
+./docs/Project_status.md:350:    - BUY captures token_decimals (pump.fun=6, pump.pro=9)
+./docs/Project_status.md-351-    - Entry MC calculated at buy time
+--
+./docs/Project_status.md-364-  - P0: Entry price wrong by 10^6 (5.35e-15 instead of 5.35e-9)
+./docs/Project_status.md:365:    - Root cause: `result.price` calculated with RAW tokens but we store ADJUSTED tokens (÷10^6 for pump.fun decimals)
+./docs/Project_status.md-366-    - Position stored adjusted tokens but original price → price/token ratio 10^6 too small
+--
+./docs/Project_status.md-369-    - Code had `(position as any).entry_mc_sol ?? 0` which always returned 0
+./docs/Project_status.md:370:    - Fix: Calculate from entry price × 1B (pump.fun fixed total supply)
+./docs/Project_status.md-371-  - P1: MC shown in SOL not USD - solPriceUsd never passed to panel
+--
+./docs/Project_status.md-388-    - Updated `PositionStatus` type in shared/types.ts to match database schema
+./docs/Project_status.md:389:  - P1: Price fetching failing due to pump.fun API blocked (530 Cloudflare)
+./docs/Project_status.md:390:    - Root cause: pump.fun API sole fallback when Jupiter has no price
+./docs/Project_status.md:391:    - Fix: Added DEXScreener as second fallback: Jupiter → DEXScreener → pump.fun
+./docs/Project_status.md-392-    - DEXScreener more reliable and handles most Solana tokens
+./docs/Project_status.md:393:  - P1: Entry cost capture inaccurate on pump.fun buys
+./docs/Project_status.md-394-    - Root cause: Executor returned requested amount, not actual spend
+--
+./docs/Project_status.md-412-    - Fix: Created hybrid pricing module (`packages/shared/src/pricing.ts`)
+./docs/Project_status.md:413:    - Jupiter Price API primary, pump.fun API fallback, 30s cache
+./docs/Project_status.md-414-    - Positions handler now fetches real-time prices and calculates PnL
+--
+./docs/Project_status.md-419-  - P1: Token amount wrong ("3467.85B" instead of "3.47M") - raw token amounts not adjusted for decimals
+./docs/Project_status.md:420:    - ExecutionLoop now divides by 10^6 (pump.fun decimals) before passing to notification
+./docs/Project_status.md-421-  - P1: Token symbol "Unknown" - tokenSymbol not passed to createPositionV31
+--
+./docs/Project_status.md-424-    - pump.pro tokens have bonding curves on different program ID
+./docs/Project_status.md:425:    - `deriveBondingCurvePDA` only checks pump.fun program, not pump.pro
+./docs/Project_status.md-426-    - When bonding curve lookup fails, defaults to graduated=true → routes to Jupiter → fails
+--
+./docs/Project_status.md-428-- 2026-01-19 (earlier): **Market cap added to BUY notifications**
+./docs/Project_status.md:429:  - Fetch token info from pump.fun API after successful BUY
+./docs/Project_status.md-430-  - Include `marketCapSol` in TRADE_DONE notification payload
+--
+./docs/Project_status.md-454-  - Strict uses quality metadata fetch and fails closed on missing socials/activity
+./docs/Project_status.md:455:  - Activity check falls back to on-chain bonding curve state when pump.fun API is down
+./docs/Project_status.md-456-- 2026-01-19 (earlier): **Token launch filtering modes deployed**
+--
+./docs/Project_status.md-472-- 2026-01-18 (earlier): **pump.pro on-chain metadata fallback deployed**
+./docs/Project_status.md:473:  - P0: pump.fun API returning HTTP 530 for all pump.pro tokens
+./docs/Project_status.md-474-  - P0: Added on-chain Metaplex Metadata Account fetch as fallback
+./docs/Project_status.md-475-  - P0: Tokens now get proper name/symbol/uri even when API is down
+./docs/Project_status.md:476:  - Root cause: pump.fun API unavailable → empty uri → `has_metadata_uri` hard stop → score 0
+./docs/Project_status.md-477-- 2026-01-18 (earlier): **pump.pro discriminator fix deployed**
+--
+./docs/Project_status.md-495-- Earlier: TP/SL Engine implementation complete (Phases 0-5)
+./docs/Project_status.md:496:- pump.fun migrated most tokens to pump.pro program (`proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`)
+./docs/Project_status.md-497-- Fly.io auto-deploys from GitHub pushes to `main` (documented in DEPLOYMENT.md)
+--
+./docs/Project_status.md-509-- Default behavior is standard SPL Token (`TOKEN_PROGRAM_ID`)
+./docs/Project_status.md:510:- **BUT** pump.fun tokens use **Token-2022** (`TOKEN_2022_PROGRAM_ID`)
+./docs/Project_status.md-511-- Token-2022 derives ATAs at **different addresses** than standard SPL
+--
+./docs/Project_status.md-655-- **Token program**: `sell()` in pumpFun.ts hardcoded `TOKEN_2022_PROGRAM_ID` for all tokens
+./docs/Project_status.md:656:  - pump.fun/pump.pro tokens can use either legacy SPL Token or Token-2022
+./docs/Project_status.md-657-  - Mint account owner determines which program to use
+--
+./docs/Project_status.md-663-**What went well:**
+./docs/Project_status.md:664:- IDL-based approach is robust and follows pump.fun's own documentation
+./docs/Project_status.md-665-- Token program detection is a clean, simple check (mint account owner)
+--
+./docs/Project_status.md-767-  - Emergency sell button appeared but clicking did nothing
+./docs/Project_status.md:768:- Price fetching: pump.fun API returning 530 (Cloudflare blocked)
+./docs/Project_status.md:769:  - Only fallback after Jupiter was pump.fun API
+./docs/Project_status.md:770:  - When pump.fun blocked, all price fetches failed → PnL showed as 0%
+./docs/Project_status.md-771-
+--
+./docs/Project_status.md-780-- Should have caught when `PositionStatus` type was defined with wrong value
+./docs/Project_status.md:781:- pump.fun API unreliability affects multiple features - need more resilient fallbacks
+./docs/Project_status.md-782-
+--
+./docs/Project_status.md-832-- 30s in-memory cache sufficient for single-instance deployment
+./docs/Project_status.md:833:- pump.fun API as fallback for bonding curve tokens not on Jupiter
+./docs/Project_status.md-834-- No background polling yet - fetch on panel open is simpler and works
+--
+./docs/Project_status.md-848-**Root cause (pump.pro):**
+./docs/Project_status.md:849:- `deriveBondingCurvePDA()` was hardcoded to pump.fun program ID only
+./docs/Project_status.md-850-- pump.pro tokens (program: `proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`) failed bonding curve lookup
+--
+./docs/Project_status.md-879-   - `sellViaPumpFunWithKeypair()` - accepts and passes programId
+./docs/Project_status.md:880:   - Sell routing uses detected program, not hardcoded pump.fun
+./docs/Project_status.md-881-
+--
+./docs/working/context.md-14-### Root Cause (THE REAL FIX)
+./docs/working/context.md:15:`getTokenBalanceRaw()` in `solanaExecutor.ts` was deriving ATAs using standard SPL token program, but pump.fun tokens use **Token-2022** which derives ATAs at **different addresses**.
+./docs/working/context.md-16-
+--
+./docs/working/context.md-80-### Token-2022 ATA Detection (NEW - CRITICAL)
+./docs/working/context.md:81:**Always detect token program when deriving ATAs for pump.fun tokens.**
+./docs/working/context.md-82-
+--
+./docs/working/context.md-114-// 2. DEXScreener API (secondary - more reliable)
+./docs/working/context.md:115:// 3. pump.fun API (tertiary - may be blocked)
+./docs/working/context.md-116-```
+--
+./packages/shared/tsconfig.tsbuildinfo:1:{"root":["./src/config.ts","./src/constants.ts","./src/errors.ts","./src/fees.ts","./src/health.ts","./src/idempotency.ts","./src/index.ts","./src/logger.ts","./src/monitoring.ts","./src/supabase.ts","./src/types.ts","./src/analysis/tokenAnalysis.ts","./src/analyzer/hardStops.ts","./src/api/birdeye.ts","./src/api/bonkfun.ts","./src/api/chainDetector.ts","./src/api/dexscreener.ts","./src/api/goplus.ts","./src/api/launchpadDetector.ts","./src/api/moonshot.ts","./src/api/pumpfun.ts","./src/api/rateLimiter.ts","./src/api/rugcheck.ts","./src/api/tokenData.ts","./src/cache/speedCache.ts","./src/chains/solana.ts","./src/crypto/encryption.ts","./src/crypto/index.ts","./src/crypto/keypairs.ts","./src/rpc/multiRpc.ts","./src/security/auditLog.ts","./src/security/gracefulDegradation.ts","./src/security/healthCheck.ts","./src/security/index.ts","./src/security/secureLogger.ts","./src/strategies/types.ts","./src/tiers/tierDecision.test.ts","./src/tiers/tierDecision.ts"],"version":"5.9.3"}
+--
+./docs/ErrorFixPlan.md-36-
+./docs/ErrorFixPlan.md:37:Some pumpfun client functions expect:
+./docs/ErrorFixPlan.md-38-
+--
+./docs/working/AUDIT_RESEARCH_NOTES.md-31-
+./docs/working/AUDIT_RESEARCH_NOTES.md:32:## pump.fun (Pump Program)
+./docs/working/AUDIT_RESEARCH_NOTES.md-33-- Source: https://raw.githubusercontent.com/pump-fun/pump-public-docs/main/docs/PUMP_PROGRAM_README.md
+--
+./docs/working/AUDIT_RESEARCH_NOTES.md-51-- Notes: Token-2022 is documented as a **separate program** from legacy SPL Token.
+./docs/working/AUDIT_RESEARCH_NOTES.md:52:- Impact: ATA derivations and token program IDs must use Token-2022 where applicable (pump.fun uses Token-2022).
+./docs/working/AUDIT_RESEARCH_NOTES.md-53-- Follow-up: need a concrete ATA derivation reference in Token-2022 docs (current static HTML is JS-rendered).
+./docs/working/AUDIT_RESEARCH_NOTES.md-54-
+./docs/working/AUDIT_RESEARCH_NOTES.md:55:## pump.fun Breaking Changes (Nov 2025)
+./docs/working/AUDIT_RESEARCH_NOTES.md-56-- Source: https://raw.githubusercontent.com/pump-fun/pump-public-docs/main/README.md
+--
+./docs/working/AUDIT_RESEARCH_NOTES.md-62-## Research Gaps / To Validate
+./docs/working/AUDIT_RESEARCH_NOTES.md:63:- Jupiter price API coverage for **pre‑graduation** pump.fun tokens (may return 0 or stale).
+./docs/working/AUDIT_RESEARCH_NOTES.md-64-- Token-2022 ATA derivation canonical reference (docs are JS-rendered; may need GitHub source or SPL Token-2022 spec).
+--
+./docs/CLAUDE.md-6-
+./docs/CLAUDE.md:7:**Phase A target:** ship a minimal, production-ready **Solana pump.fun Autohunt** product.
+./docs/CLAUDE.md-8-
+--
+./docs/CLAUDE.md-138-```
+./docs/CLAUDE.md:139:- Jupiter API primary (batched), pump.fun API fallback
+./docs/CLAUDE.md-140-- 30-second cache, no paid Jupiter plan needed (600 req/min free tier)
+--
+./docs/Changelog.md-7-  - **ROOT CAUSE FOUND**: `getTokenBalanceRaw()` was checking wrong ATA (standard SPL instead of Token-2022)
+./docs/Changelog.md:8:  - pump.fun tokens use Token-2022 which derives ATAs at different addresses than standard SPL
+./docs/Changelog.md-9-  - Function was finding 0 balance (wrong ATA) even when wallet held tokens
+--
+./docs/Changelog.md-57-  - Bonding curve ATA derivation now uses the detected token program (no Token-2022 hardcode)
+./docs/Changelog.md:58:  - New helper: `packages/shared/src/pumpfun/onchain.ts` (bonding curve + mint info)
+./docs/Changelog.md-59-
+--
+./docs/Changelog.md-67-    - New module: `packages/shared/src/marketData.ts`
+./docs/Changelog.md:68:    - `getMarketData()` - single token with pump.fun API → DEXScreener → Jupiter fallback
+./docs/Changelog.md-69-    - `getMarketDataBatch()` - batch fetch for position lists
+--
+./docs/Changelog.md-76-  - **Phase 4: Execution Entry Data**
+./docs/Changelog.md:77:    - BUY handler now captures token_decimals (pump.fun=6, pump.pro=9)
+./docs/Changelog.md-78-    - Entry MC calculated and stored at buy time
+--
+./docs/Changelog.md-81-    - Both tpslMonitor.ts and positions.ts now use shared getTokenPrice()
+./docs/Changelog.md:82:    - Fallback chain: Jupiter → DEXScreener → pump.fun
+./docs/Changelog.md-83-  - **Phase 6: pump.pro Bonding Curve Support (CRITICAL)**
+./docs/Changelog.md-84-    - `deriveBondingCurvePDAForProgram()` - program-agnostic PDA derivation
+./docs/Changelog.md:85:    - `findBondingCurveAndProgram()` - checks both pump.fun AND pump.pro programs
+./docs/Changelog.md-86-    - All PDA derivation functions now accept programId parameter
+--
+./docs/Changelog.md-98-    - Root cause: `entry_mc_sol` column doesn't exist in DB, code defaults to 0
+./docs/Changelog.md:99:    - Fix: Calculate from entry price × 1B total supply (pump.fun fixed supply)
+./docs/Changelog.md-100-  - P1: MC shown in SOL instead of USD
+--
+./docs/Changelog.md-115-  - Updated PositionStatus type in shared/types.ts: 'ACTIVE' | 'CLOSING' | 'CLOSING_EMERGENCY' | 'CLOSED'
+./docs/Changelog.md:116:- **fix(pricing): add DEXScreener fallback for pump.fun API failures** (82e2625)
+./docs/Changelog.md:117:  - pump.fun API returning 530 (Cloudflare blocked) causing price fetch failures
+./docs/Changelog.md:118:  - New fallback chain: Jupiter → DEXScreener → pump.fun
+./docs/Changelog.md-119-  - DEXScreener more reliable and handles most Solana tokens
+./docs/Changelog.md-120-  - Pricing module version bumped to v4.5
+./docs/Changelog.md:121:- **fix(executor): capture actual SOL spent on pump.fun buys** (82e2625)
+./docs/Changelog.md-122-  - Previously returned requested amount, not actual spend
+--
+./docs/Changelog.md-136-- **fix(hunter): token amount display wrong in notifications**
+./docs/Changelog.md:137:  - Raw token amounts were passed without decimal adjustment (pump.fun uses 6 decimals)
+./docs/Changelog.md-138-  - "3467850000000" displayed as "3467.85B" instead of "3.47M tokens"
+--
+./docs/Changelog.md-144-  - Root cause: pump.pro tokens have bonding curves on different program ID
+./docs/Changelog.md:145:  - `deriveBondingCurvePDA` only checks pump.fun program, not pump.pro
+./docs/Changelog.md-146-  - When lookup fails, defaults to `graduated=true` → routes to Jupiter → fails
+--
+./docs/Changelog.md-148-- **feat(hunter): add market cap to BUY notifications**
+./docs/Changelog.md:149:  - Fetch token info from pump.fun API after successful BUY
+./docs/Changelog.md-150-  - Include `marketCapSol` in TRADE_DONE notification payload
+--
+./docs/Changelog.md-185-  - Light: Require at least 1 social signal, no delay (fastest entry)
+./docs/Changelog.md:186:  - Activity check uses pump.fun API with on-chain bonding curve fallback
+./docs/Changelog.md-187-  - On-chain fallback reads realSolReserves directly when API returns 530
+--
+./docs/Changelog.md-203-    - Fix: Created hybrid pricing module (`packages/shared/src/pricing.ts`)
+./docs/Changelog.md:204:    - Jupiter Price API primary (batch requests), pump.fun API fallback
+./docs/Changelog.md-205-    - 30-second in-memory cache to reduce API calls
+--
+./docs/Changelog.md-233-- **fix(hunter): relax scoring hard stops for pump.pro tokens**
+./docs/Changelog.md:234:  - pump.fun API returning HTTP 530 for pump.pro tokens AND Metaplex metadata doesn't exist
+./docs/Changelog.md-235-  - Temporarily changed metadata rules from hard stops to soft failures:
+--
+./docs/Changelog.md-238-  - Tokens can now pass scoring and be traded even without full metadata
+./docs/Changelog.md:239:  - TODO: Re-enable hard stops when pump.fun API is stable
+./docs/Changelog.md-240-- **fix(hunter): pump.pro on-chain metadata fallback**
+./docs/Changelog.md:241:  - pump.fun API returning HTTP 530 (service unavailable) for pump.pro tokens
+./docs/Changelog.md-242-  - Added fallback to fetch metadata from on-chain Metaplex Metadata Account
+--
+./docs/Changelog.md-246-- **fix(hunter): pump.pro API metadata fetch** (7e999bc)
+./docs/Changelog.md:247:  - pump.pro instructions don't include inline metadata like pump.fun
+./docs/Changelog.md:248:  - Detect pump.pro by discriminator, then fetch from frontend-api.pump.fun
+./docs/Changelog.md-249-  - 3s timeout on API call with graceful fallback
+--
+./docs/Changelog.md-313-- **feat(hunter): add pump.pro program support for token detection**
+./docs/Changelog.md:314:  - pump.fun has upgraded to new program: `proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`
+./docs/Changelog.md:315:  - Most tokens now created via pump.pro instead of classic pump.fun
+./docs/Changelog.md-316-  - Added PUMP_PRO to PROGRAM_IDS in shared config
+./docs/Changelog.md:317:  - Monitor now subscribes to both pump.fun and pump.pro WebSocket logs
+./docs/Changelog.md-318-  - Parsing logic checks for Create instructions from both programs
+--
+./docs/Changelog.md-325-  - Reset circuit breaker after 5+ consecutive failures from this bug
+./docs/Changelog.md:326:- **fix(hunter): add create_v2 discriminator for pump.fun tokens**
+./docs/Changelog.md:327:  - pump.fun now uses `create_v2` instruction (not legacy `create`)
+./docs/Changelog.md-328-  - Legacy discriminator: `[24,30,200,40,5,28,7,119]` - sha256("global:create")[0..8]
+--
+./docs/Changelog.md-335-  - Now combines: staticAccountKeys + loadedAddresses.writable + loadedAddresses.readonly
+./docs/Changelog.md:336:  - This fixes 100% parse failure when pump.fun program ID is in an ALT
+./docs/Changelog.md-337-- **chore(infra): migrate from QuickNode to Helius paid plan**
+--
+./docs/Changelog.md-371-  - Now uses chain_settings.priority_sol from user preferences
+./docs/Changelog.md:372:  - Affects both buy and sell transactions on pump.fun bonding curve
+./docs/Changelog.md-373-- **feat(hunter): add mayhem mode filter**
+./docs/Changelog.md:374:  - Parse `is_mayhem_mode` from pump.fun Create instruction
+./docs/Changelog.md-375-  - Skip mayhem mode tokens in OpportunityLoop (low quality launches)
+--
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-28-   - `raptor/apps/bot/src/handlers/huntHandler.ts` -> `updateStrategy(..., enabled: true/false)`
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md:29:3) Hunter monitors pump.fun creates.
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md:30:   - `raptor/apps/hunter/src/monitors/pumpfun.ts`
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-31-   - `raptor/apps/hunter/src/loops/opportunities.ts`
+--
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-76-
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md:77:6) **Min liquidity filter is effectively no-op for pump.fun.**
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md:78:   - `opportunity.initial_liquidity_sol` is never populated for pump.fun creates, so min_liquidity checks are skipped.
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-79-   - File: `raptor/apps/hunter/src/loops/opportunities.ts` + `raptor/packages/shared/src/supabase.ts`
+--
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-140-
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md:141:6) Either compute initial liquidity for pump.fun or drop the min_liquidity filter.
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-142-   - If keeping it, populate `initial_liquidity_sol` at detection time or from bonding-curve state.
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md:143:   - Files: `raptor/apps/hunter/src/loops/opportunities.ts`, `raptor/apps/hunter/src/monitors/pumpfun.ts`
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-144-
+--
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-240-
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md:241:### P1.2 Make min_liquidity meaningful on pump.fun (or remove it)
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md:242:Owner: Hunter agent + Executor agent (if using pump.fun decoding)
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-243-Tasks (Option A: compute):
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-244-- At detection time, compute `initial_liquidity_sol` from bonding curve state.
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md:245:  - Use pump.fun bonding curve decode utilities from executor (`deriveBondingCurvePDA`, `decodeBondingCurveState`).
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-246-  - Map “liquidity” to `realSolReserves` (or another chosen metric) and store in `opportunities.initial_liquidity_sol`.
+--
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-248-Tasks (Option B: remove):
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md:249:- If not computing, document that min_liquidity is ignored for pump.fun and remove the check for source `pump.fun`.
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-250-Files:
+--
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-253-Acceptance:
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md:254:- min_liquidity either works with real data or is explicitly disabled for pump.fun.
+./docs/working/AUDIT_FIX_PLAN_AUTOHUNT.md-255-
+--
+./docs/TODO.md-13-### 1. Verify Emergency Sell Fix (v136 - Token-2022 ATA)
+./docs/TODO.md:14:**Context:** The root cause was found: `getTokenBalanceRaw()` derived ATAs using standard SPL token program, but pump.fun tokens use Token-2022 which derives ATAs at different addresses.
+./docs/TODO.md-15-
+--
+./docs/TODO.md-89-1. Create test fixture with known TOKEN_PROGRAM_ID mint
+./docs/TODO.md:90:2. Create test fixture with known TOKEN_2022_PROGRAM_ID mint (pump.fun token)
+./docs/TODO.md-91-3. Add unit test for `getTokenBalanceRaw()` with mocked RPC
+--
+./docs/TODO.md-111-**Steps:**
+./docs/TODO.md:112:1. Check if pump.fun API is stable for pump.pro tokens
+./docs/TODO.md-113-2. If stable, re-enable hard stops in `apps/hunter/src/scoring/rules.ts`:
+--
+./docs/TODO.md-136-### 9. Fixture-based Test Suite
+./docs/TODO.md:137:**Context:** No test fixtures for pump.fun transactions
+./docs/TODO.md-138-
+--
+./docs/TODO.md-166-- `getTokenBalanceRaw()` used `getAssociatedTokenAddress(mint, wallet)` without token program parameter
+./docs/TODO.md:167:- Default is standard SPL Token, but pump.fun tokens use **Token-2022**
+./docs/TODO.md-168-- Token-2022 derives ATAs at **different addresses** than standard SPL
+--
+./docs/PUMPFUN.md-159-
+./docs/PUMPFUN.md:160:Action: implement a single ProgramRegistry that contains the program IDs you subscribe to and the instruction discriminators you decode, independent of "pump.pro vs pump.fun".
+./docs/PUMPFUN.md-161-
+--
+./docs/PUMPFUN.md-163-
+./docs/PUMPFUN.md:164:Your fallback URL example uses frontend-api.pump.fun. In production you should implement REST fallback as a configurable base because Pump has shipped multiple versions over time (e.g., frontend-api-v3, "advanced", etc.). Do not hardcode one base.
+./docs/PUMPFUN.md-165-
+--
+./docs/PUMPFUN.md-167-
+./docs/PUMPFUN.md:168:PUMP_REST_BASE=https://frontend-api-v3.pump.fun (or whatever you currently use)
+./docs/PUMPFUN.md-169-
+--
+./docs/PUMPFUN.md-678-- Current program IDs live in `packages/shared/src/chains/solana.ts` (PROGRAM_IDS) and `packages/shared/src/constants.ts` (SOLANA_CONFIG).
+./docs/PUMPFUN.md:679:- Discriminators and PDA logic are hardcoded in `apps/executor/src/chains/solana/pumpFun.ts` and `apps/hunter/src/monitors/pumpfun.ts`.
+./docs/PUMPFUN.md:680:- Missing today: pinned IDL JSON. Suggested location: `packages/shared/src/idl/pumpfun.json` (new) plus a new registry module such as `packages/shared/src/pumpfun/programRegistry.ts` (new).
+./docs/PUMPFUN.md-681-
+./docs/PUMPFUN.md-682-Epic 1 - On-chain Coin Discovery (Create / Create_v2)
+./docs/PUMPFUN.md:683:- WS log subscription + create parsing already in `apps/hunter/src/monitors/pumpfun.ts`.
+./docs/PUMPFUN.md-684-- Alternate listener exists in `apps/executor/src/listeners/solana/pumpFunListener.ts` (create-only).
+--
+./docs/PUMPFUN.md-686-- Metadata fetcher is `apps/hunter/src/utils/metadataFetcher.ts`.
+./docs/PUMPFUN.md:687:- REST fallback is `packages/shared/src/api/pumpfun.ts` and `packages/shared/src/api/launchpadDetector.ts`.
+./docs/PUMPFUN.md-688-
+--
+./docs/PUMPFUN.md-718-- Metadata fetch/parse is `apps/hunter/src/utils/metadataFetcher.ts`.
+./docs/PUMPFUN.md:719:- Pump REST metadata is `packages/shared/src/api/pumpfun.ts`.
+./docs/PUMPFUN.md:720:- On-chain metadata fallback for pump.pro is in `apps/hunter/src/monitors/pumpfun.ts`.
+./docs/PUMPFUN.md-721-- Quality gates using metadata are in `apps/hunter/src/scoring/rules.ts`.
+--
+./docs/PUMPFUN.md-738-- Exists: program IDs in `packages/shared/src/chains/solana.ts` and `packages/shared/src/constants.ts`.
+./docs/PUMPFUN.md:739:- Missing [P1, M]: pinned IDL JSON file + registry module that maps discriminators (suggest `packages/shared/src/idl/` + `packages/shared/src/pumpfun/programRegistry.ts`).
+./docs/PUMPFUN.md-740-
+./docs/PUMPFUN.md-741-On-chain Discovery
+./docs/PUMPFUN.md:742:- Exists: pump.fun/pump.pro log subscriptions and create parsing in `apps/hunter/src/monitors/pumpfun.ts`.
+./docs/PUMPFUN.md-743-- Missing [P2, L]: Yellowstone gRPC path + dedicated backfill using REST for create gaps.
+--
+./docs/PUMPFUN.md-758-Execution (Bonding Curve + AMM)
+./docs/PUMPFUN.md:759:- Exists: pump.fun client in `apps/executor/src/chains/solana/pumpFun.ts`, Jupiter in `apps/executor/src/chains/solana/jupiter.ts`.
+./docs/PUMPFUN.md-760-- Missing [P0, M]: mode-aware fee recipient resolver (mayhem) + explicit IDL account ordering validation.
+--
+./docs/PUMPFUN.md-766-Metadata / Socials
+./docs/PUMPFUN.md:767:- Exists: metadata fetcher `apps/hunter/src/utils/metadataFetcher.ts` + REST metadata `packages/shared/src/api/pumpfun.ts`.
+./docs/PUMPFUN.md-768-- Missing [P2, S]: consolidated metadata resolver module shared between hunter/executor/bot.
+--
+./packages/shared/src/types.ts-523-  status: 'ACTIVE' | 'CLOSED' | 'PENDING';
+./packages/shared/src/types.ts:524:  program_id?: string; // Solana program ID (pump.fun, Raydium, etc.)
+./packages/shared/src/types.ts-525-  created_at: string;
+--
+./docs/working/AUDIT_FIX_PLAN.md-31-   - On-chain bonding curve state (if bondingCurve exists).
+./docs/working/AUDIT_FIX_PLAN.md:32:   - pump.fun API (if available).
+./docs/working/AUDIT_FIX_PLAN.md-33-   - DEXScreener/Birdeye (token info).
+--
+./docs/working/AUDIT_FIX_PLAN.md-75-
+./docs/working/AUDIT_FIX_PLAN.md:76:### Step 7 - Emergency sell reliability (pump.fun + pump.pro)
+./docs/working/AUDIT_FIX_PLAN.md-77-1. `apps/executor/src/chains/solana/solanaExecutor.ts`
+./docs/working/AUDIT_FIX_PLAN.md:78:   - Extend bonding curve derivation to try both pump.fun and pump.pro program IDs.
+./docs/working/AUDIT_FIX_PLAN.md-79-2. `apps/executor/src/chains/solana/pumpFun.ts`
+--
+./docs/working/AUDIT_FIX_PLAN.md-111-- PnL uses quote-based output where possible.
+./docs/working/AUDIT_FIX_PLAN.md:112:- TP/SL triggers fire for pump.fun/pump.pro tokens without Jupiter prices.
+./docs/working/AUDIT_FIX_PLAN.md:113:- Emergency sell works for pump.fun and pump.pro (no InvalidProgramId).
+./docs/working/AUDIT_FIX_PLAN.md-114-
+./docs/working/AUDIT_FIX_PLAN.md:115:## Appendix: Example Calculations (pump.fun-style)
+./docs/working/AUDIT_FIX_PLAN.md-116-Example inputs (hypothetical):
+--
+./packages/database/src/types.ts-21-export type AllowlistMode = 'off' | 'partners_only' | 'custom';
+./packages/database/src/types.ts:22:export type LaunchSource = 'bags' | 'pumpfun';
+./packages/database/src/types.ts-23-export type DiscoveryMethod = 'telegram' | 'onchain';
+--
+./docs/revamp/DB_BOOTSTRAP.md-73-- `mint (text)`
+./docs/revamp/DB_BOOTSTRAP.md:74:- `launch_source (text: bags|pumpfun|future)`
+./docs/revamp/DB_BOOTSTRAP.md-75-- `discovery_method (text: telegram|onchain)`
+--
+./docs/TP_SL_ENGINE_BUILD.md-23-
+./docs/TP_SL_ENGINE_BUILD.md:24:The TP/SL engine receives bursts (especially on pump.fun / PumpSwap). If you execute swaps directly in the same process/thread as WS handling:
+./docs/TP_SL_ENGINE_BUILD.md-25-
+--
+./docs/TP_SL_ENGINE_BUILD.md-792-
+./docs/TP_SL_ENGINE_BUILD.md:793:apps/tpsl-monitor/src/pricing/pumpswapReservePrice.ts
+./docs/TP_SL_ENGINE_BUILD.md-794-
+--
+./docs/TP_SL_ENGINE_BUILD.md-985-
+./docs/TP_SL_ENGINE_BUILD.md:986:apps/tpsl-monitor/src/pricing/__tests__/pumpswapReservePrice.test.ts
+./docs/TP_SL_ENGINE_BUILD.md-987-
+--
+./packages/database/src/schema.test.ts-119-    it('should enforce launch_source enum', () => {
+./packages/database/src/schema.test.ts:120:      const sources: LaunchSource[] = ['bags', 'pumpfun'];
+./packages/database/src/schema.test.ts-121-      expect(sources).toHaveLength(2);
+./packages/database/src/schema.test.ts-122-      expect(sources).toContain('bags');
+./packages/database/src/schema.test.ts:123:      expect(sources).toContain('pumpfun');
+./packages/database/src/schema.test.ts-124-    });
+--
+./docs/retros/2026-01-20-retro.md-20-
+./docs/retros/2026-01-20-retro.md:21:**BUT** pump.fun tokens use **Token-2022** (TOKEN_2022_PROGRAM_ID), which derives ATAs at **different addresses**.
+./docs/retros/2026-01-20-retro.md-22-
+--
+./docs/revamp/INDEX.md-2-
+./docs/revamp/INDEX.md:3:This directory contains the **canonical, phase-locked documentation** for the RAPTOR launchpad revamp (pump.fun → Bags.fm / Meteora) **and the required fresh database rebuild**.
+./docs/revamp/INDEX.md-4-
+--
+./packages/database/migrations/019_positions_display_fields.sql-8-
+./packages/database/migrations/019_positions_display_fields.sql:9:-- Backfill existing positions with pump.fun defaults (6 decimals for sol chain)
+./packages/database/migrations/019_positions_display_fields.sql-10-UPDATE positions SET token_decimals = 6 WHERE token_decimals IS NULL AND chain = 'sol';
+--
+./packages/database/migrations/019_positions_display_fields.sql-12--- Add column comments for documentation
+./packages/database/migrations/019_positions_display_fields.sql:13:COMMENT ON COLUMN positions.token_decimals IS 'Token decimals from mint (default 6 for pump.fun, 9 for pump.pro)';
+./packages/database/migrations/019_positions_display_fields.sql-14-COMMENT ON COLUMN positions.entry_mc_sol IS 'Market cap in SOL at entry time';
+--
+./packages/shared/src/tiers/tierDecision.ts-11-  // Solana
+./packages/shared/src/tiers/tierDecision.ts:12:  'pump.fun',
+./packages/shared/src/tiers/tierDecision.ts:13:  'pumpswap',
+./packages/shared/src/tiers/tierDecision.ts-14-  'moonshot',
+--
+./packages/shared/src/tiers/tierDecision.ts-31-const SOURCE_ALIASES: Record<string, string> = {
+./packages/shared/src/tiers/tierDecision.ts:32:  'pump': 'pump.fun',
+./packages/shared/src/tiers/tierDecision.ts:33:  'pumpfun': 'pump.fun',
+./packages/shared/src/tiers/tierDecision.ts:34:  'pump_fun': 'pump.fun',
+./packages/shared/src/tiers/tierDecision.ts-35-  'moonshot': 'moonshot',
+--
+./docs/retros/2026-01-19-emergency-sell-pricing.md-44-
+./docs/retros/2026-01-19-emergency-sell-pricing.md:45:**Root Cause:** pump.fun API returning HTTP 530 (Cloudflare blocked). The pricing module only had pump.fun as fallback after Jupiter.
+./docs/retros/2026-01-19-emergency-sell-pricing.md-46-
+--
+./docs/retros/2026-01-19-emergency-sell-pricing.md-48-1. Jupiter API (primary)
+./docs/retros/2026-01-19-emergency-sell-pricing.md:49:2. pump.fun API (fallback) - **BLOCKED**
+./docs/retros/2026-01-19-emergency-sell-pricing.md-50-3. Return 0
+--
+./docs/retros/2026-01-19-emergency-sell-pricing.md-54-2. **DEXScreener API (new)** - more reliable
+./docs/retros/2026-01-19-emergency-sell-pricing.md:55:3. pump.fun API (tertiary)
+./docs/retros/2026-01-19-emergency-sell-pricing.md-56-4. Return 0
+--
+./docs/retros/2026-01-19-emergency-sell-pricing.md-63-
+./docs/retros/2026-01-19-emergency-sell-pricing.md:64:**Root Cause:** pump.fun bonding curve uses less SOL than requested. The executor was returning `solAmount` (input) instead of measuring actual spend.
+./docs/retros/2026-01-19-emergency-sell-pricing.md-65-
+--
+./docs/retros/2026-01-19-emergency-sell-pricing.md-112-- Should have caught when `PositionStatus` type was first defined
+./docs/retros/2026-01-19-emergency-sell-pricing.md:113:- pump.fun API unreliability is a recurring issue - need more defensive design
+./docs/retros/2026-01-19-emergency-sell-pricing.md-114-- Type system didn't catch the mismatch because status was cast `as PositionStatus`
+--
+./docs/retros/2026-01-19-emergency-sell-pricing.md-118-1. **Database schema is source of truth** - When types disagree with DB, fix the types
+./docs/retros/2026-01-19-emergency-sell-pricing.md:119:2. **Multiple fallbacks for external APIs** - DEXScreener more reliable than pump.fun
+./docs/retros/2026-01-19-emergency-sell-pricing.md-120-3. **Measure actual outcomes** - Don't trust input values, measure actual wallet changes
+--
+./packages/shared/src/pricing.ts-2-// RAPTOR v4.5 Hybrid Pricing Module
+./packages/shared/src/pricing.ts:3:// Fetches token prices with Jupiter primary + DEXScreener + pump.fun fallback
+./packages/shared/src/pricing.ts-4-// =============================================================================
+./packages/shared/src/pricing.ts-5-
+./packages/shared/src/pricing.ts:6:import { getTokenInfo } from './api/pumpfun.js';
+./packages/shared/src/pricing.ts-7-import { getTokenByAddress } from './api/dexscreener.js';
+./packages/shared/src/pricing.ts:8:import { getBondingCurveSnapshot, getMintInfo } from './pumpfun/onchain.js';
+./packages/shared/src/pricing.ts-9-
+--
+./packages/shared/src/pricing.ts-19-
+./packages/shared/src/pricing.ts:20:export type PriceSource = 'jupiter' | 'dexscreener' | 'pumpfun' | 'onchain' | 'none';
+./packages/shared/src/pricing.ts-21-
+--
+./packages/shared/src/pricing.ts-27-/**
+./packages/shared/src/pricing.ts:28: * Get prices for multiple tokens using Jupiter batch API with DEXScreener + pump.fun fallback
+./packages/shared/src/pricing.ts-29- *
+--
+./packages/shared/src/pricing.ts-32- * 2. For missing prices, try DEXScreener API (handles most tokens)
+./packages/shared/src/pricing.ts:33: * 3. For still missing prices, try pump.fun API (handles bonding curve tokens)
+./packages/shared/src/pricing.ts-34- * 4. Return 0 with source='none' for unavailable prices
+--
+./packages/shared/src/pricing.ts-84-
+./packages/shared/src/pricing.ts:85:  // Fallback 1: DEXScreener API for missing prices (more reliable than pump.fun API)
+./packages/shared/src/pricing.ts-86-  let missingMints = uncachedMints.filter(m => !results[m]);
+--
+./packages/shared/src/pricing.ts-104-
+./packages/shared/src/pricing.ts:105:  // Fallback 2: pump.fun API for still missing prices (may be blocked by Cloudflare)
+./packages/shared/src/pricing.ts-106-  missingMints = uncachedMints.filter(m => !results[m]);
+--
+./packages/shared/src/pricing.ts-112-          if (tokenInfo?.priceInSol && tokenInfo.priceInSol > 0) {
+./packages/shared/src/pricing.ts:113:            const result: PriceResult = { price: tokenInfo.priceInSol, source: 'pumpfun' };
+./packages/shared/src/pricing.ts-114-            results[mint] = result;
+--
+./packages/shared/src/pricing.ts-117-        } catch (error) {
+./packages/shared/src/pricing.ts:118:          console.warn(`[Pricing] pump.fun price fetch failed for ${mint}:`, error);
+./packages/shared/src/pricing.ts-119-        }
+--
+./packages/shared/src/pricing.ts-208- * The fallback chain differs based on pricing source:
+./packages/shared/src/pricing.ts:209: * - BONDING_CURVE: onchain > pumpfun > jupiter > dexscreener
+./packages/shared/src/pricing.ts:210: * - AMM_POOL: jupiter > dexscreener > onchain > pumpfun
+./packages/shared/src/pricing.ts-211- *
+--
+./packages/shared/src/pricing.ts-263-
+./packages/shared/src/pricing.ts:264:  // 2. Try pump.fun API
+./packages/shared/src/pricing.ts-265-  try {
+--
+./packages/shared/src/pricing.ts-267-    if (tokenInfo?.priceInSol && tokenInfo.priceInSol > 0) {
+./packages/shared/src/pricing.ts:268:      const result: PriceResult = { price: tokenInfo.priceInSol, source: 'pumpfun' };
+./packages/shared/src/pricing.ts-269-      priceCache.set(mint, { ...result, expiry: now + CACHE_TTL_MS });
+--
+./packages/shared/src/pricing.ts-284-async function getAmmPoolPriceFirst(mint: string): Promise<PriceResult> {
+./packages/shared/src/pricing.ts:285:  // Standard getTokenPrice already prioritizes Jupiter -> DEXScreener -> pump.fun -> onchain
+./packages/shared/src/pricing.ts-286-  // This is the optimal order for AMM pool pricing
+--
+./packages/shared/src/tiers/tierDecision.test.ts-15-    it('should recognize trusted Solana sources', () => {
+./packages/shared/src/tiers/tierDecision.test.ts:16:      expect(isTrustedSource('pump.fun')).toBe(true);
+./packages/shared/src/tiers/tierDecision.test.ts:17:      expect(isTrustedSource('pumpswap')).toBe(true);
+./packages/shared/src/tiers/tierDecision.test.ts-18-      expect(isTrustedSource('moonshot')).toBe(true);
+--
+./packages/shared/src/tiers/tierDecision.test.ts-47-      const input: TierDecisionInput = {
+./packages/shared/src/tiers/tierDecision.test.ts:48:        source: 'pump.fun',
+./packages/shared/src/tiers/tierDecision.test.ts-49-        isManualSnipe: true,
+--
+./packages/shared/src/tiers/tierDecision.test.ts-73-      const input: TierDecisionInput = {
+./packages/shared/src/tiers/tierDecision.test.ts:74:        source: 'pump.fun',
+./packages/shared/src/tiers/tierDecision.test.ts-75-        isManualSnipe: false,
+--
+./packages/shared/src/tiers/tierDecision.test.ts-86-      const input: TierDecisionInput = {
+./packages/shared/src/tiers/tierDecision.test.ts:87:        source: 'pump.fun',
+./packages/shared/src/tiers/tierDecision.test.ts-88-        isManualSnipe: false,
+--
+./packages/shared/src/tiers/tierDecision.test.ts-129-    it('should contain expected sources', () => {
+./packages/shared/src/tiers/tierDecision.test.ts:130:      expect(TRUSTED_SOURCES.has('pump.fun')).toBe(true);
+./packages/shared/src/tiers/tierDecision.test.ts-131-      expect(TRUSTED_SOURCES.has('four.meme')).toBe(true);
+--
+./packages/shared/src/marketData.ts-5-
+./packages/shared/src/marketData.ts:6:import { getTokenInfo, calculateSellPrice, type PumpFunToken } from './api/pumpfun.js';
+./packages/shared/src/marketData.ts-7-import { getTokenByAddress } from './api/dexscreener.js';
+--
+./packages/shared/src/marketData.ts-10-import { decimalToTokenAmount, PROGRAM_IDS } from './chains/solana.js';
+./packages/shared/src/marketData.ts:11:import { getBondingCurveSnapshot, getMintInfo } from './pumpfun/onchain.js';
+./packages/shared/src/marketData.ts-12-
+./packages/shared/src/marketData.ts:13:// Default values for pump.fun tokens
+./packages/shared/src/marketData.ts-14-const PUMP_FUN_TOTAL_SUPPLY = 1_000_000_000;
+--
+./packages/shared/src/marketData.ts-26-
+./packages/shared/src/marketData.ts:27:export type MarketDataSource = 'bonding_curve' | 'pumpfun_api' | 'dexscreener' | 'birdeye' | 'jupiter' | 'none';
+./packages/shared/src/marketData.ts-28-
+--
+./packages/shared/src/marketData.ts-54-  forceRefresh?: boolean;
+./packages/shared/src/marketData.ts:55:  source?: 'pump.fun' | 'pump.pro' | 'unknown';
+./packages/shared/src/marketData.ts-56-}
+--
+./packages/shared/src/marketData.ts-61- * Data source priority:
+./packages/shared/src/marketData.ts:62: * 1. pump.fun API (for bonding curve tokens - has most complete data)
+./packages/shared/src/marketData.ts-63- * 2. DEXScreener API (for graduated tokens)
+--
+./packages/shared/src/marketData.ts-102-
+./packages/shared/src/marketData.ts:103:  // Try pump.fun API first (works for pump.fun tokens, may work for pump.pro)
+./packages/shared/src/marketData.ts-104-  try {
+--
+./packages/shared/src/marketData.ts-111-  } catch (error) {
+./packages/shared/src/marketData.ts:112:    console.warn(`[MarketData] pump.fun API failed for ${mint}:`, error);
+./packages/shared/src/marketData.ts-113-  }
+--
+./packages/shared/src/marketData.ts-168-
+./packages/shared/src/marketData.ts:169:  // Fallback: On-chain bonding curve data (works when pump.fun API is down)
+./packages/shared/src/marketData.ts-170-  try {
+--
+./packages/shared/src/marketData.ts-259- * Uses quote-based calculation when possible:
+./packages/shared/src/marketData.ts:260: * 1. Bonding curve math (for pump.fun/pump.pro tokens not graduated)
+./packages/shared/src/marketData.ts-261- * 2. Jupiter quote (for graduated tokens)
+--
+./packages/shared/src/marketData.ts-400-    decimals,
+./packages/shared/src/marketData.ts:401:    source: token.complete ? 'pumpfun_api' : 'bonding_curve',
+./packages/shared/src/marketData.ts-402-    isGraduated: token.complete,
+--
+./packages/shared/src/marketData.ts-414-      return 'dexscreener';
+./packages/shared/src/marketData.ts:415:    case 'pumpfun':
+./packages/shared/src/marketData.ts:416:      return 'pumpfun_api';
+./packages/shared/src/marketData.ts-417-    case 'onchain':
+--
+./packages/shared/src/supabase.ts-1432-    min_liquidity_sol: 0,
+./packages/shared/src/supabase.ts:1433:    allowed_launchpads: ['pump.fun'],
+./packages/shared/src/supabase.ts-1434-    // Cooldown
+--
+./supabase/migrations/20260127000000_phase0_fresh_schema.sql-78-    name TEXT,
+./supabase/migrations/20260127000000_phase0_fresh_schema.sql:79:    launch_source TEXT NOT NULL CHECK (launch_source IN ('bags', 'pumpfun')),
+./supabase/migrations/20260127000000_phase0_fresh_schema.sql-80-    discovery_method TEXT NOT NULL CHECK (discovery_method IN ('telegram', 'onchain')),
+--
+./supabase/migrations/20260127000000_phase0_fresh_schema.sql-228-COMMENT ON TABLE settings IS 'Per-user snap risk controls and preferences.';
+./supabase/migrations/20260127000000_phase0_fresh_schema.sql:229:COMMENT ON TABLE launch_candidates IS 'Normalized output from discovery layer (Bags/pump.fun).';
+./supabase/migrations/20260127000000_phase0_fresh_schema.sql-230-COMMENT ON TABLE positions IS 'Position lifecycle with explicit state machine.';
+--
+./packages/database/migrations/007_trade_monitors.sql-22-  entry_tokens DECIMAL(30, 9),                -- Tokens received
+./packages/database/migrations/007_trade_monitors.sql:23:  route_label TEXT,                           -- 'pump.fun' or 'Jupiter (Raydium)' etc
+./packages/database/migrations/007_trade_monitors.sql-24-
+--
+./packages/database/migrations/002_v2_upgrade.sql-128-
+./packages/database/migrations/002_v2_upgrade.sql:129:-- Add program_id for Solana tokens (pump.fun, Raydium, etc.)
+./packages/database/migrations/002_v2_upgrade.sql-130-ALTER TABLE positions ADD COLUMN IF NOT EXISTS program_id TEXT;
+--
+./docs/retros/2026-01-18-pump-pro-debugging.md-12-
+./docs/retros/2026-01-18-pump-pro-debugging.md:13:pump.fun migrated most token creation to their new pump.pro program (`proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u`). This broke our token detection and required several fixes throughout the day.
+./docs/retros/2026-01-18-pump-pro-debugging.md-14-
+--
+./docs/retros/2026-01-18-pump-pro-debugging.md-21-### 2. pump.pro Metadata Fetch (earlier session)
+./docs/retros/2026-01-18-pump-pro-debugging.md:22:- pump.pro instructions don't include inline metadata like pump.fun
+./docs/retros/2026-01-18-pump-pro-debugging.md:23:- Added API fetch from `frontend-api.pump.fun` with 3s timeout
+./docs/retros/2026-01-18-pump-pro-debugging.md-24-- Added on-chain Metaplex Metadata Account fallback when API returns 530
+--
+./docs/retros/2026-01-18-pump-pro-debugging.md-26-### 3. Relaxed Scoring Hard Stops (earlier session)
+./docs/retros/2026-01-18-pump-pro-debugging.md:27:- pump.fun API returns HTTP 530 for pump.pro tokens
+./docs/retros/2026-01-18-pump-pro-debugging.md-28-- Metaplex metadata doesn't exist immediately after token creation
+--
+./docs/retros/2026-01-18-pump-pro-debugging.md-106-
+./docs/retros/2026-01-18-pump-pro-debugging.md:107:### 3. pump.pro vs pump.fun Differences
+./docs/retros/2026-01-18-pump-pro-debugging.md:108:| Aspect | pump.fun | pump.pro |
+./docs/retros/2026-01-18-pump-pro-debugging.md-109-|--------|----------|----------|
+--
+./packages/shared/src/index.ts-53-export * as goplus from './api/goplus.js';
+./packages/shared/src/index.ts:54:export * as pumpfun from './api/pumpfun.js';
+./packages/shared/src/index.ts-55-export * as tokenData from './api/tokenData.js';
+--
+./packages/shared/src/index.ts-64-
+./packages/shared/src/index.ts:65:// Direct export for common pumpfun function
+./packages/shared/src/index.ts:66:export { getTokenInfo } from './api/pumpfun.js';
+./packages/shared/src/index.ts-67-
+./packages/shared/src/index.ts-68-// Direct export for on-chain bonding curve functions
+./packages/shared/src/index.ts:69:export { getBondingCurveSnapshot, getMintInfo } from './pumpfun/onchain.js';
+./packages/shared/src/index.ts:70:export type { BondingCurveSnapshot, MintInfo } from './pumpfun/onchain.js';
+./packages/shared/src/index.ts-71-
+--
+./packages/shared/src/index.ts-97-
+./packages/shared/src/index.ts:98:// Token price fetching with Jupiter + pump.fun fallback
+./packages/shared/src/index.ts-99-export * from './pricing.js';
+--
+./packages/database/migrations/006_v31_complete.sql-142-  min_liquidity_sol NUMERIC(36, 18) DEFAULT 5,
+./packages/database/migrations/006_v31_complete.sql:143:  allowed_launchpads TEXT[] DEFAULT ARRAY['pump.fun'],
+./packages/database/migrations/006_v31_complete.sql-144-
+--
+./apps/hunter/src/monitors/pumpfun.ts-2-// RAPTOR v3.1 Pump.fun Monitor
+./apps/hunter/src/monitors/pumpfun.ts:3:// WebSocket listener for new token creates on pump.fun
+./apps/hunter/src/monitors/pumpfun.ts-4-// =============================================================================
+--
+./apps/hunter/src/monitors/pumpfun.ts-12-
+./apps/hunter/src/monitors/pumpfun.ts:13:// pump.fun API response type (includes more fields than we were using)
+./apps/hunter/src/monitors/pumpfun.ts-14-interface PumpFunApiResponse {
+--
+./apps/hunter/src/monitors/pumpfun.ts-27- * Fetch metadata URI from on-chain Metaplex Metadata Account
+./apps/hunter/src/monitors/pumpfun.ts:28: * This is a fallback when the pump.fun API is unavailable
+./apps/hunter/src/monitors/pumpfun.ts-29- * Retries up to 3 times with 500ms delay for newly created tokens
+--
+./apps/hunter/src/monitors/pumpfun.ts-116-  timestamp: number;
+./apps/hunter/src/monitors/pumpfun.ts:117:  /** True if token was created in mayhem mode (November 2025 pump.fun update) */
+./apps/hunter/src/monitors/pumpfun.ts-118-  isMayhemMode: boolean;
+--
+./apps/hunter/src/monitors/pumpfun.ts-122-
+./apps/hunter/src/monitors/pumpfun.ts:123:// pump.fun Create instruction discriminators
+./apps/hunter/src/monitors/pumpfun.ts-124-// Legacy: sha256("global:create")[0..8]
+--
+./apps/hunter/src/monitors/pumpfun.ts-227-  /**
+./apps/hunter/src/monitors/pumpfun.ts:228:   * Subscribe to pump.fun and pump.pro program logs
+./apps/hunter/src/monitors/pumpfun.ts-229-   */
+--
+./apps/hunter/src/monitors/pumpfun.ts-232-
+./apps/hunter/src/monitors/pumpfun.ts:233:    // Subscribe to classic pump.fun program
+./apps/hunter/src/monitors/pumpfun.ts-234-    const pumpFunMessage = {
+--
+./apps/hunter/src/monitors/pumpfun.ts-243-    this.ws.send(JSON.stringify(pumpFunMessage));
+./apps/hunter/src/monitors/pumpfun.ts:244:    console.log('[PumpFunMonitor] Subscribed to pump.fun (classic) logs');
+./apps/hunter/src/monitors/pumpfun.ts-245-
+./apps/hunter/src/monitors/pumpfun.ts:246:    // Subscribe to pump.pro program (upgraded pump.fun, late 2025)
+./apps/hunter/src/monitors/pumpfun.ts-247-    const pumpProMessage = {
+--
+./apps/hunter/src/monitors/pumpfun.ts-294-
+./apps/hunter/src/monitors/pumpfun.ts:295:      // Subscription confirmation (id 1 = pump.fun, id 2 = pump.pro)
+./apps/hunter/src/monitors/pumpfun.ts-296-      if (message.result !== undefined && (message.id === 1 || message.id === 2)) {
+./apps/hunter/src/monitors/pumpfun.ts:297:        const program = message.id === 1 ? 'pump.fun' : 'pump.pro';
+./apps/hunter/src/monitors/pumpfun.ts-298-        console.log(`[PumpFunMonitor] ${program} subscription ID: ${message.result}`);
+--
+./apps/hunter/src/monitors/pumpfun.ts-323-  ): Promise<void> {
+./apps/hunter/src/monitors/pumpfun.ts:324:    // Look for Create instruction in both pump.fun and pump.pro programs
+./apps/hunter/src/monitors/pumpfun.ts-325-    const isCreate = logs.some(
+--
+./apps/hunter/src/monitors/pumpfun.ts-327-        log.includes('Program log: Instruction: Create') ||
+./apps/hunter/src/monitors/pumpfun.ts:328:        // Classic pump.fun
+./apps/hunter/src/monitors/pumpfun.ts-329-        (log.includes('Program 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P') &&
+./apps/hunter/src/monitors/pumpfun.ts-330-          logs.some((l) => l.includes('InitializeMint'))) ||
+./apps/hunter/src/monitors/pumpfun.ts:331:        // pump.pro (upgraded pump.fun)
+./apps/hunter/src/monitors/pumpfun.ts-332-        (log.includes('Program proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u') &&
+--
+./apps/hunter/src/monitors/pumpfun.ts-416-
+./apps/hunter/src/monitors/pumpfun.ts:417:      // Find pump.fun Create instruction
+./apps/hunter/src/monitors/pumpfun.ts-418-      let createData: Buffer | null = null;
+--
+./apps/hunter/src/monitors/pumpfun.ts-437-          const disc = data.slice(0, 8);
+./apps/hunter/src/monitors/pumpfun.ts:438:          foundDiscriminators.push(`[${Array.from(disc).join(',')}] (${programIdStr === PROGRAM_IDS.PUMP_PRO ? 'pump.pro' : 'pump.fun'})`);
+./apps/hunter/src/monitors/pumpfun.ts-439-
+--
+./apps/hunter/src/monitors/pumpfun.ts-446-              : [...(ix as LegacyInstruction).accounts];
+./apps/hunter/src/monitors/pumpfun.ts:447:            console.log(`[PumpFunMonitor] Found Create instruction from ${programIdStr === PROGRAM_IDS.PUMP_PRO ? 'pump.pro' : 'pump.fun'}`);
+./apps/hunter/src/monitors/pumpfun.ts-448-            break;
+--
+./apps/hunter/src/monitors/pumpfun.ts-454-      if (!createData && foundDiscriminators.length > 0) {
+./apps/hunter/src/monitors/pumpfun.ts:455:        console.log(`[PumpFunMonitor] pump.fun discriminators in TX: ${foundDiscriminators.join(', ')}`);
+./apps/hunter/src/monitors/pumpfun.ts-456-      }
+--
+./apps/hunter/src/monitors/pumpfun.ts-462-
+./apps/hunter/src/monitors/pumpfun.ts:463:      // Extract addresses first (works for both pump.fun and pump.pro)
+./apps/hunter/src/monitors/pumpfun.ts-464-      const mint = accountKeys[createAccounts[0]]?.toBase58() || '';
+--
+./apps/hunter/src/monitors/pumpfun.ts-481-
+./apps/hunter/src/monitors/pumpfun.ts:482:        // Try pump.fun API first
+./apps/hunter/src/monitors/pumpfun.ts-483-        try {
+./apps/hunter/src/monitors/pumpfun.ts:484:          const response = await fetch(`https://frontend-api.pump.fun/coins/${mint}`, {
+./apps/hunter/src/monitors/pumpfun.ts-485-            headers: { 'Accept': 'application/json' },
+--
+./apps/hunter/src/monitors/pumpfun.ts-524-      } else {
+./apps/hunter/src/monitors/pumpfun.ts:525:        // Classic pump.fun - parse inline metadata
+./apps/hunter/src/monitors/pumpfun.ts-526-        let offset = 8;
+--
+./apps/hunter/src/monitors/pumpfun.ts-544-
+./apps/hunter/src/monitors/pumpfun.ts:545:        // Try to parse mayhem mode flag (November 2025 pump.fun update)
+./apps/hunter/src/monitors/pumpfun.ts-546-        // If there's more data after uri, the next byte is is_mayhem_mode
+--
+./docs/retros/2026-01-16-retro.md-15-- Hunt system complete overhaul with error handling and logging (4d7580b, 939616e, 0ce3b75)
+./docs/retros/2026-01-16-retro.md:16:- Launchpad cleanup - streamlined to pump.fun only (91a35aa)
+./docs/retros/2026-01-16-retro.md-17-- Hunter notifications + TP/SL in Hunt menu (6b63a99)
+--
+./packages/shared/src/constants.ts-55-      name: 'VirtualsProtocol',
+./packages/shared/src/constants.ts:56:      // Virtuals Protocol agent factory on Base (pump.fun-like bonding curves)
+./packages/shared/src/constants.ts-57-      factory: process.env.BASE_LAUNCHPAD_FACTORY || '0x44e3F80Eb8c9E4D2B5D6b8A88e7AD1E8B4F19b2c',
+--
+./packages/shared/src/constants.ts-141-    {
+./packages/shared/src/constants.ts:142:      name: 'pump.fun',
+./packages/shared/src/constants.ts-143-      programId: '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P',
+--
+./packages/shared/src/chains/solana.ts-13-  PUMP_FUN: '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P',
+./packages/shared/src/chains/solana.ts:14:  PUMP_PRO: 'proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u', // pump.pro (upgraded pump.fun, late 2025)
+./packages/shared/src/chains/solana.ts-15-  PUMP_FUN_GLOBAL: '4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf', // Global state
+--
+./packages/shared/src/chains/solana.ts-132-/**
+./packages/shared/src/chains/solana.ts:133: * Get pump.fun URL for a token
+./packages/shared/src/chains/solana.ts-134- * @param mintAddress - Token mint address
+./packages/shared/src/chains/solana.ts:135: * @returns pump.fun URL
+./packages/shared/src/chains/solana.ts-136- */
+./packages/shared/src/chains/solana.ts-137-export function getPumpFunUrl(mintAddress: string): string {
+./packages/shared/src/chains/solana.ts:138:  return `https://pump.fun/${mintAddress}`;
+./packages/shared/src/chains/solana.ts-139-}
+--
+./packages/shared/src/chains/solana.ts-181-/**
+./packages/shared/src/chains/solana.ts:182: * Parse a pump.fun bonding curve state
+./packages/shared/src/chains/solana.ts-183- * This is a simplified representation
+--
+./revamp.md-7-### Purpose
+./revamp.md:8:This document is the **authoritative technical and operational specification** for revamping RAPTOR’s snap system away from pump.fun and toward **Bags.fm launches on Meteora**.
+./revamp.md-9-
+--
+./revamp.md-32-
+./revamp.md:33:### 1.1 pump.fun Saturation Failure
+./revamp.md-34-
+./revamp.md:35:Current issues with pump.fun as the primary snap source:
+./revamp.md-36-
+--
+./revamp.md-46-Current state:
+./revamp.md:47:- Discovery logic assumes pump.fun semantics
+./revamp.md-48-- Execution assumes PumpSwap
+--
+./revamp.md-107-  symbol: string
+./revamp.md:108:  launchSource: 'bags' | 'pumpfun' | future
+./revamp.md-109-  discoveryMethod: 'telegram' | 'onchain'
+--
+./revamp.md-338-- Bags is primary launch source
+./revamp.md:339:- pump.fun optional / secondary
+./revamp.md-340-- PumpSwap fully removed from execution
+--
+./apps/hunter/src/scoring/scorer.ts-6-import type { OpportunityV31 } from '@raptor/shared';
+./apps/hunter/src/scoring/scorer.ts:7:import type { PumpFunEvent } from '../monitors/pumpfun.js';
+./apps/hunter/src/scoring/scorer.ts-8-import { scoringRules, type ScoringRule } from './rules.js';
+--
+./apps/hunter/src/scoring/scorer.ts-32- * @param opportunity - The opportunity record
+./apps/hunter/src/scoring/scorer.ts:33: * @param event - The pump.fun event data
+./apps/hunter/src/scoring/scorer.ts-34- * @param metadata - Optional metadata from URI fetch (v4.3)
+--
+./docs/Reference_docs.md-80-### Token Program
+./docs/Reference_docs.md:81:- pump.fun uses **Token-2022** (not legacy SPL Token)
+./docs/Reference_docs.md-82-- All ATA derivations must use `TOKEN_2022_PROGRAM_ID`
+--
+./docs/Reference_docs.md-86-- [Bitquery Pump.fun API](https://docs.bitquery.io/docs/blockchain/Solana/Pumpfun/) - Bonding curve data
+./docs/Reference_docs.md:87:- [bloXroute PumpFun API](https://docs.bloxroute.com/solana/trader-api/api-endpoints/pump.fun/swap) - Swap endpoints
+--
+./apps/hunter/src/scoring/rules.ts-7-import { PROGRAM_IDS, SOLANA_CONFIG, isValidSolanaAddress, type OpportunityV31 } from '@raptor/shared';
+./apps/hunter/src/scoring/rules.ts:8:import type { PumpFunEvent } from '../monitors/pumpfun.js';
+./apps/hunter/src/scoring/rules.ts-9-import type { TokenMetadata } from '../utils/metadataFetcher.js';
+--
+./apps/hunter/src/scoring/rules.ts-224-  // SOCIAL SIGNALS - Temporarily relaxed for pump.pro (API returning 530)
+./apps/hunter/src/scoring/rules.ts:225:  // TODO: Re-enable hard stops when pump.fun API is stable
+./apps/hunter/src/scoring/rules.ts-226-  {
+--
+./apps/hunter/src/loops/tpslMonitor.ts-321-      // AUDIT FIX: Fetch prices using shared pricing with fallback chain
+./apps/hunter/src/loops/tpslMonitor.ts:322:      // (Jupiter → DEXScreener → pump.fun)
+./apps/hunter/src/loops/tpslMonitor.ts-323-      const pricePromises = tokens.map(async (tokenMint) => {
+--
+./packages/shared/src/api/pumpfun.ts-9- *
+./packages/shared/src/api/pumpfun.ts:10: * Docs: https://docs.pump.fun/
+./packages/shared/src/api/pumpfun.ts-11- */
+--
+./packages/shared/src/api/pumpfun.ts-13-// PumpFun API endpoints
+./packages/shared/src/api/pumpfun.ts:14:const PUMPFUN_API = 'https://frontend-api.pump.fun';
+./packages/shared/src/api/pumpfun.ts-15-const PUMPFUN_CLIENT_API = 'https://client-api-2-74b1891ee9f9.herokuapp.com';
+--
+./packages/shared/src/api/pumpfun.ts-20-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+./packages/shared/src/api/pumpfun.ts:21:  'Referer': 'https://pump.fun/',
+./packages/shared/src/api/pumpfun.ts:22:  'Origin': 'https://pump.fun',
+./packages/shared/src/api/pumpfun.ts-23-};
+--
+./packages/shared/src/api/pumpfun.ts-336-export function getPumpFunLinks(mint: string): {
+./packages/shared/src/api/pumpfun.ts:337:  pumpfun: string;
+./packages/shared/src/api/pumpfun.ts-338-  dexscreener: string;
+--
+./packages/shared/src/api/pumpfun.ts-342-  return {
+./packages/shared/src/api/pumpfun.ts:343:    pumpfun: `https://pump.fun/${mint}`,
+./packages/shared/src/api/pumpfun.ts-344-    dexscreener: `https://dexscreener.com/solana/${mint}`,
+--
+./packages/shared/src/api/launchpadDetector.ts-4- * Currently supports:
+./packages/shared/src/api/launchpadDetector.ts:5: * - PumpFun (pump.fun) - Full support with WebSocket monitor
+./packages/shared/src/api/launchpadDetector.ts-6- * - Raydium - Fallback for graduated/unknown tokens via DexScreener
+--
+./packages/shared/src/api/launchpadDetector.ts-11-
+./packages/shared/src/api/launchpadDetector.ts:12:import * as pumpfun from './pumpfun.js';
+./packages/shared/src/api/launchpadDetector.ts-13-import * as rugcheck from './rugcheck.js';
+--
+./packages/shared/src/api/launchpadDetector.ts-19-// Simplified to only working launchpads
+./packages/shared/src/api/launchpadDetector.ts:20:export type LaunchpadType = 'pumpfun' | 'raydium' | 'unknown';
+./packages/shared/src/api/launchpadDetector.ts-21-
+--
+./packages/shared/src/api/launchpadDetector.ts-79- * Detect launchpad and get unified token data
+./packages/shared/src/api/launchpadDetector.ts:80: * Simplified to pump.fun + DexScreener fallback only
+./packages/shared/src/api/launchpadDetector.ts-81- */
+--
+./packages/shared/src/api/launchpadDetector.ts-85-): Promise<UnifiedTokenData | null> {
+./packages/shared/src/api/launchpadDetector.ts:86:  // Try pump.fun and DexScreener in parallel
+./packages/shared/src/api/launchpadDetector.ts-87-  const [pumpResult, dexResult, rugResult, goplusResult] = await Promise.allSettled([
+./packages/shared/src/api/launchpadDetector.ts:88:    pumpfun.getTokenInfo(mint, solPriceUsd),
+./packages/shared/src/api/launchpadDetector.ts-89-    dexscreener.getTokenByAddress(mint),
+--
+./packages/shared/src/api/launchpadDetector.ts-113- * Quick launchpad detection (no data fetch)
+./packages/shared/src/api/launchpadDetector.ts:114: * Simplified to pump.fun only
+./packages/shared/src/api/launchpadDetector.ts-115- */
+./packages/shared/src/api/launchpadDetector.ts-116-export async function detectLaunchpad(mint: string): Promise<LaunchpadType> {
+./packages/shared/src/api/launchpadDetector.ts:117:  const isPump = await pumpfun.isPumpFunToken(mint).catch(() => false);
+./packages/shared/src/api/launchpadDetector.ts:118:  if (isPump) return 'pumpfun';
+./packages/shared/src/api/launchpadDetector.ts-119-  return 'unknown';
+--
+./packages/shared/src/api/launchpadDetector.ts-122-/**
+./packages/shared/src/api/launchpadDetector.ts:123: * Get new launches from pump.fun
+./packages/shared/src/api/launchpadDetector.ts-124- * Note: Bonk.fun API was removed as the endpoint doesn't exist
+--
+./packages/shared/src/api/launchpadDetector.ts-126-export async function getNewLaunches(limit = 10): Promise<UnifiedTokenData[]> {
+./packages/shared/src/api/launchpadDetector.ts:127:  console.log('[LaunchpadDetector] Fetching new launches from pump.fun...');
+./packages/shared/src/api/launchpadDetector.ts-128-
+./packages/shared/src/api/launchpadDetector.ts-129-  try {
+./packages/shared/src/api/launchpadDetector.ts:130:    const pumpLaunches = await pumpfun.getNewLaunches(limit);
+./packages/shared/src/api/launchpadDetector.ts-131-    console.log(`[LaunchpadDetector] PumpFun new launches: ${pumpLaunches.length}`);
+--
+./packages/shared/src/api/launchpadDetector.ts-149-/**
+./packages/shared/src/api/launchpadDetector.ts:150: * Get trending tokens from pump.fun
+./packages/shared/src/api/launchpadDetector.ts-151- * Note: Bonk.fun API was removed as the endpoint doesn't exist
+--
+./packages/shared/src/api/launchpadDetector.ts-153-export async function getTrending(limit = 10): Promise<UnifiedTokenData[]> {
+./packages/shared/src/api/launchpadDetector.ts:154:  console.log('[LaunchpadDetector] Fetching trending tokens from pump.fun...');
+./packages/shared/src/api/launchpadDetector.ts-155-
+./packages/shared/src/api/launchpadDetector.ts-156-  try {
+./packages/shared/src/api/launchpadDetector.ts:157:    const pumpTrending = await pumpfun.getTrendingTokens(limit);
+./packages/shared/src/api/launchpadDetector.ts-158-    console.log(`[LaunchpadDetector] PumpFun trending: ${pumpTrending.length}`);
+--
+./packages/shared/src/api/launchpadDetector.ts-178-function convertPumpFunData(
+./packages/shared/src/api/launchpadDetector.ts:179:  token: pumpfun.PumpFunToken,
+./packages/shared/src/api/launchpadDetector.ts-180-  rug: rugcheck.RugCheckResult | null,
+--
+./packages/shared/src/api/launchpadDetector.ts-183-  const status = token.complete ? 'graduated' : 'bonding';
+./packages/shared/src/api/launchpadDetector.ts:184:  const links = pumpfun.getPumpFunLinks(token.mint);
+./packages/shared/src/api/launchpadDetector.ts-185-
+--
+./packages/shared/src/api/launchpadDetector.ts-194-    launchpad: {
+./packages/shared/src/api/launchpadDetector.ts:195:      launchpad: 'pumpfun',
+./packages/shared/src/api/launchpadDetector.ts-196-      status,
+--
+./packages/shared/src/api/launchpadDetector.ts-209-    links: {
+./packages/shared/src/api/launchpadDetector.ts:210:      launchpad: links.pumpfun,
+./packages/shared/src/api/launchpadDetector.ts-211-      dexscreener: links.dexscreener,
+--
+./packages/shared/src/api/launchpadDetector.ts-311-  switch (launchpad) {
+./packages/shared/src/api/launchpadDetector.ts:312:    case 'pumpfun':
+./packages/shared/src/api/launchpadDetector.ts-313-      return '🎰';
+--
+./packages/shared/src/api/launchpadDetector.ts-325-  switch (launchpad) {
+./packages/shared/src/api/launchpadDetector.ts:326:    case 'pumpfun':
+./packages/shared/src/api/launchpadDetector.ts-327-      return 'Pump.fun';
+--
+./apps/hunter/src/loops/positions.ts-21- * Get current token price using shared pricing module
+./apps/hunter/src/loops/positions.ts:22: * AUDIT FIX: Now uses shared pricing with Jupiter → DEXScreener → pump.fun fallback
+./apps/hunter/src/loops/positions.ts-23- * @param mint - Token mint address
+--
+./apps/hunter/src/loops/graduationMonitor.ts-18- *
+./apps/hunter/src/loops/graduationMonitor.ts:19: * When a pump.fun token graduates (bonding curve completes), it migrates
+./apps/hunter/src/loops/graduationMonitor.ts-20- * to a Raydium/Meteora AMM. This loop detects that event and transitions
+--
+./apps/hunter/src/loops/execution.ts-253-          // AUDIT FIX: Fetch token info and SOL price for entry MC calculation
+./apps/hunter/src/loops/execution.ts:254:          let totalSupply = 1_000_000_000; // Default for pump.fun tokens
+./apps/hunter/src/loops/execution.ts-255-
+--
+./apps/hunter/src/loops/opportunities.ts-23-import { Connection, PublicKey } from '@solana/web3.js';
+./apps/hunter/src/loops/opportunities.ts:24:import { PumpFunMonitor, type PumpFunEvent } from '../monitors/pumpfun.js';
+./apps/hunter/src/loops/opportunities.ts-25-import { scoreOpportunity, type ScoringResult } from '../scoring/scorer.js';
+--
+./apps/hunter/src/loops/opportunities.ts-80-
+./apps/hunter/src/loops/opportunities.ts:81:    // Register handler for pump.fun events
+./apps/hunter/src/loops/opportunities.ts-82-    this.pumpFunMonitor.onTokenCreate(async (event) => {
+--
+./apps/hunter/src/loops/opportunities.ts-104-
+./apps/hunter/src/loops/opportunities.ts:105:    // Skip mayhem mode tokens (low quality launches per November 2025 pump.fun update)
+./apps/hunter/src/loops/opportunities.ts-106-    if (event.isMayhemMode) {
+--
+./apps/hunter/src/loops/opportunities.ts-116-        chain: 'sol',
+./apps/hunter/src/loops/opportunities.ts:117:        source: 'pump.fun',
+./apps/hunter/src/loops/opportunities.ts-118-        tokenMint: event.mint,
+--
+./apps/executor/src/routers/jupiterRouter.ts-296-
+./apps/executor/src/routers/jupiterRouter.ts:297:      // Try Token-2022 first (pump.fun tokens), fall back to standard SPL
+./apps/executor/src/routers/jupiterRouter.ts-298-      let tokenProgramId = TOKEN_2022_PROGRAM_ID;
+--
+./apps/executor/src/analyzers/solanaAnalyzer.ts-113-        marketCap = price * totalSupply;
+./apps/executor/src/analyzers/solanaAnalyzer.ts:114:        launchpad = 'pump.fun';
+./apps/executor/src/analyzers/solanaAnalyzer.ts-115-      }
+--
+./apps/executor/src/analyzers/solanaAnalyzer.ts-490-    // In production, would check:
+./apps/executor/src/analyzers/solanaAnalyzer.ts:491:    // 1. If there's a bonding curve PDA for pump.fun
+./apps/executor/src/analyzers/solanaAnalyzer.ts-492-    // 2. Check transaction history for known program interactions
+--
+./apps/executor/src/analyzers/solanaAnalyzer.ts-494-
+./apps/executor/src/analyzers/solanaAnalyzer.ts:495:    // For now, try to find pump.fun bonding curve
+./apps/executor/src/analyzers/solanaAnalyzer.ts-496-    try {
+--
+./apps/executor/src/analyzers/solanaAnalyzer.ts-498-      // This is a placeholder - actual implementation needs proper PDA derivation
+./apps/executor/src/analyzers/solanaAnalyzer.ts:499:      return 'pump.fun'; // Default assumption for now
+./apps/executor/src/analyzers/solanaAnalyzer.ts-500-    } catch {
+--
+./apps/executor/src/analyzers/solanaAnalyzer.ts-518-  /**
+./apps/executor/src/analyzers/solanaAnalyzer.ts:519:   * Verify the token was created by pump.fun program
+./apps/executor/src/analyzers/solanaAnalyzer.ts-520-   */
+--
+./apps/executor/src/analyzers/solanaAnalyzer.ts-553-
+./apps/executor/src/analyzers/solanaAnalyzer.ts:554:      // Check if pump.fun program was involved
+./apps/executor/src/analyzers/solanaAnalyzer.ts-555-      const programIds = creationTx.accountKeys || [];
+--
+./apps/executor/src/analyzers/solanaAnalyzer.ts-559-    } catch (error) {
+./apps/executor/src/analyzers/solanaAnalyzer.ts:560:      console.error('[SolanaAnalyzer] Error verifying pump.fun origin:', error);
+./apps/executor/src/analyzers/solanaAnalyzer.ts-561-      return false;
+--
+./apps/executor/src/listeners/solana/pumpFunListener.ts-1-// Pump.fun Listener for Solana
+./apps/executor/src/listeners/solana/pumpFunListener.ts:2:// Monitors new token creates on pump.fun bonding curves
+./apps/executor/src/listeners/solana/pumpFunListener.ts-3-
+--
+./apps/executor/src/listeners/solana/pumpFunListener.ts-26-
+./apps/executor/src/listeners/solana/pumpFunListener.ts:27:// pump.fun Create instruction discriminator
+./apps/executor/src/listeners/solana/pumpFunListener.ts-28-const CREATE_DISCRIMINATOR = Buffer.from([24, 30, 200, 40, 5, 28, 7, 119]);
+--
+./apps/executor/src/listeners/solana/pumpFunListener.ts-57-  /**
+./apps/executor/src/listeners/solana/pumpFunListener.ts:58:   * Start listening for pump.fun token creates
+./apps/executor/src/listeners/solana/pumpFunListener.ts-59-   */
+--
+./apps/executor/src/listeners/solana/pumpFunListener.ts-155-  /**
+./apps/executor/src/listeners/solana/pumpFunListener.ts:156:   * Subscribe to pump.fun program logs
+./apps/executor/src/listeners/solana/pumpFunListener.ts-157-   */
+--
+./apps/executor/src/listeners/solana/pumpFunListener.ts-177-    this.ws.send(JSON.stringify(subscribeMessage));
+./apps/executor/src/listeners/solana/pumpFunListener.ts:178:    console.log('[PumpFunListener] Subscribed to pump.fun program logs');
+./apps/executor/src/listeners/solana/pumpFunListener.ts-179-  }
+--
+./apps/executor/src/listeners/solana/pumpFunListener.ts-220-  ): Promise<void> {
+./apps/executor/src/listeners/solana/pumpFunListener.ts:221:    // Look for Create instruction - pump.fun uses specific log patterns
+./apps/executor/src/listeners/solana/pumpFunListener.ts-222-    const isCreate = logs.some(
+--
+./apps/executor/src/listeners/solana/pumpFunListener.ts-281-
+./apps/executor/src/listeners/solana/pumpFunListener.ts:282:      // Find the pump.fun program instruction
+./apps/executor/src/listeners/solana/pumpFunListener.ts-283-      const instructions = message.compiledInstructions || [];
+--
+./apps/executor/src/listeners/solana/pumpFunListener.ts-325-      // Extract addresses from account keys
+./apps/executor/src/listeners/solana/pumpFunListener.ts:326:      // pump.fun Create instruction account layout:
+./apps/executor/src/listeners/solana/pumpFunListener.ts-327-      // [0] = mint, [1] = mintAuthority, [2] = bondingCurve, [3] = associatedBondingCurve,
+--
+./apps/executor/src/listeners/solana/raydiumListener.ts-1-// Raydium Listener for Solana
+./apps/executor/src/listeners/solana/raydiumListener.ts:2:// Monitors new pool creates on Raydium AMM (for graduated pump.fun tokens)
+./apps/executor/src/listeners/solana/raydiumListener.ts-3-
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-86-  price: number;
+./apps/executor/src/chains/solana/solanaExecutor.ts:87:  route?: string; // 'pump.fun' or 'Jupiter'
+./apps/executor/src/chains/solana/solanaExecutor.ts-88-}
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-192-      // v4.6 FIX: Detect token program (SPL vs Token-2022) for correct ATA derivation
+./apps/executor/src/chains/solana/solanaExecutor.ts:193:      // pump.fun tokens use Token-2022, which has ATAs at different addresses than standard SPL
+./apps/executor/src/chains/solana/solanaExecutor.ts-194-      const tokenProgramId = await getTokenProgramForMint(this.connection, mint);
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-217-   * Get SOL balance for a wallet
+./apps/executor/src/chains/solana/solanaExecutor.ts:218:   * Used to calculate actual SOL spent in pump.fun buys
+./apps/executor/src/chains/solana/solanaExecutor.ts-219-   */
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-287-   * Execute a buy order using internal EXECUTOR_KEYPAIR
+./apps/executor/src/chains/solana/solanaExecutor.ts:288:   * Routes through pump.fun for tokens on bonding curve, Jupiter for graduated tokens
+./apps/executor/src/chains/solana/solanaExecutor.ts-289-   *
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-346-      if (tokenInfo && !tokenInfo.graduated) {
+./apps/executor/src/chains/solana/solanaExecutor.ts:347:        // Use pump.fun bonding curve
+./apps/executor/src/chains/solana/solanaExecutor.ts:348:        console.log('[SolanaExecutor] Token on bonding curve, using pump.fun');
+./apps/executor/src/chains/solana/solanaExecutor.ts-349-        const result = await this.buyViaPumpFun(tokenMint, netAmount);
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-596-      if (tokenInfo && !tokenInfo.graduated) {
+./apps/executor/src/chains/solana/solanaExecutor.ts:597:        // Use pump.fun bonding curve
+./apps/executor/src/chains/solana/solanaExecutor.ts:598:        console.log('[SolanaExecutor] Token on bonding curve, using pump.fun');
+./apps/executor/src/chains/solana/solanaExecutor.ts-599-        const result = await this.sellViaPumpFun(tokenMint, tokenAmount);
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-759-  /**
+./apps/executor/src/chains/solana/solanaExecutor.ts:760:   * Buy via pump.fun bonding curve
+./apps/executor/src/chains/solana/solanaExecutor.ts-761-   */
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-765-  ): Promise<{ txHash: string; tokensReceived: number }> {
+./apps/executor/src/chains/solana/solanaExecutor.ts:766:    console.log(`[SolanaExecutor] Executing pump.fun buy of ${solAmount} SOL`);
+./apps/executor/src/chains/solana/solanaExecutor.ts-767-
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-781-
+./apps/executor/src/chains/solana/solanaExecutor.ts:782:      console.log(`[SolanaExecutor] pump.fun buy successful: ${result.signature}`);
+./apps/executor/src/chains/solana/solanaExecutor.ts-783-
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-788-    } catch (error) {
+./apps/executor/src/chains/solana/solanaExecutor.ts:789:      console.error('[SolanaExecutor] pump.fun buy failed:', error);
+./apps/executor/src/chains/solana/solanaExecutor.ts-790-      throw error;
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-794-  /**
+./apps/executor/src/chains/solana/solanaExecutor.ts:795:   * Sell via pump.fun bonding curve
+./apps/executor/src/chains/solana/solanaExecutor.ts-796-   */
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-800-  ): Promise<{ txHash: string; solReceived: number }> {
+./apps/executor/src/chains/solana/solanaExecutor.ts:801:    console.log(`[SolanaExecutor] Executing pump.fun sell of ${tokenAmount} tokens`);
+./apps/executor/src/chains/solana/solanaExecutor.ts-802-
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-816-
+./apps/executor/src/chains/solana/solanaExecutor.ts:817:      console.log(`[SolanaExecutor] pump.fun sell successful: ${result.signature}`);
+./apps/executor/src/chains/solana/solanaExecutor.ts-818-
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-823-    } catch (error) {
+./apps/executor/src/chains/solana/solanaExecutor.ts:824:      console.error('[SolanaExecutor] pump.fun sell failed:', error);
+./apps/executor/src/chains/solana/solanaExecutor.ts-825-      throw error;
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-964-  /**
+./apps/executor/src/chains/solana/solanaExecutor.ts:965:   * Buy via pump.fun bonding curve with external keypair
+./apps/executor/src/chains/solana/solanaExecutor.ts-966-   *
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-979-  ): Promise<{ txHash: string; tokensReceived: bigint; actualSolSpent: number }> {
+./apps/executor/src/chains/solana/solanaExecutor.ts:980:    console.log(`[SolanaExecutor] Executing pump.fun buy of ${solAmount} SOL with external keypair`);
+./apps/executor/src/chains/solana/solanaExecutor.ts-981-
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-994-
+./apps/executor/src/chains/solana/solanaExecutor.ts:995:      // v3.5: For pump.fun, Jito integration would require modifying the PumpFunClient
+./apps/executor/src/chains/solana/solanaExecutor.ts:996:      // to return unsigned transactions. For now, pump.fun sends directly.
+./apps/executor/src/chains/solana/solanaExecutor.ts-997-      const result = await client.buy({
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-1010-
+./apps/executor/src/chains/solana/solanaExecutor.ts:1011:      console.log(`[SolanaExecutor] pump.fun buy successful: ${result.signature}`);
+./apps/executor/src/chains/solana/solanaExecutor.ts-1012-      console.log(`[SolanaExecutor] Actual SOL spent: ${actualSolSpent} (requested: ${solAmount})`);
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-1019-    } catch (error) {
+./apps/executor/src/chains/solana/solanaExecutor.ts:1020:      console.error('[SolanaExecutor] pump.fun buy with keypair failed:', error);
+./apps/executor/src/chains/solana/solanaExecutor.ts-1021-      throw error;
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-1327-  /**
+./apps/executor/src/chains/solana/solanaExecutor.ts:1328:   * v4.6: Sell via pump.fun/pump.pro bonding curve with RAW token amount (BigInt)
+./apps/executor/src/chains/solana/solanaExecutor.ts-1329-   * This method accepts raw token amount directly, avoiding decimals conversion bugs.
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-1341-  ): Promise<{ txHash: string; solReceived: bigint }> {
+./apps/executor/src/chains/solana/solanaExecutor.ts:1342:    const programName = options?.programId?.toBase58().startsWith('pro') ? 'pump.pro' : 'pump.fun';
+./apps/executor/src/chains/solana/solanaExecutor.ts-1343-    console.log(`[SolanaExecutor] v4.6 RAW: Executing ${programName} sell of ${tokensRaw} raw tokens with external keypair`);
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-1480-  /**
+./apps/executor/src/chains/solana/solanaExecutor.ts:1481:   * Sell via pump.fun/pump.pro bonding curve with external keypair
+./apps/executor/src/chains/solana/solanaExecutor.ts-1482-   * DEPRECATED: Use sellViaPumpFunWithKeypairRaw instead
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-1497-  ): Promise<{ txHash: string; solReceived: bigint }> {
+./apps/executor/src/chains/solana/solanaExecutor.ts:1498:    const programName = options?.programId?.toBase58().startsWith('pro') ? 'pump.pro' : 'pump.fun';
+./apps/executor/src/chains/solana/solanaExecutor.ts-1499-    console.log(`[SolanaExecutor] Executing ${programName} sell of ${tokenAmount} tokens with external keypair`);
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-1523-
+./apps/executor/src/chains/solana/solanaExecutor.ts:1524:      // v3.5: pump.fun sends directly, no Jito integration at this level
+./apps/executor/src/chains/solana/solanaExecutor.ts-1525-      // AUDIT FIX: Pass programId to sell method for pump.pro support
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-1648-  /**
+./apps/executor/src/chains/solana/solanaExecutor.ts:1649:   * Get bonding curve state for a pump.fun token (legacy - pump.fun only)
+./apps/executor/src/chains/solana/solanaExecutor.ts-1650-   */
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-1673-   * AUDIT FIX: Get bonding curve state with program detection
+./apps/executor/src/chains/solana/solanaExecutor.ts:1674:   * Checks both pump.fun and pump.pro programs to find active bonding curve
+./apps/executor/src/chains/solana/solanaExecutor.ts-1675-   *
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-1742-        } catch {
+./apps/executor/src/chains/solana/solanaExecutor.ts:1743:          // Default to 6 decimals (most common for pump.fun tokens)
+./apps/executor/src/chains/solana/solanaExecutor.ts-1744-          console.warn(`[SolanaExecutor] Could not fetch decimals for ${tokenMint}, defaulting to 6`);
+--
+./apps/executor/src/chains/solana/solanaExecutor.ts-1755-   * P0-3 FIX: Detect which token program owns the mint
+./apps/executor/src/chains/solana/solanaExecutor.ts:1756:   * Returns TOKEN_2022_PROGRAM_ID for pump.fun tokens, TOKEN_PROGRAM_ID otherwise
+./apps/executor/src/chains/solana/solanaExecutor.ts-1757-   */
+--
+./apps/executor/src/chains/solana/pumpFun.ts-39-export const PUMP_FUN_GLOBAL_STATE = PROGRAM_IDS.PUMP_FUN_GLOBAL;
+./apps/executor/src/chains/solana/pumpFun.ts:40:// AUDIT FIX: pump.pro program ID (upgraded pump.fun, late 2025)
+./apps/executor/src/chains/solana/pumpFun.ts-41-export const PUMP_PRO_PROGRAM_ID = PROGRAM_IDS.PUMP_PRO;
+--
+./apps/executor/src/chains/solana/pumpFun.ts-51-
+./apps/executor/src/chains/solana/pumpFun.ts:52:// Discriminators for pump.fun instructions
+./apps/executor/src/chains/solana/pumpFun.ts-53-export const PUMP_FUN_DISCRIMINATORS = {
+--
+./apps/executor/src/chains/solana/pumpFun.ts-163-/**
+./apps/executor/src/chains/solana/pumpFun.ts:164: * Check if token has graduated from pump.fun to Raydium
+./apps/executor/src/chains/solana/pumpFun.ts-165- */
+--
+./apps/executor/src/chains/solana/pumpFun.ts-237- * Build buy instruction accounts
+./apps/executor/src/chains/solana/pumpFun.ts:238: * This returns the account metas needed for a pump.fun buy
+./apps/executor/src/chains/solana/pumpFun.ts-239- */
+--
+./apps/executor/src/chains/solana/pumpFun.ts-314-const PUMP_FUN_EVENT_AUTHORITY = new PublicKey('Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1');
+./apps/executor/src/chains/solana/pumpFun.ts:315:// Fee program for pump.fun (Sep 2025 update) - required for buy/sell instructions
+./apps/executor/src/chains/solana/pumpFun.ts-316-const PUMP_FEE_PROGRAM = new PublicKey('pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ');
+./apps/executor/src/chains/solana/pumpFun.ts:317:// AUDIT FIX: pump.pro program (upgraded pump.fun, late 2025)
+./apps/executor/src/chains/solana/pumpFun.ts-318-const PUMP_PRO_PROGRAM = new PublicKey(PUMP_PRO_PROGRAM_ID);
+--
+./apps/executor/src/chains/solana/pumpFun.ts-348-/**
+./apps/executor/src/chains/solana/pumpFun.ts:349: * Derive bonding curve PDA for a mint (pump.fun only - legacy)
+./apps/executor/src/chains/solana/pumpFun.ts-350- */
+--
+./apps/executor/src/chains/solana/pumpFun.ts-358-/**
+./apps/executor/src/chains/solana/pumpFun.ts:359: * AUDIT FIX: Derive bonding curve PDA for any pump program (pump.fun or pump.pro)
+./apps/executor/src/chains/solana/pumpFun.ts-360- */
+--
+./apps/executor/src/chains/solana/pumpFun.ts-372- * AUDIT FIX: Find bonding curve and determine which program owns it
+./apps/executor/src/chains/solana/pumpFun.ts:373: * Checks both pump.fun and pump.pro programs to find the active bonding curve
+./apps/executor/src/chains/solana/pumpFun.ts-374- *
+--
+./apps/executor/src/chains/solana/pumpFun.ts-407- * Derive global volume accumulator PDA
+./apps/executor/src/chains/solana/pumpFun.ts:408: * Required by pump.fun since August 2025 update for volume tracking
+./apps/executor/src/chains/solana/pumpFun.ts-409- * AUDIT FIX: Added programId parameter for pump.pro support
+--
+./apps/executor/src/chains/solana/pumpFun.ts-419- * Derive user volume accumulator PDA
+./apps/executor/src/chains/solana/pumpFun.ts:420: * Required by pump.fun since August 2025 update for per-user volume tracking
+./apps/executor/src/chains/solana/pumpFun.ts-421- * AUDIT FIX: Added programId parameter for pump.pro support
+--
+./apps/executor/src/chains/solana/pumpFun.ts-431- * Derive fee config PDA
+./apps/executor/src/chains/solana/pumpFun.ts:432: * Required by pump.fun since September 2025 update for fee handling
+./apps/executor/src/chains/solana/pumpFun.ts-433- * AUDIT FIX: Added programId parameter for pump.pro support
+--
+./apps/executor/src/chains/solana/pumpFun.ts-446- * Derive creator vault PDA
+./apps/executor/src/chains/solana/pumpFun.ts:447: * Required by pump.fun for creator fee distribution (late 2025 update)
+./apps/executor/src/chains/solana/pumpFun.ts-448- * This replaced SysvarRent in the account list
+--
+./apps/executor/src/chains/solana/pumpFun.ts-459- * Derive associated bonding curve token account
+./apps/executor/src/chains/solana/pumpFun.ts:460: * pump.fun uses Token-2022 program for all tokens
+./apps/executor/src/chains/solana/pumpFun.ts-461- */
+--
+./apps/executor/src/chains/solana/pumpFun.ts-471- * Get or create associated token account instruction
+./apps/executor/src/chains/solana/pumpFun.ts:472: * pump.fun uses Token-2022 program for all tokens
+./apps/executor/src/chains/solana/pumpFun.ts-473- */
+--
+./apps/executor/src/chains/solana/pumpFun.ts-504- * Detect which token program a mint uses by checking the mint account owner.
+./apps/executor/src/chains/solana/pumpFun.ts:505: * pump.fun tokens created after mid-2024 use Token-2022, but some older tokens
+./apps/executor/src/chains/solana/pumpFun.ts-506- * or tokens from other sources may use the standard SPL Token program.
+--
+./apps/executor/src/chains/solana/pumpFun.ts-533-    console.error(`[getTokenProgramForMint] Error detecting token program for ${mint.toBase58()}:`, error);
+./apps/executor/src/chains/solana/pumpFun.ts:534:    // Default to Token-2022 as most pump.fun tokens use it
+./apps/executor/src/chains/solana/pumpFun.ts-535-    return TOKEN_2022_PROGRAM_ID;
+--
+./apps/executor/src/chains/solana/pumpFun.ts-566-/**
+./apps/executor/src/chains/solana/pumpFun.ts:567: * PumpFunClient - handles all pump.fun transactions
+./apps/executor/src/chains/solana/pumpFun.ts-568- */
+--
+./apps/executor/src/chains/solana/pumpFun.ts-609-  /**
+./apps/executor/src/chains/solana/pumpFun.ts:610:   * Execute a buy on pump.fun bonding curve
+./apps/executor/src/chains/solana/pumpFun.ts-611-   * AUDIT FIX: Detects correct token program (Token-2022 or SPL Token) dynamically
+--
+./apps/executor/src/chains/solana/pumpFun.ts-621-    // AUDIT FIX: Detect which token program the mint uses (Token-2022 or standard SPL)
+./apps/executor/src/chains/solana/pumpFun.ts:622:    // Most pump.fun tokens use Token-2022, but some older tokens may use standard SPL
+./apps/executor/src/chains/solana/pumpFun.ts-623-    const tokenProgramId = await getTokenProgramForMint(this.connection, mint);
+--
+./apps/executor/src/chains/solana/pumpFun.ts-635-
+./apps/executor/src/chains/solana/pumpFun.ts:636:    // Derive volume accumulator PDAs (required since August 2025 pump.fun update)
+./apps/executor/src/chains/solana/pumpFun.ts-637-    const [globalVolumeAccumulator] = deriveGlobalVolumeAccumulatorPDA();
+--
+./apps/executor/src/chains/solana/pumpFun.ts-639-
+./apps/executor/src/chains/solana/pumpFun.ts:640:    // Derive fee config PDA (required since September 2025 pump.fun update)
+./apps/executor/src/chains/solana/pumpFun.ts-641-    const { global, eventAuthority, feeProgram } = getProgramAccounts(PUMP_FUN_PROGRAM);
+--
+./apps/executor/src/chains/solana/pumpFun.ts-658-
+./apps/executor/src/chains/solana/pumpFun.ts:659:    // Derive creator vault PDA (required since late 2025 pump.fun update)
+./apps/executor/src/chains/solana/pumpFun.ts-660-    // This replaced SysvarRent in the account list
+--
+./apps/executor/src/chains/solana/pumpFun.ts-765-  /**
+./apps/executor/src/chains/solana/pumpFun.ts:766:   * Execute a sell on pump.fun/pump.pro bonding curve
+./apps/executor/src/chains/solana/pumpFun.ts-767-   * AUDIT FIX: Detects correct token program (Token-2022 or SPL Token) dynamically
+--
+./apps/executor/src/chains/solana/pumpFun.ts-774-
+./apps/executor/src/chains/solana/pumpFun.ts:775:    // AUDIT FIX: Use provided programId or default to pump.fun
+./apps/executor/src/chains/solana/pumpFun.ts-776-    const effectiveProgram = programId ?? PUMP_FUN_PROGRAM;
+./apps/executor/src/chains/solana/pumpFun.ts:777:    const programName = effectiveProgram.equals(PUMP_PRO_PROGRAM) ? 'pump.pro' : 'pump.fun';
+./apps/executor/src/chains/solana/pumpFun.ts-778-
+--
+./apps/executor/src/chains/solana/pumpFun.ts-782-    // This is critical because some tokens may use the standard SPL Token program
+./apps/executor/src/chains/solana/pumpFun.ts:783:    // while most pump.fun tokens use Token-2022
+./apps/executor/src/chains/solana/pumpFun.ts-784-    const tokenProgramId = await getTokenProgramForMint(this.connection, mint);
+--
+./apps/executor/src/tests/testSolanaFlow.ts-153-
+./apps/executor/src/tests/testSolanaFlow.ts:154:  // Known pump.fun token for verification (use a real mainnet token)
+./apps/executor/src/tests/testSolanaFlow.ts-155-  const testMints = [
+--
+./apps/executor/src/tests/testSolanaFlow.ts-404-      log.warn('\nSkipping live trade: TEST_PUMP_FUN_MINT not set');
+./apps/executor/src/tests/testSolanaFlow.ts:405:      log.info('Set TEST_PUMP_FUN_MINT to a pump.fun token address to test');
+./apps/executor/src/tests/testSolanaFlow.ts-406-    }
+./apps/executor/src/tests/testSolanaFlow.ts-407-  } else if (executeTrade && !useMainnet) {
+./apps/executor/src/tests/testSolanaFlow.ts:408:    log.warn('\nSkipping live trade: pump.fun only exists on mainnet');
+./apps/executor/src/tests/testSolanaFlow.ts-409-    log.info('Use --mainnet --trade to execute a real trade');
+--
+./apps/executor/src/tests/testWebSocket.ts-122-
+./apps/executor/src/tests/testWebSocket.ts:123:// Test pump.fun program subscription (mainnet only)
+./apps/executor/src/tests/testWebSocket.ts-124-async function testPumpFunSubscription(): Promise<void> {
+./apps/executor/src/tests/testWebSocket.ts:125:  console.log('\n🎯 Testing pump.fun Program Subscription\n');
+./apps/executor/src/tests/testWebSocket.ts-126-
+--
+./apps/executor/src/tests/testWebSocket.ts-131-    const timeout = setTimeout(() => {
+./apps/executor/src/tests/testWebSocket.ts:132:      log.warn('No pump.fun activity detected in 30 seconds');
+./apps/executor/src/tests/testWebSocket.ts:133:      log.info('This is normal - pump.fun may not have new tokens during test');
+./apps/executor/src/tests/testWebSocket.ts-134-      ws.close();
+--
+./apps/executor/src/tests/testWebSocket.ts-144-
+./apps/executor/src/tests/testWebSocket.ts:145:      // Subscribe to pump.fun program logs
+./apps/executor/src/tests/testWebSocket.ts-146-      const subscribeMessage = {
+--
+./apps/executor/src/tests/testWebSocket.ts-156-      ws.send(JSON.stringify(subscribeMessage));
+./apps/executor/src/tests/testWebSocket.ts:157:      log.info(`Subscribed to pump.fun program: ${PROGRAM_IDS.PUMP_FUN}`);
+./apps/executor/src/tests/testWebSocket.ts-158-      log.info('Waiting for activity (up to 30s)...');
+--
+./apps/executor/src/tests/testWebSocket.ts-177-          if (messageCount === 1) {
+./apps/executor/src/tests/testWebSocket.ts:178:            log.success('Receiving pump.fun activity!');
+./apps/executor/src/tests/testWebSocket.ts-179-          }
+--
+./apps/executor/src/tests/testWebSocket.ts-186-          if (messageCount >= 3) {
+./apps/executor/src/tests/testWebSocket.ts:187:            log.success(`Received ${messageCount} pump.fun transactions`);
+./apps/executor/src/tests/testWebSocket.ts-188-            clearTimeout(timeout);
+--
+./apps/executor/src/tests/testWebSocket.ts-217-
+./apps/executor/src/tests/testWebSocket.ts:218:    // Test pump.fun subscription on mainnet only
+./apps/executor/src/tests/testWebSocket.ts-219-    if (useMainnet) {
+--
+./apps/executor/src/tests/testWebSocket.ts-221-    } else {
+./apps/executor/src/tests/testWebSocket.ts:222:      log.warn('\nSkipping pump.fun subscription test (mainnet only)');
+./apps/executor/src/tests/testWebSocket.ts:223:      log.info('Use --mainnet to test pump.fun listener');
+./apps/executor/src/tests/testWebSocket.ts-224-    }
+
+## moonshot / bonk / letsbonk
+./packages/shared/tsconfig.tsbuildinfo:1:{"root":["./src/config.ts","./src/constants.ts","./src/errors.ts","./src/fees.ts","./src/health.ts","./src/idempotency.ts","./src/index.ts","./src/logger.ts","./src/monitoring.ts","./src/supabase.ts","./src/types.ts","./src/analysis/tokenAnalysis.ts","./src/analyzer/hardStops.ts","./src/api/birdeye.ts","./src/api/bonkfun.ts","./src/api/chainDetector.ts","./src/api/dexscreener.ts","./src/api/goplus.ts","./src/api/launchpadDetector.ts","./src/api/moonshot.ts","./src/api/pumpfun.ts","./src/api/rateLimiter.ts","./src/api/rugcheck.ts","./src/api/tokenData.ts","./src/cache/speedCache.ts","./src/chains/solana.ts","./src/crypto/encryption.ts","./src/crypto/index.ts","./src/crypto/keypairs.ts","./src/rpc/multiRpc.ts","./src/security/auditLog.ts","./src/security/gracefulDegradation.ts","./src/security/healthCheck.ts","./src/security/index.ts","./src/security/secureLogger.ts","./src/strategies/types.ts","./src/tiers/tierDecision.test.ts","./src/tiers/tierDecision.ts"],"version":"5.9.3"}
+--
+./packages/shared/src/tiers/tierDecision.ts-13-  'pumpswap',
+./packages/shared/src/tiers/tierDecision.ts:14:  'moonshot',
+./packages/shared/src/tiers/tierDecision.ts:15:  'bonk.fun',
+./packages/shared/src/tiers/tierDecision.ts-16-  'believe.app',
+--
+./packages/shared/src/tiers/tierDecision.ts-34-  'pump_fun': 'pump.fun',
+./packages/shared/src/tiers/tierDecision.ts:35:  'moonshot': 'moonshot',
+./packages/shared/src/tiers/tierDecision.ts:36:  'bonk': 'bonk.fun',
+./packages/shared/src/tiers/tierDecision.ts:37:  'bonkfun': 'bonk.fun',
+./packages/shared/src/tiers/tierDecision.ts-38-  'believe': 'believe.app',
+--
+./packages/shared/src/tiers/tierDecision.test.ts-17-      expect(isTrustedSource('pumpswap')).toBe(true);
+./packages/shared/src/tiers/tierDecision.test.ts:18:      expect(isTrustedSource('moonshot')).toBe(true);
+./packages/shared/src/tiers/tierDecision.test.ts:19:      expect(isTrustedSource('bonk.fun')).toBe(true);
+./packages/shared/src/tiers/tierDecision.test.ts-20-      expect(isTrustedSource('believe.app')).toBe(true);
+--
+./packages/shared/src/tiers/tierDecision.test.ts-99-      const input: TierDecisionInput = {
+./packages/shared/src/tiers/tierDecision.test.ts:100:        source: 'moonshot',
+./packages/shared/src/tiers/tierDecision.test.ts-101-        isManualSnipe: false,
+--
+./packages/shared/src/tiers/tierDecision.test.ts-111-      const input: TierDecisionInput = {
+./packages/shared/src/tiers/tierDecision.test.ts:112:        source: 'moonshot',
+./packages/shared/src/tiers/tierDecision.test.ts-113-        isManualSnipe: false,
+--
+./packages/shared/src/strategies/types.ts-73-    displayName: 'Moon Bag',
+./packages/shared/src/strategies/types.ts:74:    description: 'Sell 75% at TP, keep 25% for moonshot potential.',
+./packages/shared/src/strategies/types.ts-75-    takeProfitPercent: 50,
+--
+./packages/shared/src/api/moonshot.ts-8- * To add Moonshot support in the future:
+./packages/shared/src/api/moonshot.ts:9: * 1. Implement WebSocket monitor in apps/hunter/src/monitors/moonshot.ts
+./packages/shared/src/api/moonshot.ts-10- * 2. Restore this API file
+--
+./packages/shared/src/api/moonshot.ts-80-export function getMoonshotLinks(mint: string): {
+./packages/shared/src/api/moonshot.ts:81:  moonshot: string;
+./packages/shared/src/api/moonshot.ts-82-  dexscreener: string;
+--
+./packages/shared/src/api/moonshot.ts-86-  return {
+./packages/shared/src/api/moonshot.ts:87:    moonshot: `https://moonshot.cc/token/${mint}`,
+./packages/shared/src/api/moonshot.ts-88-    dexscreener: `https://dexscreener.com/solana/${mint}`,
+--
+./packages/shared/src/api/bonkfun.ts-3- *
+./packages/shared/src/api/bonkfun.ts:4: * DEPRECATED: The Bonk.fun API (api.bonk.fun) does not exist.
+./packages/shared/src/api/bonkfun.ts-5- * This file is kept as a stub for backward compatibility.
+--
+./packages/shared/src/api/bonkfun.ts-20-  targetSol: number;
+./packages/shared/src/api/bonkfun.ts:21:  bonkBurned: number;
+./packages/shared/src/api/bonkfun.ts:22:  bonkRewards: number;
+./packages/shared/src/api/bonkfun.ts-23-  priceInSol: number;
+--
+./packages/shared/src/api/bonkfun.ts-89-export function getBonkFunLinks(mint: string): {
+./packages/shared/src/api/bonkfun.ts:90:  bonkfun: string;
+./packages/shared/src/api/bonkfun.ts-91-  dexscreener: string;
+--
+./packages/shared/src/api/bonkfun.ts-95-  return {
+./packages/shared/src/api/bonkfun.ts:96:    bonkfun: `https://bonk.fun/token/${mint}`,
+./packages/shared/src/api/bonkfun.ts-97-    dexscreener: `https://dexscreener.com/solana/${mint}`,
+--
+./packages/shared/src/api/launchpadDetector.ts-16-
+./packages/shared/src/api/launchpadDetector.ts:17:// NOTE: moonshot and bonkfun imports removed - APIs are stubbed out
+./packages/shared/src/api/launchpadDetector.ts-18-
+--
+./packages/shared/src/index.ts-60-export * as rugcheck from './api/rugcheck.js';
+./packages/shared/src/index.ts:61:export * as moonshot from './api/moonshot.js';
+./packages/shared/src/index.ts:62:export * as bonkfun from './api/bonkfun.js';
+./packages/shared/src/index.ts-63-export * as launchpadDetector from './api/launchpadDetector.js';
+--
+./packages/shared/src/constants.ts-146-    {
+./packages/shared/src/constants.ts:147:      name: 'moonshot',
+./packages/shared/src/constants.ts-148-      programId: 'MoonCVVNZFSYkqNXP6bxHLPL6QQJiMagDL3qcqUQTrG',
+--
+./packages/shared/src/constants.ts-151-    {
+./packages/shared/src/constants.ts:152:      name: 'bonk.fun',
+./packages/shared/src/constants.ts-153-      programId: 'BonKyiRTJNYFweQirNMBGGqPnUqUwUwDsvgZBtpUgMwa',
+
+## launchpad(s) UI language
+revamp.md-51-This prevents:
+revamp.md:52:- Clean addition of new launchpads
+revamp.md-53-- Reliable migration handling
+--
+docs/revamp/discovery.md-3-## 0. Purpose
+docs/revamp/discovery.md:4:Define the discovery layer refactor required to make RAPTOR launchpad-agnostic, with **Bags** as the primary source.
+docs/revamp/discovery.md-5-
+--
+docs/revamp/INDEX.md-2-
+docs/revamp/INDEX.md:3:This directory contains the **canonical, phase-locked documentation** for the RAPTOR launchpad revamp (pump.fun → Bags.fm / Meteora) **and the required fresh database rebuild**.
+docs/revamp/INDEX.md-4-
+--
+apps/hunter/src/index.ts-2-// RAPTOR v3.1 Hunter Worker
+apps/hunter/src/index.ts:3:// Auto-hunt worker: launchpad monitoring, job queue consumer, position exits
+apps/hunter/src/index.ts-4-// =============================================================================
+--
+apps/hunter/src/sources/index.ts-2-// RAPTOR Phase 1-4: Discovery Sources
+apps/hunter/src/sources/index.ts:3:// Exports for launchpad discovery layer
+apps/hunter/src/sources/index.ts-4-// =============================================================================
+--
+apps/hunter/src/loops/opportunities.ts-2-// RAPTOR v4.3 Opportunity Loop
+apps/hunter/src/loops/opportunities.ts:3:// Monitors launchpads and creates qualified opportunities with snipe modes
+apps/hunter/src/loops/opportunities.ts-4-// =============================================================================
+--
+apps/hunter/src/loops/opportunities.ts-88-
+apps/hunter/src/loops/opportunities.ts:89:    console.log('[OpportunityLoop] Monitoring launchpads');
+apps/hunter/src/loops/opportunities.ts-90-  }
+--
+apps/hunter/src/loops/opportunities.ts-98-  /**
+apps/hunter/src/loops/opportunities.ts:99:   * Handle a new token detection from any launchpad
+apps/hunter/src/loops/opportunities.ts-100-   * v4.3: Added metadata fetching based on per-user snipe mode from strategy
+--
+apps/hunter/src/loops/opportunities.ts-472-
+apps/hunter/src/loops/opportunities.ts:473:    // Check allowed launchpads
+apps/hunter/src/loops/opportunities.ts:474:    if (!strategy.allowed_launchpads.includes(opportunity.source)) {
+apps/hunter/src/loops/opportunities.ts-475-      return false;
+--
+packages/shared/src/types.ts-125-  min_liquidity_sol: number;
+packages/shared/src/types.ts:126:  allowed_launchpads: string[];
+packages/shared/src/types.ts-127-
+--
+packages/shared/src/types.ts-563-  symbol: string;
+packages/shared/src/types.ts:564:  launchpad: string;
+packages/shared/src/types.ts-565-  liquidity: bigint;
+--
+packages/shared/src/types.ts-592-  maxPoolPercent: number;
+packages/shared/src/types.ts:593:  launchpads: LaunchpadConfig[];
+packages/shared/src/types.ts-594-  dexes: DexConfig[];
+--
+packages/shared/src/types.ts-665-  maxPoolPercent: number;
+packages/shared/src/types.ts:666:  launchpads: SolanaLaunchpadConfig[];
+packages/shared/src/types.ts-667-  dexes: SolanaDexConfig[];
+--
+packages/shared/src/supabase.ts-1432-    min_liquidity_sol: 0,
+packages/shared/src/supabase.ts:1433:    allowed_launchpads: ['pump.fun'],
+packages/shared/src/supabase.ts-1434-    // Cooldown
+--
+packages/shared/src/constants.ts-14-  maxPoolPercent: 30,
+packages/shared/src/constants.ts:15:  launchpads: [
+packages/shared/src/constants.ts-16-    {
+--
+packages/shared/src/constants.ts-52-  maxPoolPercent: 30,
+packages/shared/src/constants.ts:53:  launchpads: [
+packages/shared/src/constants.ts-54-    {
+--
+packages/shared/src/constants.ts-95-  maxPoolPercent: 30,
+packages/shared/src/constants.ts:96:  launchpads: [
+packages/shared/src/constants.ts-97-    {
+--
+packages/shared/src/constants.ts-139-  maxPoolPercent: 30,
+packages/shared/src/constants.ts:140:  launchpads: [
+packages/shared/src/constants.ts-141-    {
+--
+packages/shared/src/tiers/tierDecision.ts-4- * Determines whether to use FAST (<100ms) or FULL (1-3s) analysis:
+packages/shared/src/tiers/tierDecision.ts:5: * - FAST: Trusted launchpad + fresh token + not manual snipe
+packages/shared/src/tiers/tierDecision.ts-6- * - FULL: Manual snipes, unknown sources, old tokens
+--
+packages/shared/src/tiers/tierDecision.ts-8-
+packages/shared/src/tiers/tierDecision.ts:9:// Trusted launchpad sources that get fast-path analysis
+packages/shared/src/tiers/tierDecision.ts-10-export const TRUSTED_SOURCES = new Set([
+--
+packages/shared/src/tiers/tierDecision.ts-84- * FAST tier (<100ms) requirements:
+packages/shared/src/tiers/tierDecision.ts:85: * 1. Token from trusted launchpad
+packages/shared/src/tiers/tierDecision.ts-86- * 2. Not a manual snipe (manual = user wants full analysis)
+--
+packages/shared/src/tiers/tierDecision.ts-156- * Add a source to trusted list at runtime
+packages/shared/src/tiers/tierDecision.ts:157: * (useful for adding new launchpads without restart)
+packages/shared/src/tiers/tierDecision.ts-158- */
+--
+packages/shared/src/tiers/tierDecision.ts-164- * Remove a source from trusted list at runtime
+packages/shared/src/tiers/tierDecision.ts:165: * (useful if a launchpad becomes compromised)
+packages/shared/src/tiers/tierDecision.ts-166- */
+--
+packages/shared/src/chains/solana.ts-141-/**
+packages/shared/src/chains/solana.ts:142: * Check if a program ID is a known launchpad
+packages/shared/src/chains/solana.ts-143- * @param programId - Program ID to check
+--
+packages/shared/src/chains/solana.ts-146-export function identifyLaunchpad(programId: string): string | null {
+packages/shared/src/chains/solana.ts:147:  const launchpad = SOLANA_CONFIG.launchpads.find((lp) => lp.programId === programId);
+packages/shared/src/chains/solana.ts:148:  return launchpad?.name || null;
+packages/shared/src/chains/solana.ts-149-}
+--
+packages/shared/src/index.ts-58-
+packages/shared/src/index.ts:59:// Solana launchpad APIs
+packages/shared/src/index.ts-60-export * as rugcheck from './api/rugcheck.js';
+--
+packages/shared/src/index.ts-62-export * as bonkfun from './api/bonkfun.js';
+packages/shared/src/index.ts:63:export * as launchpadDetector from './api/launchpadDetector.js';
+packages/shared/src/index.ts-64-
+--
+packages/shared/src/api/launchpadDetector.ts-18-
+packages/shared/src/api/launchpadDetector.ts:19:// Simplified to only working launchpads
+packages/shared/src/api/launchpadDetector.ts-20-export type LaunchpadType = 'pumpfun' | 'raydium' | 'unknown';
+--
+packages/shared/src/api/launchpadDetector.ts-22-export interface LaunchpadInfo {
+packages/shared/src/api/launchpadDetector.ts:23:  launchpad: LaunchpadType;
+packages/shared/src/api/launchpadDetector.ts-24-  status: 'bonding' | 'migrating' | 'graduated' | 'trading';
+--
+packages/shared/src/api/launchpadDetector.ts-42-  // Launchpad info
+packages/shared/src/api/launchpadDetector.ts:43:  launchpad: LaunchpadInfo;
+packages/shared/src/api/launchpadDetector.ts-44-
+--
+packages/shared/src/api/launchpadDetector.ts-67-  links: {
+packages/shared/src/api/launchpadDetector.ts:68:    launchpad: string;
+packages/shared/src/api/launchpadDetector.ts-69-    dexscreener: string;
+--
+packages/shared/src/api/launchpadDetector.ts-78-/**
+packages/shared/src/api/launchpadDetector.ts:79: * Detect launchpad and get unified token data
+packages/shared/src/api/launchpadDetector.ts-80- * Simplified to pump.fun + DexScreener fallback only
+--
+packages/shared/src/api/launchpadDetector.ts-112-/**
+packages/shared/src/api/launchpadDetector.ts:113: * Quick launchpad detection (no data fetch)
+packages/shared/src/api/launchpadDetector.ts-114- * Simplified to pump.fun only
+--
+packages/shared/src/api/launchpadDetector.ts-193-    createdAt: token.createdTimestamp,
+packages/shared/src/api/launchpadDetector.ts:194:    launchpad: {
+packages/shared/src/api/launchpadDetector.ts:195:      launchpad: 'pumpfun',
+packages/shared/src/api/launchpadDetector.ts-196-      status,
+--
+packages/shared/src/api/launchpadDetector.ts-209-    links: {
+packages/shared/src/api/launchpadDetector.ts:210:      launchpad: links.pumpfun,
+packages/shared/src/api/launchpadDetector.ts-211-      dexscreener: links.dexscreener,
+--
+packages/shared/src/api/launchpadDetector.ts-238-    createdAt: data.pairCreatedAt || 0,
+packages/shared/src/api/launchpadDetector.ts:239:    launchpad: {
+packages/shared/src/api/launchpadDetector.ts:240:      launchpad: 'raydium',
+packages/shared/src/api/launchpadDetector.ts-241-      status: 'trading',
+--
+packages/shared/src/api/launchpadDetector.ts-254-    links: {
+packages/shared/src/api/launchpadDetector.ts:255:      launchpad: `https://raydium.io/swap/?inputMint=sol&outputMint=${mint}`,
+packages/shared/src/api/launchpadDetector.ts-256-      dexscreener: `https://dexscreener.com/solana/${mint}`,
+--
+packages/shared/src/api/launchpadDetector.ts-307-/**
+packages/shared/src/api/launchpadDetector.ts:308: * Get launchpad emoji
+packages/shared/src/api/launchpadDetector.ts-309- */
+packages/shared/src/api/launchpadDetector.ts:310:export function getLaunchpadEmoji(launchpad: LaunchpadType): string {
+packages/shared/src/api/launchpadDetector.ts:311:  switch (launchpad) {
+packages/shared/src/api/launchpadDetector.ts-312-    case 'pumpfun':
+--
+packages/shared/src/api/launchpadDetector.ts-321-/**
+packages/shared/src/api/launchpadDetector.ts:322: * Get launchpad display name
+packages/shared/src/api/launchpadDetector.ts-323- */
+packages/shared/src/api/launchpadDetector.ts:324:export function getLaunchpadName(launchpad: LaunchpadType): string {
+packages/shared/src/api/launchpadDetector.ts:325:  switch (launchpad) {
+packages/shared/src/api/launchpadDetector.ts-326-    case 'pumpfun':
+--
+packages/shared/src/api/moonshot.ts-10- * 2. Restore this API file
+packages/shared/src/api/moonshot.ts:11: * 3. Add to launchpadDetector.ts
+packages/shared/src/api/moonshot.ts-12- */
+--
+apps/bot/src/handlers/callbacks.ts-2418-
+apps/bot/src/handlers/callbacks.ts:2419:    // Launchpad selection (hunt_launchpads_sol)
+apps/bot/src/handlers/callbacks.ts:2420:    if (data.startsWith('hunt_launchpads_')) {
+apps/bot/src/handlers/callbacks.ts:2421:      const chain = data.replace('hunt_launchpads_', '') as Chain;
+apps/bot/src/handlers/callbacks.ts-2422-      await showLaunchpadSelection(ctx, chain);
+--
+apps/bot/src/handlers/callbacks.ts-2425-
+apps/bot/src/handlers/callbacks.ts:2426:    // Toggle launchpad (hunt_lp_toggle_sol_bags)
+apps/bot/src/handlers/callbacks.ts-2427-    if (data.startsWith('hunt_lp_toggle_')) {
+--
+apps/bot/src/handlers/callbacks.ts-2431-        const chain = rest.substring(0, underscoreIdx) as Chain;
+apps/bot/src/handlers/callbacks.ts:2432:        const launchpad = rest.substring(underscoreIdx + 1);
+apps/bot/src/handlers/callbacks.ts:2433:        await toggleLaunchpad(ctx, chain, launchpad);
+apps/bot/src/handlers/callbacks.ts-2434-        return;
+--
+apps/bot/src/handlers/callbacks.ts-2438-
+apps/bot/src/handlers/callbacks.ts:2439:    // Enable all launchpads (hunt_lp_all_sol)
+apps/bot/src/handlers/callbacks.ts-2440-    if (data.startsWith('hunt_lp_all_')) {
+--
+apps/bot/src/handlers/callbacks.ts-2445-
+apps/bot/src/handlers/callbacks.ts:2446:    // Disable all launchpads (hunt_lp_none_sol)
+apps/bot/src/handlers/callbacks.ts-2447-    if (data.startsWith('hunt_lp_none_')) {
+--
+apps/bot/src/handlers/messages.ts-486- * Show token card with buy options - comprehensive data from all sources
+apps/bot/src/handlers/messages.ts:487: * Uses fast DexScreener first, then launchpad APIs as fallback
+apps/bot/src/handlers/messages.ts-488- */
+--
+apps/bot/src/handlers/messages.ts-495-  // Solana-only path {
+apps/bot/src/handlers/messages.ts:496:    // Fast path: Try DexScreener first (2s timeout), then launchpad detector
+apps/bot/src/handlers/messages.ts:497:    const { dexscreener, launchpadDetector, tokenData, goplus } = await import('@raptor/shared');
+apps/bot/src/handlers/messages.ts-498-
+--
+apps/bot/src/handlers/messages.ts-543-    } else {
+apps/bot/src/handlers/messages.ts:544:      // Not on DexScreener - try launchpad detector (may be bonding curve token)
+apps/bot/src/handlers/messages.ts:545:      const tokenInfo = await launchpadDetector.detectAndFetch(tokenAddress).catch(() => null);
+apps/bot/src/handlers/messages.ts-546-
+apps/bot/src/handlers/messages.ts-547-    if (tokenInfo) {
+apps/bot/src/handlers/messages.ts:548:      const lpEmoji = launchpadDetector.getLaunchpadEmoji(tokenInfo.launchpad.launchpad);
+apps/bot/src/handlers/messages.ts:549:      const lpName = launchpadDetector.getLaunchpadName(tokenInfo.launchpad.launchpad);
+apps/bot/src/handlers/messages.ts-550-
+apps/bot/src/handlers/messages.ts-551-      // Is it a bonding curve token?
+apps/bot/src/handlers/messages.ts:552:      const isBonding = tokenInfo.launchpad.status === 'bonding' || tokenInfo.launchpad.status === 'migrating';
+apps/bot/src/handlers/messages.ts-553-
+--
+apps/bot/src/handlers/messages.ts-555-        // Bonding curve display (PumpFun, Moonshot, Bonk.fun)
+apps/bot/src/handlers/messages.ts:556:        const progressBar = launchpadDetector.formatBondingBar(tokenInfo.launchpad.bondingProgress);
+apps/bot/src/handlers/messages.ts:557:        const statusEmoji = tokenInfo.launchpad.bondingProgress >= 90 ? '🔥' :
+apps/bot/src/handlers/messages.ts:558:          tokenInfo.launchpad.bondingProgress >= 50 ? '📈' : '🌱';
+apps/bot/src/handlers/messages.ts-559-
+--
+apps/bot/src/handlers/messages.ts-581-*${tokenInfo.name}*
+apps/bot/src/handlers/messages.ts:582:${statusEmoji} ${tokenInfo.launchpad.bondingProgress >= 90 ? 'Almost There!' : tokenInfo.launchpad.bondingProgress >= 50 ? 'Growing' : 'New Launch'}
+apps/bot/src/handlers/messages.ts-583-
+--
+apps/bot/src/handlers/messages.ts-588-*Bonding Curve:*
+apps/bot/src/handlers/messages.ts:589:${progressBar} ${tokenInfo.launchpad.bondingProgress.toFixed(1)}%
+apps/bot/src/handlers/messages.ts:590:💎 ${tokenInfo.launchpad.solRaised.toFixed(2)} / ~${tokenInfo.launchpad.targetSol} SOL to graduate
+apps/bot/src/handlers/messages.ts-591-${securitySection}
+--
+apps/bot/src/handlers/messages.ts-593-${LINE}
+apps/bot/src/handlers/messages.ts:594:🔗 [${lpName}](${tokenInfo.links.launchpad}) • [DexScreener](${tokenInfo.links.dexscreener}) • [Solscan](${tokenInfo.links.solscan})
+apps/bot/src/handlers/messages.ts-595-
+--
+apps/bot/src/handlers/messages.ts-621-
+apps/bot/src/handlers/messages.ts:622:        const graduatedFrom = tokenInfo.launchpad.launchpad !== 'raydium' && tokenInfo.launchpad.launchpad !== 'unknown'
+apps/bot/src/handlers/messages.ts-623-          ? `\n🎓 Graduated from ${lpName}`
+--
+apps/bot/src/handlers/messages.ts-644-    } else {
+apps/bot/src/handlers/messages.ts:645:      // Token not found on any launchpad
+apps/bot/src/handlers/messages.ts-646-      // v3.3.1 FIX: Line below heading, not surrounding
+--
+apps/bot/src/handlers/messages.ts-651-
+apps/bot/src/handlers/messages.ts:652:Not found on any known launchpad.
+apps/bot/src/handlers/messages.ts-653-Proceed with extreme caution.
+--
+apps/bot/src/commands/hunt.ts-7- * - Configure position sizes
+apps/bot/src/commands/hunt.ts:8: * - Select launchpads to monitor
+apps/bot/src/commands/hunt.ts-9- */
+--
+apps/bot/src/commands/hunt.ts-35-  maxPositionSize?: string;
+apps/bot/src/commands/hunt.ts:36:  launchpads: string[];
+apps/bot/src/commands/hunt.ts-37-  slippageBps?: number;    // v4.2: Hunt-specific buy slippage (default: 1500 = 15%)
+--
+apps/bot/src/commands/hunt.ts-54-    minScore: 23,
+apps/bot/src/commands/hunt.ts:55:    launchpads: ['bags'],  // v6.0: BAGS-only mode
+apps/bot/src/commands/hunt.ts-56-    slippageBps: 1500,   // v4.2: 15% default for hunt (higher than manual 10%)
+--
+apps/bot/src/commands/hunt.ts-112-
+apps/bot/src/commands/hunt.ts:113:  // Revamp: BAGS-only discovery source (no multi-launchpad UI language)
+apps/bot/src/commands/hunt.ts:114:  message += `*Source:* ${s.launchpads.includes('bags') ? 'Bags.fm' : 'None'}\n\n`;
+apps/bot/src/commands/hunt.ts-115-
+--
+apps/bot/src/commands/hunt.ts-155-
+apps/bot/src/commands/hunt.ts:156:  // Revamp: BAGS-only discovery source (no multi-launchpad UI language)
+apps/bot/src/commands/hunt.ts:157:  message += `*Source:* ${s.launchpads.includes('bags') ? 'Bags.fm' : 'None'}\n\n`;
+apps/bot/src/commands/hunt.ts-158-
+--
+apps/bot/src/commands/hunt.ts-203-    maxPositionSize: settings.maxPositionSize,
+apps/bot/src/commands/hunt.ts:204:    launchpads: settings.launchpads,
+apps/bot/src/commands/hunt.ts-205-    slippageBps: settings.slippageBps,      // v4.2: Pass hunt-specific slippage
+--
+apps/bot/src/commands/hunt.ts-380-/**
+apps/bot/src/commands/hunt.ts:381: * Show launchpad selection
+apps/bot/src/commands/hunt.ts-382- */
+--
+apps/bot/src/commands/hunt.ts-389-
+apps/bot/src/commands/hunt.ts:390:  // Available launchpads per chain (BAGS-only mode)
+apps/bot/src/commands/hunt.ts-391-  const availableLaunchpads: Record<Chain, string[]> = {
+--
+apps/bot/src/commands/hunt.ts-394-
+apps/bot/src/commands/hunt.ts:395:  const launchpads = availableLaunchpads[chain];
+apps/bot/src/commands/hunt.ts-396-
+apps/bot/src/commands/hunt.ts:397:  if (launchpads.length === 0) {
+apps/bot/src/commands/hunt.ts-398-    await ctx.editMessageText(
+--
+apps/bot/src/commands/hunt.ts-415-
+apps/bot/src/commands/hunt.ts:416:  for (const lp of launchpads) {
+apps/bot/src/commands/hunt.ts:417:    const isEnabled = settings.launchpads.includes(lp);
+apps/bot/src/commands/hunt.ts-418-    const emoji = isEnabled ? '✅' : '⬜';
+--
+apps/bot/src/commands/hunt.ts-436-/**
+apps/bot/src/commands/hunt.ts:437: * Toggle a launchpad
+apps/bot/src/commands/hunt.ts-438- * v4.3: Now syncs to AUTO strategy for execution
+apps/bot/src/commands/hunt.ts-439- */
+apps/bot/src/commands/hunt.ts:440:export async function toggleLaunchpad(ctx: MyContext, chain: Chain, launchpad: string) {
+apps/bot/src/commands/hunt.ts-441-  const user = ctx.from;
+--
+apps/bot/src/commands/hunt.ts-444-  const settings = await getUserHuntSettingsAsync(user.id);
+apps/bot/src/commands/hunt.ts:445:  const idx = settings[chain].launchpads.indexOf(launchpad);
+apps/bot/src/commands/hunt.ts-446-
+apps/bot/src/commands/hunt.ts-447-  if (idx >= 0) {
+apps/bot/src/commands/hunt.ts:448:    settings[chain].launchpads.splice(idx, 1);
+apps/bot/src/commands/hunt.ts-449-  } else {
+apps/bot/src/commands/hunt.ts:450:    settings[chain].launchpads.push(launchpad);
+apps/bot/src/commands/hunt.ts-451-  }
+--
+apps/bot/src/commands/hunt.ts-455-  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+apps/bot/src/commands/hunt.ts:456:  await updateStrategy(strategy.id, { allowed_launchpads: [...settings[chain].launchpads] });
+apps/bot/src/commands/hunt.ts-457-
+--
+apps/bot/src/commands/hunt.ts-459-
+apps/bot/src/commands/hunt.ts:460:  // Refresh launchpad selection view
+apps/bot/src/commands/hunt.ts-461-  await showLaunchpadSelection(ctx, chain);
+--
+apps/bot/src/commands/hunt.ts-464-/**
+apps/bot/src/commands/hunt.ts:465: * Enable all launchpads for a chain
+apps/bot/src/commands/hunt.ts-466- * v4.3: Now syncs to AUTO strategy for execution
+--
+apps/bot/src/commands/hunt.ts-477-  const settings = await getUserHuntSettingsAsync(user.id);
+apps/bot/src/commands/hunt.ts:478:  settings[chain].launchpads = [...availableLaunchpads[chain]];
+apps/bot/src/commands/hunt.ts-479-  await saveUserHuntSettings(user.id, settings);
+--
+apps/bot/src/commands/hunt.ts-482-  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+apps/bot/src/commands/hunt.ts:483:  await updateStrategy(strategy.id, { allowed_launchpads: [...settings[chain].launchpads] });
+apps/bot/src/commands/hunt.ts-484-
+--
+apps/bot/src/commands/hunt.ts-489-/**
+apps/bot/src/commands/hunt.ts:490: * Disable all launchpads for a chain
+apps/bot/src/commands/hunt.ts-491- * v4.3: Now syncs to AUTO strategy for execution
+--
+apps/bot/src/commands/hunt.ts-497-  const settings = await getUserHuntSettingsAsync(user.id);
+apps/bot/src/commands/hunt.ts:498:  settings[chain].launchpads = [];
+apps/bot/src/commands/hunt.ts-499-  await saveUserHuntSettings(user.id, settings);
+--
+apps/bot/src/commands/hunt.ts-502-  const strategy = await getOrCreateAutoStrategy(user.id, chain);
+apps/bot/src/commands/hunt.ts:503:  await updateStrategy(strategy.id, { allowed_launchpads: [] });
+apps/bot/src/commands/hunt.ts-504-
+--
+apps/bot/src/utils/validation.ts-171-/**
+apps/bot/src/utils/validation.ts:172: * Validate launchpad name
+apps/bot/src/utils/validation.ts-173- */
+--
+apps/bot/src/utils/keyboards.ts-455-    .row()
+apps/bot/src/utils/keyboards.ts:456:    .text('🎯 Source', `hunt_launchpads_${chain}`)
+apps/bot/src/utils/keyboards.ts-457-    .text('⚡ Snipe Mode', `hunt_snipe_${chain}`)     // v4.3: Snipe mode selection
+--
+apps/bot/src/utils/formatters.ts-583-  maxPositionSize?: string;
+apps/bot/src/utils/formatters.ts:584:  launchpads: string[];
+apps/bot/src/utils/formatters.ts-585-  slippageBps?: number;    // v4.2: Hunt-specific slippage
+--
+apps/bot/src/utils/formatters.ts-621-
+apps/bot/src/utils/formatters.ts:622:  // Revamp: BAGS-only discovery source (avoid multi-launchpad language).
+apps/bot/src/utils/formatters.ts:623:  message += `\n\n*Source:* ${huntSettings.launchpads.includes('bags') ? 'Bags.fm' : 'None'}`;
+apps/bot/src/utils/formatters.ts-624-

@@ -453,7 +453,7 @@ export function huntKeyboard(chain: Chain, isEnabled: boolean): InlineKeyboard {
     .text('🎯 Take Profit', `hunt_tp_${chain}`)       // v5.0: TP setting
     .text('🛑 Stop Loss', `hunt_sl_${chain}`)         // v5.0: SL setting
     .row()
-    .text('🎯 Launchpads', `hunt_launchpads_${chain}`)
+    .text('🎯 Source', `hunt_launchpads_${chain}`)
     .text('⚡ Snipe Mode', `hunt_snipe_${chain}`)     // v4.3: Snipe mode selection
     .row()
     .text('⚡ Priority Fee', `hunt_priority_${chain}`)  // v4.2: Hunt-specific priority

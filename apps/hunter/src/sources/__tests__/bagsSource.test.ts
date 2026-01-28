@@ -12,8 +12,8 @@ import {
 } from '../index.js';
 
 // Valid test addresses
-const VALID_MINT_1 = 'BagsToken1111111111111111111111111111111111';
-const VALID_MINT_2 = 'BagsToken2222222222222222222222222222222222';
+const VALID_MINT_1 = 'So11111111111111111111111111111111111111112';
+const VALID_MINT_2 = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
 // Helper to create a BagsSource for testing (disabled, no Telegram connection)
 function createTestSource(overrides: Partial<BagsSourceConfig> = {}): BagsSource {

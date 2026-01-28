@@ -7,6 +7,7 @@ import { Connection, VersionedTransaction, Keypair, PublicKey } from '@solana/we
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { SOLANA_CONFIG, PROGRAM_IDS, solToLamports, lamportsToSol } from '@raptor/shared';
 import { JupiterClient, type JupiterQuote } from '../chains/solana/jupiter.js';
+import bs58 from 'bs58';
 import type { JitoClient } from '../chains/solana/jitoClient.js';
 import type {
   SwapRouter,
@@ -153,9 +154,10 @@ export class JupiterRouter implements SwapRouter {
           };
         }
 
-        // Get signature from transaction
-        const sig = tx.signatures[0];
-        signature = sig ? Buffer.from(sig).toString('base64') : jitoResult.bundleId || '';
+        // Prefer explicit signature from Jito result (base58), otherwise derive from signed tx.
+        signature =
+          jitoResult.signatures?.[0] ||
+          (tx.signatures[0] ? bs58.encode(tx.signatures[0]) : jitoResult.bundleId || '');
 
         // Wait for Jito bundle confirmation
         if (jitoResult.bundleId && jitoResult.signatures?.[0]) {
@@ -179,14 +181,19 @@ export class JupiterRouter implements SwapRouter {
 
         console.log(`[JupiterRouter] Transaction sent: ${signature}`);
 
-        // Wait for confirmation with timeout
-        await this.confirmTransactionWithTimeout(
-          signature,
-          tx.message.recentBlockhash,
-          // Default to high block height if not available
-          Number.MAX_SAFE_INTEGER,
-          options?.confirmTimeoutMs || TX_CONFIRM_TIMEOUT_MS
-        );
+        // Wait for confirmation with timeout. If we have the blockhash expiry window, use it;
+        // otherwise fall back to signature-only confirmation.
+        const timeoutMs = options?.confirmTimeoutMs || TX_CONFIRM_TIMEOUT_MS;
+        if (options?.lastValidBlockHeight !== undefined) {
+          await this.confirmTransactionWithTimeout(
+            signature,
+            tx.message.recentBlockhash,
+            options.lastValidBlockHeight,
+            timeoutMs
+          );
+        } else {
+          await this.confirmSignatureOnlyWithTimeout(signature, timeoutMs);
+        }
       }
 
       return {
@@ -234,6 +241,30 @@ export class JupiterRouter implements SwapRouter {
     const confirmation = await Promise.race([confirmPromise, timeoutPromise]);
 
     if (confirmation.value.err) {
+      throw new Error(`Transaction failed on-chain: ${JSON.stringify(confirmation.value.err)}`);
+    }
+  }
+
+  /**
+   * Confirm a transaction using signature-only strategy (fallback).
+   * This is less strict than the blockhash strategy, but avoids false negatives when
+   * lastValidBlockHeight is unavailable.
+   */
+  private async confirmSignatureOnlyWithTimeout(signature: string, timeoutMs: number): Promise<void> {
+    const confirmPromise = (
+      this.connection as unknown as {
+        confirmTransaction: (sig: string, commitment: 'confirmed') => Promise<{ value: { err: unknown | null } }>;
+      }
+    ).confirmTransaction(signature, 'confirmed');
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Transaction confirmation timeout after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+
+    const confirmation = await Promise.race([confirmPromise, timeoutPromise]);
+    if (confirmation?.value?.err) {
       throw new Error(`Transaction failed on-chain: ${JSON.stringify(confirmation.value.err)}`);
     }
   }
