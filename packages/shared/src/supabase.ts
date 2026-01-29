@@ -43,14 +43,22 @@ export async function getUser(tgId: number): Promise<User | null> {
   const { data, error } = await supabase
     .from('users')
     .select('*')
-    .eq('tg_id', tgId)
+    .eq('telegram_chat_id', tgId)
     .single();
 
   if (error) {
     if (error.code === 'PGRST116') return null; // Not found
     throw error;
   }
-  return data;
+  // Backwards-compat mapping (legacy User type expects tg_id + last_login).
+  return {
+    tg_id: data.telegram_chat_id,
+    username: data.telegram_username ?? null,
+    first_name: null,
+    photo_url: null,
+    created_at: data.created_at,
+    last_login: data.last_active_at ?? null,
+  } as unknown as User;
 }
 
 export async function upsertUser(user: {
@@ -61,15 +69,26 @@ export async function upsertUser(user: {
 }): Promise<User> {
   const { data, error } = await supabase
     .from('users')
-    .upsert({
-      ...user,
-      last_login: new Date().toISOString(),
-    })
+    .upsert(
+      {
+        telegram_chat_id: user.tg_id,
+        telegram_username: user.username ?? null,
+        last_active_at: new Date().toISOString(),
+      },
+      { onConflict: 'telegram_chat_id' }
+    )
     .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return {
+    tg_id: data.telegram_chat_id,
+    username: data.telegram_username ?? null,
+    first_name: null,
+    photo_url: null,
+    created_at: data.created_at,
+    last_login: data.last_active_at ?? null,
+  } as unknown as User;
 }
 
 // Balance functions
@@ -339,49 +358,44 @@ export async function updateTradeStatus(
 
 // Stats functions
 export async function getUserStats(tgId: number): Promise<UserStats> {
-  // Get balances
-  const { data: balances } = await supabase
-    .from('user_balances')
-    .select('deposited, current_value')
-    .eq('tg_id', tgId);
+  // Revamp: no custodial deposits table; compute stats from CLOSED positions only.
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) {
+    return {
+      deposited: 0,
+      currentValue: 0,
+      totalPnl: 0,
+      pnlPercent: 0,
+      totalTrades: 0,
+      winningTrades: 0,
+      winRate: 0,
+      totalFeesPaid: 0,
+    };
+  }
 
-  // Get trade stats
-  const { data: trades } = await supabase
-    .from('trades')
-    .select('pnl, type, fee_amount')
-    .eq('tg_id', tgId)
-    .eq('status', 'CONFIRMED');
+  const { data: closed, error } = await supabase
+    .from('positions')
+    .select('entry_cost_sol, realized_pnl_sol')
+    .eq('user_id', userUuid)
+    .eq('lifecycle_state', 'CLOSED');
 
-  // Get total fees from fees table
-  const { data: fees } = await supabase
-    .from('fees')
-    .select('amount')
-    .eq('tg_id', tgId);
+  if (error) throw error;
 
-  const totalDeposited =
-    balances?.reduce((sum, b) => sum + parseFloat(b.deposited), 0) || 0;
-  const currentValue =
-    balances?.reduce((sum, b) => sum + parseFloat(b.current_value), 0) || 0;
-  const sellTrades = trades?.filter((t) => t.type === 'SELL') || [];
-  const totalTrades = sellTrades.length;
-  const winningTrades = sellTrades.filter(
-    (t) => parseFloat(t.pnl || '0') > 0
-  ).length;
-  const totalFeesPaid =
-    fees?.reduce((sum, f) => sum + parseFloat(f.amount), 0) || 0;
+  const rows = closed || [];
+  const totalTrades = rows.length;
+  const winningTrades = rows.filter((r: any) => Number(r.realized_pnl_sol ?? 0) > 0).length;
+  const totalEntry = rows.reduce((sum: number, r: any) => sum + Number(r.entry_cost_sol ?? 0), 0);
+  const totalPnl = rows.reduce((sum: number, r: any) => sum + Number(r.realized_pnl_sol ?? 0), 0);
 
   return {
-    deposited: totalDeposited,
-    currentValue,
-    totalPnl: currentValue - totalDeposited,
-    pnlPercent:
-      totalDeposited > 0
-        ? ((currentValue - totalDeposited) / totalDeposited) * 100
-        : 0,
+    deposited: 0,
+    currentValue: 0,
+    totalPnl,
+    pnlPercent: totalEntry > 0 ? (totalPnl / totalEntry) * 100 : 0,
     totalTrades,
     winningTrades,
     winRate: totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0,
-    totalFeesPaid,
+    totalFeesPaid: 0,
   };
 }
 
@@ -720,7 +734,7 @@ export async function getUserBalancesByMode(
 // ============================================================================
 
 export interface UserWallet {
-  id: number;
+  id: string;
   tg_id: number;
   chain: Chain;
   wallet_index: number;
@@ -729,10 +743,25 @@ export interface UserWallet {
   solana_address: string;
   public_key?: string; // v3.1: alias for solana_address
   solana_private_key_encrypted: Record<string, unknown>;
-  evm_address: string;
-  evm_private_key_encrypted: Record<string, unknown>;
   created_at: string;
   backup_exported_at: string | null;
+}
+
+function mapWalletRowToUserWallet(tgId: number, row: Record<string, any>): UserWallet {
+  const pubkey = (row.pubkey ?? row.solana_address ?? '') as string;
+  return {
+    id: String(row.id),
+    tg_id: tgId,
+    chain: (row.chain ?? 'sol') as Chain,
+    wallet_index: Number(row.wallet_index ?? 1),
+    wallet_label: (row.label ?? row.wallet_label ?? null) as string | null,
+    is_active: Boolean(row.is_active),
+    solana_address: pubkey,
+    public_key: pubkey || undefined,
+    solana_private_key_encrypted: (row.solana_private_key_encrypted ?? {}) as Record<string, unknown>,
+    created_at: String(row.created_at ?? new Date().toISOString()),
+    backup_exported_at: (row.backup_exported_at ?? null) as string | null,
+  };
 }
 
 export interface CustomStrategy {
@@ -773,40 +802,49 @@ export interface CustomStrategy {
  * Get all wallets for a user (Solana-only)
  */
 export async function getUserWallets(tgId: number): Promise<UserWallet[]> {
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) return [];
+
   const { data, error } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .select('*')
-    .eq('tg_id', tgId)
-    .eq('chain', 'sol')  // Solana-only build
+    .eq('user_id', userUuid)
+    .eq('chain', 'sol')
     .order('wallet_index');
 
   if (error) throw error;
-  return data || [];
+  return (data || []).map((row) => mapWalletRowToUserWallet(tgId, row as Record<string, any>));
 }
 
 /**
  * Get all wallets for a user on a specific chain
  */
 export async function getUserWalletsForChain(tgId: number, chain: Chain): Promise<UserWallet[]> {
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) return [];
+
   const { data, error } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .select('*')
-    .eq('tg_id', tgId)
+    .eq('user_id', userUuid)
     .eq('chain', chain)
     .order('wallet_index');
 
   if (error) throw error;
-  return data || [];
+  return (data || []).map((row) => mapWalletRowToUserWallet(tgId, row as Record<string, any>));
 }
 
 /**
  * Get active wallet for a user on a specific chain
  */
 export async function getActiveWallet(tgId: number, chain: Chain): Promise<UserWallet | null> {
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) return null;
+
   const { data, error } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .select('*')
-    .eq('tg_id', tgId)
+    .eq('user_id', userUuid)
     .eq('chain', chain)
     .eq('is_active', true)
     .single();
@@ -815,7 +853,7 @@ export async function getActiveWallet(tgId: number, chain: Chain): Promise<UserW
     if (error.code === 'PGRST116') return null;
     throw error;
   }
-  return data;
+  return data ? mapWalletRowToUserWallet(tgId, data as Record<string, any>) : null;
 }
 
 /**
@@ -826,10 +864,13 @@ export async function getWalletByIndex(
   chain: Chain,
   walletIndex: number
 ): Promise<UserWallet | null> {
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) return null;
+
   const { data, error } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .select('*')
-    .eq('tg_id', tgId)
+    .eq('user_id', userUuid)
     .eq('chain', chain)
     .eq('wallet_index', walletIndex)
     .single();
@@ -838,17 +879,20 @@ export async function getWalletByIndex(
     if (error.code === 'PGRST116') return null;
     throw error;
   }
-  return data;
+  return data ? mapWalletRowToUserWallet(tgId, data as Record<string, any>) : null;
 }
 
 /**
  * Check if user has any wallet on any chain
  */
 export async function userHasWallet(tgId: number): Promise<boolean> {
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) return false;
+
   const { count, error } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .select('*', { count: 'exact', head: true })
-    .eq('tg_id', tgId);
+    .eq('user_id', userUuid);
 
   if (error) throw error;
   return (count || 0) > 0;
@@ -858,10 +902,13 @@ export async function userHasWallet(tgId: number): Promise<boolean> {
  * Get wallet count for a user on a specific chain
  */
 export async function getWalletCount(tgId: number, chain: Chain): Promise<number> {
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) return 0;
+
   const { count, error } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .select('*', { count: 'exact', head: true })
-    .eq('tg_id', tgId)
+    .eq('user_id', userUuid)
     .eq('chain', chain);
 
   if (error) throw error;
@@ -879,57 +926,53 @@ export async function createWallet(wallet: {
   private_key_encrypted: Record<string, unknown>;
   wallet_label?: string;
 }): Promise<UserWallet> {
-  // v3.4.1 FIX: Ensure user exists before creating wallet (FK constraint)
-  // This handles cases where user skipped /start and went directly to wallet creation
+  // Ensure user exists (Phase-0 users table)
   await upsertUser({ tg_id: wallet.tg_id });
-
-  // Get the count of existing wallets for this chain
-  const existingCount = await getWalletCount(wallet.tg_id, wallet.chain);
-
-  if (existingCount >= 5) {
-    throw new Error(`Maximum 5 wallets per chain reached for ${wallet.chain}`);
+  const userUuid = await getUserUuidFromTgId(wallet.tg_id);
+  if (!userUuid) {
+    throw new Error('Failed to resolve user UUID');
   }
 
-  // v3.4.2 FIX: Find first available slot 1-5 instead of MAX+1
-  // This handles gaps from deleted wallets (e.g., indexes 2,3,4,5 -> new wallet gets index 1)
-  const { data: existingWallets } = await supabase
-    .from('user_wallets')
-    .select('wallet_index')
-    .eq('tg_id', wallet.tg_id)
+  const { data: existingWallets, error: existingError } = await supabase
+    .from('wallets')
+    .select('wallet_index,is_active')
+    .eq('user_id', userUuid)
     .eq('chain', wallet.chain);
 
-  const usedIndexes = new Set(existingWallets?.map(w => w.wallet_index) || []);
+  if (existingError) throw existingError;
 
-  // Find first available index 1-5
-  let walletIndex = 1;
-  while (usedIndexes.has(walletIndex) && walletIndex <= 5) {
-    walletIndex++;
+  const usedIndexes = new Set<number>((existingWallets || []).map((w: any) => Number(w.wallet_index)));
+  let walletIndex: number | null = null;
+  for (let i = 1; i <= 5; i++) {
+    if (!usedIndexes.has(i)) {
+      walletIndex = i;
+      break;
+    }
   }
 
-  if (walletIndex > 5) {
+  if (!walletIndex) {
     throw new Error(`Maximum 5 wallets per chain reached for ${wallet.chain}`);
   }
-  const isFirstWallet = existingCount === 0;
-  const isSolana = wallet.chain === 'sol';
+
+  const hasActive = (existingWallets || []).some((w: any) => Boolean(w.is_active));
+  const label = wallet.wallet_label || `Wallet #${walletIndex}`;
 
   const { data, error } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .insert({
-      tg_id: wallet.tg_id,
+      user_id: userUuid,
       chain: wallet.chain,
       wallet_index: walletIndex,
-      wallet_label: wallet.wallet_label || `Wallet #${walletIndex}`,
-      is_active: isFirstWallet, // First wallet is active by default
-      solana_address: isSolana ? wallet.address : '',
-      solana_private_key_encrypted: isSolana ? wallet.private_key_encrypted : {},
-      evm_address: isSolana ? '' : wallet.address,
-      evm_private_key_encrypted: isSolana ? {} : wallet.private_key_encrypted,
+      label,
+      is_active: !hasActive,
+      pubkey: wallet.address,
+      solana_private_key_encrypted: wallet.private_key_encrypted,
     })
     .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return mapWalletRowToUserWallet(wallet.tg_id, data as Record<string, any>);
 }
 
 /**
@@ -940,6 +983,11 @@ export async function deleteWallet(
   chain: Chain,
   walletIndex: number
 ): Promise<void> {
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) {
+    throw new Error('User not found');
+  }
+
   // First check if wallet exists and belongs to user
   const wallet = await getWalletByIndex(tgId, chain, walletIndex);
   if (!wallet) {
@@ -961,9 +1009,9 @@ export async function deleteWallet(
   }
 
   const { error } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .delete()
-    .eq('tg_id', tgId)
+    .eq('user_id', userUuid)
     .eq('chain', chain)
     .eq('wallet_index', walletIndex);
 
@@ -978,20 +1026,25 @@ export async function setActiveWallet(
   chain: Chain,
   walletIndex: number
 ): Promise<void> {
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) {
+    throw new Error('User not found');
+  }
+
   // First, deactivate all wallets for this chain
   const { error: deactivateError } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .update({ is_active: false })
-    .eq('tg_id', tgId)
+    .eq('user_id', userUuid)
     .eq('chain', chain);
 
   if (deactivateError) throw deactivateError;
 
   // Then activate the selected wallet
   const { error: activateError } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .update({ is_active: true })
-    .eq('tg_id', tgId)
+    .eq('user_id', userUuid)
     .eq('chain', chain)
     .eq('wallet_index', walletIndex);
 
@@ -1007,17 +1060,22 @@ export async function updateWalletLabel(
   walletIndex: number,
   label: string
 ): Promise<UserWallet> {
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) {
+    throw new Error('User not found');
+  }
+
   const { data, error } = await supabase
-    .from('user_wallets')
-    .update({ wallet_label: label })
-    .eq('tg_id', tgId)
+    .from('wallets')
+    .update({ label })
+    .eq('user_id', userUuid)
     .eq('chain', chain)
     .eq('wallet_index', walletIndex)
     .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return mapWalletRowToUserWallet(tgId, data as Record<string, any>);
 }
 
 /**
@@ -1028,10 +1086,15 @@ export async function markWalletBackupExported(
   chain: Chain,
   walletIndex: number
 ): Promise<void> {
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) {
+    throw new Error('User not found');
+  }
+
   const { error } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .update({ backup_exported_at: new Date().toISOString() })
-    .eq('tg_id', tgId)
+    .eq('user_id', userUuid)
     .eq('chain', chain)
     .eq('wallet_index', walletIndex);
 
@@ -1075,34 +1138,26 @@ export async function getOrCreateFirstWallet(
  */
 export async function getWalletBySolanaAddress(address: string): Promise<UserWallet | null> {
   const { data, error } = await supabase
-    .from('user_wallets')
-    .select('*')
-    .eq('solana_address', address)
+    .from('wallets')
+    .select('*, users(telegram_chat_id)')
+    .eq('pubkey', address)
     .single();
 
   if (error) {
     if (error.code === 'PGRST116') return null;
     throw error;
   }
-  return data;
+  const tgId = Number((data as any)?.users?.telegram_chat_id ?? 0);
+  if (!tgId) return null;
+  return mapWalletRowToUserWallet(tgId, data as unknown as Record<string, any>);
 }
 
 /**
  * Get wallet by EVM address (checks all EVM chains)
  */
 export async function getWalletByEvmAddress(address: string): Promise<UserWallet | null> {
-  const { data, error } = await supabase
-    .from('user_wallets')
-    .select('*')
-    .eq('evm_address', address)
-    .limit(1)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') return null;
-    throw error;
-  }
-  return data;
+  // Solana-only build: no EVM wallets.
+  return null;
 }
 
 // ============================================================================
@@ -1176,11 +1231,14 @@ export async function getOrCreateUserWallet(
  * @deprecated Use markWalletBackupExported instead
  */
 export async function markBackupExported(tgId: number): Promise<void> {
+  const userUuid = await getUserUuidFromTgId(tgId);
+  if (!userUuid) return;
+
   // Mark all wallets as exported
   const { error } = await supabase
-    .from('user_wallets')
+    .from('wallets')
     .update({ backup_exported_at: new Date().toISOString() })
-    .eq('tg_id', tgId);
+    .eq('user_id', userUuid);
 
   if (error) throw error;
 }
@@ -1427,12 +1485,13 @@ export async function getOrCreateAutoStrategy(userId: number, chain: Chain): Pro
     dca_levels: [],
     // Moon bag
     moon_bag_percent: 25,
-    // Filters
-    min_score: 30,
-    min_liquidity_sol: 0,
-    allowed_launchpads: ['pump.fun'],
-    // Cooldown
-    cooldown_seconds: 300,
+	    // Filters
+	    min_score: 30,
+	    min_liquidity_sol: 0,
+	    // Revamp: BAGS-only discovery/execution.
+	    allowed_launchpads: ['bags'],
+	    // Cooldown
+	    cooldown_seconds: 300,
     // Blocklists
     token_allowlist: [],
     token_denylist: [],
@@ -1564,23 +1623,100 @@ export async function reserveTradeBudget(params: {
   action: TradeAction;
   tokenMint: string;
   amountSol: number;
+  positionId?: string;
   idempotencyKey: string;
   allowRetry?: boolean;
 }): Promise<ReserveBudgetResult> {
-  const { data, error } = await supabase.rpc('reserve_trade_budget', {
-    p_mode: params.mode,
-    p_user_id: params.userId,
-    p_strategy_id: params.strategyId,
-    p_chain: params.chain,
-    p_action: params.action,
-    p_token_mint: params.tokenMint,
-    p_amount_sol: params.amountSol,
-    p_idempotency_key: params.idempotencyKey,
-    p_allow_retry: params.allowRetry ?? false,
-  });
+  // SAFETY (F-008): Gate all budget reservations behind global safety controls.
+  // This prevents bypasses from alternate/manual code paths that still call reserveTradeBudget.
+  const controls = await getGlobalSafetyControls();
+  if (!controls) {
+    return { allowed: false, reason: 'Safety controls unavailable' };
+  }
+  if (controls.trading_paused) {
+    return { allowed: false, reason: 'Trading is paused' };
+  }
+  if (controls.circuit_open_until && new Date(controls.circuit_open_until) > new Date()) {
+    return { allowed: false, reason: 'Circuit breaker is open' };
+  }
+  if (params.mode === 'AUTO' && !controls.auto_execute_enabled) {
+    return { allowed: false, reason: 'Auto-execution disabled by safety controls' };
+  }
+  if (params.mode === 'MANUAL' && !controls.manual_trading_enabled) {
+    return { allowed: false, reason: 'Manual trading disabled by safety controls' };
+  }
 
-  if (error) throw error;
-  return data as ReserveBudgetResult;
+  // Ensure user exists + resolve UUID (Phase-0 users table)
+  await upsertUser({ tg_id: params.userId });
+  const userUuid = await getUserUuidFromTgId(params.userId);
+  if (!userUuid) {
+    return { allowed: false, reason: 'User not found' };
+  }
+
+  const positionId =
+    params.positionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.positionId)
+      ? params.positionId
+      : null;
+
+  // Attempt to insert execution row (idempotency anchor)
+  const { data: inserted, error: insertError } = await supabase
+    .from('executions')
+    .insert({
+      idempotency_key: params.idempotencyKey,
+      user_id: userUuid,
+      position_id: positionId,
+      mint: params.tokenMint,
+      side: params.action,
+      requested_amount_sol: params.amountSol,
+    })
+    .select('id,status')
+    .single();
+
+  if (!insertError && inserted) {
+    return { allowed: true, reservation_id: inserted.id, execution_id: inserted.id };
+  }
+
+  // Duplicate idempotency_key: return the existing execution id (fail-closed by default)
+  const msg = (insertError as any)?.message || '';
+  const code = (insertError as any)?.code || '';
+  const isDuplicate = code === '23505' || msg.toLowerCase().includes('duplicate');
+  if (!isDuplicate) {
+    throw insertError;
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from('executions')
+    .select('id,status')
+    .eq('idempotency_key', params.idempotencyKey)
+    .single();
+
+  if (existingError) throw existingError;
+  if (!existing) {
+    return { allowed: false, reason: 'Already executed' };
+  }
+
+  // Allow retry only if the prior execution failed.
+  if (existing.status === 'failed' && (params.allowRetry ?? false)) {
+    const { error: resetError } = await supabase
+      .from('executions')
+      .update({
+        status: 'pending',
+        error_code: null,
+        error_detail: null,
+        signature: null,
+        filled_amount_sol: null,
+        filled_tokens: null,
+        price_per_token: null,
+        sent_at: null,
+        confirmed_at: null,
+      })
+      .eq('id', existing.id);
+
+    if (resetError) throw resetError;
+    return { allowed: true, reservation_id: existing.id, execution_id: existing.id };
+  }
+
+  return { allowed: false, reason: 'Already executed', reservation_id: existing.id, execution_id: existing.id };
 }
 
 // ============================================================================
@@ -1819,19 +1955,56 @@ export async function updateExecution(params: {
   errorCode?: string;
   result?: Record<string, unknown>;
 }): Promise<Execution | null> {
-  const { data, error } = await supabase.rpc('update_execution', {
-    p_execution_id: params.executionId,
-    p_status: params.status,
-    p_tx_sig: params.txSig || null,
-    p_tokens_out: params.tokensOut || null,
-    p_price_per_token: params.pricePerToken || null,
-    p_error: params.error || null,
-    p_error_code: params.errorCode || null,
-    p_result: params.result || null,
-  });
+  const statusMap: Record<ExecutionStatus, 'pending' | 'sent' | 'confirmed' | 'failed'> = {
+    RESERVED: 'pending',
+    SUBMITTED: 'sent',
+    CONFIRMED: 'confirmed',
+    FAILED: 'failed',
+    CANCELED: 'failed',
+  };
+
+  const mappedStatus = statusMap[params.status];
+
+  const updates: Record<string, unknown> = {
+    status: mappedStatus,
+  };
+
+  if (params.txSig) {
+    updates.signature = params.txSig;
+  }
+  if (params.tokensOut !== undefined) {
+    // Store as filled_tokens for compatibility (SELL may represent SOL received).
+    updates.filled_tokens = params.tokensOut;
+  }
+  if (params.pricePerToken !== undefined) {
+    updates.price_per_token = params.pricePerToken;
+  }
+  if (params.error !== undefined) {
+    updates.error_detail = params.error;
+  }
+  if (params.errorCode !== undefined) {
+    updates.error_code = params.errorCode;
+  }
+  if (params.result !== undefined) {
+    updates.quote_response = params.result;
+  }
+
+  if (mappedStatus === 'sent') {
+    updates.sent_at = new Date().toISOString();
+  }
+  if (mappedStatus === 'confirmed') {
+    updates.confirmed_at = new Date().toISOString();
+  }
+
+  const { data, error } = await supabase
+    .from('executions')
+    .update(updates)
+    .eq('id', params.executionId)
+    .select('*')
+    .maybeSingle();
 
   if (error) throw error;
-  return data as Execution | null;
+  return (data as unknown as Execution | null) || null;
 }
 
 /**
@@ -1855,6 +2028,76 @@ export async function getExecution(executionId: string): Promise<Execution | nul
 // Position Functions (v3.1)
 // ============================================================================
 
+function mapPositionRowToV31(row: Record<string, any>): PositionV31 {
+  const userChatId = Number(row.users?.telegram_chat_id ?? 0);
+  const metadata = row.metadata && typeof row.metadata === 'object' ? (row.metadata as Record<string, any>) : {};
+
+  const entryCostSol = row.entry_cost_sol !== null && row.entry_cost_sol !== undefined ? Number(row.entry_cost_sol) : 0;
+  const currentValueSol =
+    row.current_value_sol !== null && row.current_value_sol !== undefined ? Number(row.current_value_sol) : null;
+
+  const unrealizedPnlSol = currentValueSol !== null ? currentValueSol - entryCostSol : null;
+  const unrealizedPnlPercent =
+    currentValueSol !== null && entryCostSol > 0 ? ((currentValueSol - entryCostSol) / entryCostSol) * 100 : 0;
+
+  // NOTE: Phase-0 schema uses `positions.id` as UUID primary key.
+  // We map it to `uuid_id` for backwards-compatible call sites.
+  return {
+    id: 0,
+    uuid_id: String(row.id),
+    tg_id: userChatId,
+    strategy_id: (metadata.strategy_id ?? '00000000-0000-0000-0000-000000000000') as string,
+    opportunity_id: (row.launch_candidate_id ?? null) as string | null,
+    chain: 'sol',
+    token_mint: String(row.mint),
+    token_symbol: (row.symbol ?? null) as string | null,
+    token_name: (row.name ?? null) as string | null,
+
+    entry_execution_id: (row.entry_execution_id ?? null) as string | null,
+    entry_tx_sig: ((row.entry_tx_sig ?? metadata.entry_tx_sig) ?? null) as string | null,
+    entry_cost_sol: entryCostSol,
+    entry_price: Number(row.entry_price ?? 0),
+    size_tokens: Number(row.size_tokens ?? 0),
+
+    current_price: row.current_price !== null && row.current_price !== undefined ? Number(row.current_price) : null,
+    peak_price: row.peak_price !== null && row.peak_price !== undefined ? Number(row.peak_price) : null,
+    current_value_sol: currentValueSol,
+    unrealized_pnl_sol: unrealizedPnlSol,
+    unrealized_pnl_percent: unrealizedPnlPercent,
+    price_updated_at: (row.price_updated_at ?? null) as string | null,
+
+    exit_execution_id: (row.exit_execution_id ?? null) as string | null,
+    exit_tx_sig: ((row.exit_tx_sig ?? metadata.exit_tx_sig) ?? null) as string | null,
+    exit_price: row.exit_price !== null && row.exit_price !== undefined ? Number(row.exit_price) : null,
+    exit_trigger: (row.exit_trigger ?? null) as any,
+    realized_pnl_sol: row.realized_pnl_sol !== null && row.realized_pnl_sol !== undefined ? Number(row.realized_pnl_sol) : null,
+    realized_pnl_percent:
+      row.realized_pnl_percent !== null && row.realized_pnl_percent !== undefined ? Number(row.realized_pnl_percent) : null,
+
+    trigger_state: (row.trigger_state ?? 'MONITORING') as any,
+    tp_price: row.tp_price !== null && row.tp_price !== undefined ? Number(row.tp_price) : null,
+    sl_price: row.sl_price !== null && row.sl_price !== undefined ? Number(row.sl_price) : null,
+    bonding_curve: (row.bonding_curve ?? null) as string | null,
+    triggered_at: null,
+
+    token_decimals: metadata.token_decimals ?? null,
+    entry_mc_sol: metadata.entry_mc_sol ?? null,
+    entry_mc_usd: metadata.entry_mc_usd ?? null,
+
+    status: row.lifecycle_state === 'CLOSED' ? 'CLOSED' : 'ACTIVE',
+    opened_at: String(row.opened_at ?? row.created_at ?? new Date().toISOString()),
+    closed_at: (row.closed_at ?? null) as string | null,
+
+    lifecycle_state: (row.lifecycle_state ?? 'PRE_GRADUATION') as any,
+    pricing_source: (row.pricing_source ?? 'BONDING_CURVE') as any,
+    graduated_at: (row.graduated_at ?? null) as string | null,
+    pool_address: (row.pool_address ?? null) as string | null,
+
+    created_at: String(row.opened_at ?? row.created_at ?? new Date().toISOString()),
+    updated_at: String(row.price_updated_at ?? row.opened_at ?? row.created_at ?? new Date().toISOString()),
+  } as unknown as PositionV31;
+}
+
 /**
  * Get all open positions for the hunter to monitor
  * WARNING: Returns ALL open positions - use getUserOpenPositions for user-specific queries
@@ -1864,7 +2107,7 @@ export async function getOpenPositions(chain?: Chain): Promise<PositionV31[]> {
   // New schema is Solana-only, no chain column needed
   const query = supabase
     .from('positions')
-    .select('*')
+    .select('*, users(telegram_chat_id)')
     .neq('lifecycle_state', 'CLOSED');
 
   // Ignore chain parameter - new schema is Solana-only
@@ -1872,7 +2115,7 @@ export async function getOpenPositions(chain?: Chain): Promise<PositionV31[]> {
   const { data, error } = await query;
 
   if (error) throw error;
-  return (data || []) as PositionV31[];
+  return (data || []).map((row) => mapPositionRowToV31(row as Record<string, any>));
 }
 
 /**
@@ -1880,37 +2123,67 @@ export async function getOpenPositions(chain?: Chain): Promise<PositionV31[]> {
  * Use this instead of getOpenPositions() when querying for a specific user's positions
  */
 export async function getUserOpenPositions(userId: number, chain?: Chain): Promise<PositionV31[]> {
-  // New schema uses user_id UUID referencing users.id
-  // For now, return all open positions until user lookup is implemented
-  // FIXME: Implement proper tg_id -> user_id lookup
-  // Ignore chain parameter - new schema is Solana-only
-  const query = supabase
-    .from('positions')
-    .select('*')
-    .neq('lifecycle_state', 'CLOSED');
+  // SECURITY (F-009): Must be server-side filtered to prevent cross-user data leaks.
+  // Preferred (Phase-0 schema): positions.user_id UUID referencing users.id, keyed by users.telegram_chat_id.
+  // Fallback (legacy v3.1 schema): positions.tg_id BIGINT.
 
-  const { data, error } = await query.order('opened_at', { ascending: false });
+  // Ignore chain parameter - Solana-only in revamp path.
 
-  if (error) throw error;
-  return (data || []) as PositionV31[];
+  // Attempt Phase-0 schema first (UUID user_id)
+  const userUuid = await getUserUuidFromTgId(userId);
+  if (userUuid) {
+    const { data, error } = await supabase
+      .from('positions')
+      .select('*, users(telegram_chat_id)')
+      .eq('user_id', userUuid)
+      .neq('lifecycle_state', 'CLOSED')
+      .order('opened_at', { ascending: false });
+
+    if (!error) {
+      return (data || []).map((row) => mapPositionRowToV31(row as Record<string, any>));
+    }
+
+    // If schema doesn't support user_id/lifecycle_state, fall through to legacy filter.
+    const msg = (error as { message?: string } | null)?.message || '';
+    if (!msg.toLowerCase().includes('column') && !msg.toLowerCase().includes('does not exist')) {
+      throw error;
+    }
+  }
+
+  // No user row (or schema mismatch): fail closed to avoid leaking other users' positions.
+  return [];
 }
 
 /**
  * Get closed positions for a specific user (for PnL calculation)
  */
 export async function getClosedPositions(userId: number, chain?: Chain): Promise<PositionV31[]> {
-  // New schema uses lifecycle_state instead of status
-  // FIXME: Implement proper tg_id -> user_id lookup
-  // Ignore chain parameter - new schema is Solana-only
-  const query = supabase
-    .from('positions')
-    .select('*')
-    .eq('lifecycle_state', 'CLOSED');
+  // SECURITY (F-009): Must be server-side filtered to prevent cross-user data leaks.
+  // Preferred (Phase-0 schema): positions.user_id UUID referencing users.id.
+  // Fallback (legacy v3.1 schema): positions.tg_id BIGINT.
 
-  const { data, error } = await query.order('closed_at', { ascending: false });
+  // Ignore chain parameter - Solana-only in revamp path.
 
-  if (error) throw error;
-  return (data || []) as PositionV31[];
+  const userUuid = await getUserUuidFromTgId(userId);
+  if (userUuid) {
+    const { data, error } = await supabase
+      .from('positions')
+      .select('*, users(telegram_chat_id)')
+      .eq('user_id', userUuid)
+      .eq('lifecycle_state', 'CLOSED')
+      .order('closed_at', { ascending: false });
+
+    if (!error) {
+      return (data || []).map((row) => mapPositionRowToV31(row as Record<string, any>));
+    }
+
+    const msg = (error as { message?: string } | null)?.message || '';
+    if (!msg.toLowerCase().includes('column') && !msg.toLowerCase().includes('does not exist')) {
+      throw error;
+    }
+  }
+
+  return [];
 }
 
 /**
@@ -1919,7 +2192,7 @@ export async function getClosedPositions(userId: number, chain?: Chain): Promise
 export async function getPositionById(positionId: string): Promise<PositionV31 | null> {
   const { data, error } = await supabase
     .from('positions')
-    .select('*')
+    .select('*, users(telegram_chat_id)')
     .eq('id', positionId)
     .single();
 
@@ -1927,7 +2200,7 @@ export async function getPositionById(positionId: string): Promise<PositionV31 |
     if (error.code === 'PGRST116') return null;
     throw error;
   }
-  return data as PositionV31;
+  return data ? mapPositionRowToV31(data as Record<string, any>) : null;
 }
 
 /**
@@ -1937,15 +2210,15 @@ export async function getPositionById(positionId: string): Promise<PositionV31 |
 export async function getPositionByUuid(uuidId: string): Promise<PositionV31 | null> {
   const { data, error } = await supabase
     .from('positions')
-    .select('*')
-    .eq('uuid_id', uuidId)
+    .select('*, users(telegram_chat_id)')
+    .eq('id', uuidId)
     .single();
 
   if (error) {
     if (error.code === 'PGRST116') return null;
     throw error;
   }
-  return data as PositionV31;
+  return data ? mapPositionRowToV31(data as Record<string, any>) : null;
 }
 
 /**
@@ -1967,7 +2240,7 @@ export async function closePositionByUuid(
   const { data, error } = await supabase
     .from('positions')
     .update({
-      status: 'CLOSED',
+      lifecycle_state: 'CLOSED',
       exit_price: closeData.exitPrice,
       exit_value_sol: closeData.exitValueSol,
       close_reason: closeData.closeReason,
@@ -1978,12 +2251,12 @@ export async function closePositionByUuid(
       closed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .eq('uuid_id', uuidId)
+    .eq('id', uuidId)
     .select()
     .single();
 
   if (error) throw error;
-  return data as PositionV31;
+  return mapPositionRowToV31(data as Record<string, any>);
 }
 
 /**
@@ -2020,46 +2293,53 @@ export async function createPositionV31(position: {
     ? position.entryPrice * (1 - position.slPercent / 100)
     : null;
 
+  await upsertUser({ tg_id: position.userId });
+  const userUuid = await getUserUuidFromTgId(position.userId);
+  if (!userUuid) {
+    throw new Error('User not found');
+  }
+
+  const inferredSource =
+    position.strategyId === '00000000-0000-0000-0000-000000000000' ? 'manual' : 'hunt';
+
   const { data, error } = await supabase
     .from('positions')
     .insert({
-      tg_id: position.userId,  // FIX: was user_id, table uses tg_id
-      strategy_id: position.strategyId,
-      opportunity_id: position.opportunityId || null,
-      chain: position.chain,
-      token_address: position.tokenMint,  // FIX: required column (same as mint on Solana)
-      token_mint: position.tokenMint,
-      token_symbol: position.tokenSymbol || 'Unknown',  // FIX: NOT NULL column
-      token_name: position.tokenName || null,
+      user_id: userUuid,
+      mint: position.tokenMint,
+      symbol: position.tokenSymbol || null,
+      name: position.tokenName || null,
+      lifecycle_state: 'PRE_GRADUATION',
+      pricing_source: 'BONDING_CURVE',
+      router_used: 'BagsTradeRouter',
       entry_execution_id: position.entryExecutionId || null,
       entry_tx_sig: position.entryTxSig || null,
       entry_cost_sol: position.entryCostSol,
       entry_price: position.entryPrice,
       size_tokens: position.sizeTokens,
       current_price: position.entryPrice,
-      // Legacy columns (NOT NULL constraints)
-      amount_in: position.entryCostSol,
-      tokens_held: position.sizeTokens,
-      source: 'auto',
-      mode: 'snipe',
-      strategy: 'STANDARD',
-      status: 'ACTIVE',  // FIX: was 'OPEN', constraint requires 'ACTIVE'|'CLOSED'|'PENDING'
-      opened_at: new Date().toISOString(),
-      // TP/SL engine fields (Phase B audit fix)
-      trigger_state: 'MONITORING',
+      current_value_sol: position.entryCostSol,
+      peak_price: position.entryPrice,
+      tp_percent: position.tpPercent ?? null,
+      sl_percent: position.slPercent ?? null,
       tp_price: tpPrice,
       sl_price: slPrice,
+      trigger_state: 'MONITORING',
       bonding_curve: position.bondingCurve || null,
-      // Display accuracy fields (Audit Round 4)
-      token_decimals: position.tokenDecimals ?? null,
-      entry_mc_sol: position.entryMcSol ?? null,
-      entry_mc_usd: position.entryMcUsd ?? null,
+      launch_candidate_id: position.opportunityId || null,
+      metadata: {
+        source: inferredSource,
+        strategy_id: position.strategyId,
+        token_decimals: position.tokenDecimals ?? null,
+        entry_mc_sol: position.entryMcSol ?? null,
+        entry_mc_usd: position.entryMcUsd ?? null,
+      },
     })
-    .select()
+    .select('*, users(telegram_chat_id)')
     .single();
 
   if (error) throw error;
-  return data;
+  return mapPositionRowToV31(data as Record<string, any>);
 }
 
 /**
@@ -2110,7 +2390,7 @@ export async function updatePositionPriceByUuid(
   const { error } = await supabase
     .from('positions')
     .update(updates)
-    .eq('uuid_id', uuidId);
+    .eq('id', uuidId);
 
   if (error) throw error;
 }
@@ -2127,11 +2407,10 @@ export async function closePositionV31(params: {
   realizedPnlSol: number;
   realizedPnlPercent: number;
 }): Promise<PositionV31> {
-  // Use uuid_id for consistent ID handling across the codebase
   const { data, error } = await supabase
     .from('positions')
     .update({
-      status: 'CLOSED',
+      lifecycle_state: 'CLOSED',
       exit_execution_id: params.exitExecutionId || null,
       exit_tx_sig: params.exitTxSig || null,
       exit_price: params.exitPrice,
@@ -2141,12 +2420,12 @@ export async function closePositionV31(params: {
       closed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .eq('uuid_id', params.positionId)
-    .select()
+    .eq('id', params.positionId)
+    .select('*, users(telegram_chat_id)')
     .single();
 
   if (error) throw error;
-  return data;
+  return mapPositionRowToV31(data as Record<string, any>);
 }
 
 // ============================================================================
@@ -2246,8 +2525,9 @@ export async function markTriggerFailed(positionId: string, errorMsg?: string): 
  * Get an opportunity by ID
  */
 export async function getOpportunityById(opportunityId: string): Promise<OpportunityV31 | null> {
+  // Revamp pipeline: CandidateConsumer uses launch_candidates as the opportunity source.
   const { data, error } = await supabase
-    .from('opportunities')
+    .from('launch_candidates')
     .select('*')
     .eq('id', opportunityId)
     .single();
@@ -2256,7 +2536,34 @@ export async function getOpportunityById(opportunityId: string): Promise<Opportu
     if (error.code === 'PGRST116') return null;
     throw error;
   }
-  return data as OpportunityV31;
+  const payload = data.raw_payload && typeof data.raw_payload === 'object' ? (data.raw_payload as any) : {};
+  const onchain = payload?.onchain || {};
+
+  return {
+    id: data.id,
+    chain: 'sol',
+    source: data.launch_source,
+    token_mint: data.mint,
+    token_name: data.name ?? null,
+    token_symbol: data.symbol ?? null,
+    detected_at: data.first_seen_at,
+    score: null,
+    reasons: null,
+    raw_data: (data.raw_payload as any) ?? null,
+    status: 'NEW',
+    status_reason: data.status_reason ?? null,
+    outcome: null,
+    deployer: onchain?.creator ?? null,
+    bonding_curve: onchain?.bonding_curve ?? null,
+    initial_liquidity_sol: null,
+    bonding_progress_percent: null,
+    matched_strategy_ids: null,
+    qualified_at: null,
+    expired_at: null,
+    completed_at: null,
+    created_at: data.first_seen_at,
+    updated_at: data.processed_at ?? data.first_seen_at,
+  } as OpportunityV31;
 }
 
 /**
@@ -2433,18 +2740,40 @@ export async function createNotification(notification: {
 // ============================================================================
 
 /**
- * Get global safety controls (STUBBED - table doesn't exist in new schema)
- * Returns default safe values to allow trading
+ * Get global safety controls
  */
 export async function getGlobalSafetyControls(): Promise<SafetyControls | null> {
-  // Stub: safety_controls table doesn't exist in new schema
-  // Return default values that allow trading
-  return {
-    scope: 'GLOBAL',
-    auto_execute_enabled: true,
-    trading_paused: false,
-    circuit_open_until: null,
-  } as SafetyControls;
+  const { data, error } = await supabase
+    .from('safety_controls')
+    .select('*')
+    .eq('scope', 'GLOBAL')
+    .maybeSingle();
+
+  if (error) {
+    console.error('[getGlobalSafetyControls] Error:', error.message);
+    // SAFETY (F-008): Fail closed on control read errors.
+    return null;
+  }
+
+  return data as SafetyControls | null;
+}
+
+/**
+ * Get user-specific safety controls
+ */
+export async function getUserSafetyControls(userId: string): Promise<SafetyControls | null> {
+  const { data, error } = await supabase
+    .from('safety_controls')
+    .select('*')
+    .eq('scope', userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[getUserSafetyControls] Error:', error.message);
+    return null;
+  }
+
+  return data as SafetyControls | null;
 }
 
 /**
@@ -2452,7 +2781,8 @@ export async function getGlobalSafetyControls(): Promise<SafetyControls | null> 
  */
 export async function isTradingPaused(): Promise<boolean> {
   const controls = await getGlobalSafetyControls();
-  return controls?.trading_paused ?? false;
+  // SAFETY (F-008): Fail closed (pause) if controls can't be read.
+  return controls ? controls.trading_paused : true;
 }
 
 /**
@@ -2460,8 +2790,109 @@ export async function isTradingPaused(): Promise<boolean> {
  */
 export async function isCircuitOpen(): Promise<boolean> {
   const controls = await getGlobalSafetyControls();
-  if (!controls?.circuit_open_until) return false;
+  // SAFETY (F-008): Fail closed (treat as open) if controls can't be read.
+  if (!controls) return true;
+  if (!controls.circuit_open_until) return false;
   return new Date(controls.circuit_open_until) > new Date();
+}
+
+/**
+ * Check if auto-execution is enabled globally (safety controls).
+ * SAFETY (F-008): Fail closed if controls can't be read.
+ */
+export async function isAutoExecuteEnabledBySafetyControls(): Promise<boolean> {
+  const controls = await getGlobalSafetyControls();
+  if (!controls) return false;
+  if (controls.trading_paused) return false;
+  return controls.auto_execute_enabled;
+}
+
+/**
+ * Check if manual trading is enabled globally (safety controls).
+ * SAFETY (F-008): Fail closed if controls can't be read.
+ */
+export async function isManualTradingEnabledBySafetyControls(): Promise<boolean> {
+  const controls = await getGlobalSafetyControls();
+  if (!controls) return false;
+  if (controls.trading_paused) return false;
+  return controls.manual_trading_enabled;
+}
+
+/**
+ * Increment consecutive failure count for circuit breaker
+ * Opens circuit if threshold is exceeded
+ */
+export async function recordExecutionFailure(scope: string = 'GLOBAL'): Promise<void> {
+  // First, get current state
+  const { data: current, error: fetchError } = await supabase
+    .from('safety_controls')
+    .select('consecutive_failures, circuit_breaker_threshold')
+    .eq('scope', scope)
+    .maybeSingle();
+
+  if (fetchError) {
+    console.error('[recordExecutionFailure] Fetch error:', fetchError.message);
+    return;
+  }
+
+  const failures = (current?.consecutive_failures ?? 0) + 1;
+  const threshold = current?.circuit_breaker_threshold ?? 5;
+
+  // If exceeding threshold, open circuit for 60 seconds
+  const circuitOpenUntil = failures >= threshold
+    ? new Date(Date.now() + 60000).toISOString()
+    : null;
+
+  const { error } = await supabase
+    .from('safety_controls')
+    .update({
+      consecutive_failures: failures,
+      circuit_open_until: circuitOpenUntil,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('scope', scope);
+
+  if (error) {
+    console.error('[recordExecutionFailure] Update error:', error.message);
+  } else if (circuitOpenUntil) {
+    console.warn(`[SafetyControls] Circuit breaker opened (${failures} failures, scope: ${scope})`);
+  }
+}
+
+/**
+ * Reset consecutive failure count on successful execution
+ */
+export async function recordExecutionSuccess(scope: string = 'GLOBAL'): Promise<void> {
+  const { error } = await supabase
+    .from('safety_controls')
+    .update({
+      consecutive_failures: 0,
+      circuit_open_until: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('scope', scope);
+
+  if (error) {
+    console.error('[recordExecutionSuccess] Error:', error.message);
+  }
+}
+
+/**
+ * Pause or unpause trading globally
+ */
+export async function setTradingPaused(paused: boolean): Promise<void> {
+  const { error } = await supabase
+    .from('safety_controls')
+    .update({
+      trading_paused: paused,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('scope', 'GLOBAL');
+
+  if (error) {
+    throw error;
+  }
+  console.log(`[SafetyControls] Trading ${paused ? 'PAUSED' : 'RESUMED'} globally`);
 }
 
 // ============================================================================
@@ -2478,13 +2909,21 @@ export async function setCooldown(params: {
   durationSeconds: number;
   reason?: string;
 }): Promise<void> {
-  const { error } = await supabase.rpc('set_cooldown', {
-    p_chain: params.chain,
-    p_cooldown_type: params.cooldownType,
-    p_target: params.target,
-    p_duration_seconds: params.durationSeconds,
-    p_reason: params.reason || null,
-  });
+  const cooldownUntil = new Date(Date.now() + params.durationSeconds * 1000).toISOString();
+
+  const { error } = await supabase
+    .from('cooldowns')
+    .upsert(
+      {
+        chain: params.chain,
+        cooldown_type: params.cooldownType,
+        target: params.target,
+        cooldown_until: cooldownUntil,
+        reason: params.reason || null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'chain,cooldown_type,target' }
+    );
 
   if (error) throw error;
 }
@@ -2522,9 +2961,22 @@ export async function isCooldownActive(
  * TODO: Implement using new executions table directly
  */
 export async function cleanupStaleExecutions(staleMinutes: number = 5): Promise<number> {
-  // Stub: RPC doesn't exist in new schema
-  // Return 0 - nothing cleaned up
-  return 0;
+  const cutoff = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('executions')
+    .update({
+      status: 'failed',
+      error_code: 'STALE',
+      error_detail: 'stale_execution',
+    })
+    .in('status', ['pending', 'sent'])
+    .is('signature', null)
+    .lt('created_at', cutoff)
+    .select('id');
+
+  if (error) throw error;
+  return data?.length || 0;
 }
 
 // ============================================================================
@@ -2537,6 +2989,52 @@ import type {
   MonitorUpdateData,
   RecentPosition,
 } from './types.js';
+
+function toNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function mapTradeMonitorRow(row: Record<string, any>): TradeMonitor {
+  return {
+    ...row,
+    id: Number(row.id),
+    user_id: Number(row.user_id),
+    chat_id: Number(row.chat_id),
+    message_id: Number(row.message_id),
+    position_id: row.position_id ? String(row.position_id) : null,
+
+    entry_price_sol: toNumberOrNull(row.entry_price_sol),
+    entry_amount_sol: toNumberOrNull(row.entry_amount_sol),
+    entry_tokens: toNumberOrNull(row.entry_tokens),
+    entry_market_cap_usd: toNumberOrNull(row.entry_market_cap_usd),
+
+    current_price_sol: toNumberOrNull(row.current_price_sol),
+    current_tokens: toNumberOrNull(row.current_tokens),
+    current_value_sol: toNumberOrNull(row.current_value_sol),
+    pnl_sol: toNumberOrNull(row.pnl_sol),
+    pnl_percent: toNumberOrNull(row.pnl_percent),
+    market_cap_usd: toNumberOrNull(row.market_cap_usd),
+    liquidity_usd: toNumberOrNull(row.liquidity_usd),
+    volume_24h_usd: toNumberOrNull(row.volume_24h_usd),
+
+    refresh_count: Number(row.refresh_count ?? 0),
+  } as TradeMonitor;
+}
+
+function mapRecentPositionRow(row: Record<string, any>): RecentPosition {
+  return {
+    ...row,
+    id: String(row.id),
+    entry_price: Number(row.entry_price ?? 0),
+    amount_in: Number(row.amount_in ?? 0),
+    tokens_held: Number(row.tokens_held ?? 0),
+    unrealized_pnl_percent: Number(row.unrealized_pnl_percent ?? 0),
+    has_monitor: Boolean(row.has_monitor),
+  } as RecentPosition;
+}
 
 /**
  * Create or update a trade monitor
@@ -2556,22 +3054,29 @@ export async function upsertTradeMonitor(input: TradeMonitorInput): Promise<Trad
     p_entry_tokens: input.entry_tokens || null,
     p_route_label: input.route_label || null,
     p_ttl_hours: input.ttl_hours || 24,
+    p_entry_market_cap_usd: input.entry_market_cap_usd ?? null,
   });
 
   if (error) throw error;
-  return data as TradeMonitor;
+  return mapTradeMonitorRow(data as Record<string, any>);
 }
 
 /**
  * Get monitors that need refreshing
  */
 export async function getMonitorsForRefresh(
-  _batchSize: number = 20,
-  _minAgeSeconds: number = 15
+  batchSize: number = 20,
+  minAgeSeconds: number = 15
 ): Promise<TradeMonitor[]> {
-  // Stub: get_monitors_for_refresh RPC doesn't exist in new schema
-  // Trade monitor UI feature is disabled until schema migration
-  return [];
+  const { data, error } = await supabase.rpc('get_monitors_for_refresh', {
+    p_batch_size: batchSize,
+    p_min_age_seconds: minAgeSeconds,
+  });
+
+  if (error) throw error;
+  const rows = data as unknown;
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => mapTradeMonitorRow(row as Record<string, any>));
 }
 
 /**
@@ -2591,7 +3096,7 @@ export async function updateMonitorData(update: MonitorUpdateData): Promise<Trad
   });
 
   if (error) throw error;
-  return data as TradeMonitor;
+  return mapTradeMonitorRow(data as Record<string, any>);
 }
 
 /**
@@ -2607,7 +3112,7 @@ export async function resetMonitorTTL(
   });
 
   if (error) throw error;
-  return data as TradeMonitor;
+  return mapTradeMonitorRow(data as Record<string, any>);
 }
 
 /**
@@ -2635,16 +3140,16 @@ export async function getUserMonitor(
   });
 
   if (error) throw error;
-  return data as TradeMonitor | null;
+  return data ? mapTradeMonitorRow(data as Record<string, any>) : null;
 }
 
 /**
  * Expire old monitors (maintenance)
  */
 export async function expireOldMonitors(): Promise<number> {
-  // Stub: expire_old_monitors RPC doesn't exist in new schema
-  // Trade monitors will expire naturally via TTL
-  return 0;
+  const { data, error } = await supabase.rpc('expire_old_monitors');
+  if (error) throw error;
+  return (data as number) || 0;
 }
 
 /**
@@ -2664,7 +3169,9 @@ export async function getRecentPositions(
   });
 
   if (error) throw error;
-  return (data || []) as RecentPosition[];
+  const rows = data as unknown;
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => mapRecentPositionRow(row as Record<string, any>));
 }
 
 /**
@@ -2697,7 +3204,7 @@ export async function getMonitorById(monitorId: number): Promise<TradeMonitor | 
     if (error.code === 'PGRST116') return null;
     throw error;
   }
-  return data as TradeMonitor;
+  return data ? mapTradeMonitorRow(data as Record<string, any>) : null;
 }
 
 /**
@@ -2737,7 +3244,7 @@ export async function setMonitorView(
   });
 
   if (error) throw error;
-  return data as TradeMonitor | null;
+  return data ? mapTradeMonitorRow(data as Record<string, any>) : null;
 }
 
 /**
@@ -2756,7 +3263,7 @@ export async function getUserActiveMonitors(
     .limit(limit);
 
   if (error) throw error;
-  return (data || []) as TradeMonitor[];
+  return (data || []).map((row) => mapTradeMonitorRow(row as Record<string, any>));
 }
 
 // ============================================================================

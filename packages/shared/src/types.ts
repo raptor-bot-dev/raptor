@@ -381,7 +381,7 @@ export interface TradeMonitor {
   token_name: string | null;
   chat_id: number;
   message_id: number;
-  position_id: number | null;
+  position_id: string | null;
 
   // Entry data
   entry_price_sol: number | null;
@@ -423,7 +423,7 @@ export interface TradeMonitorInput {
   token_name?: string;
   chat_id: number;
   message_id: number;
-  position_id?: number;
+  position_id?: string;
   entry_price_sol?: number;
   entry_amount_sol?: number;
   entry_tokens?: number;
@@ -447,7 +447,7 @@ export interface MonitorUpdateData {
 
 /** Recent position row for /positions command */
 export interface RecentPosition {
-  id: number;
+  id: string;
   token_address: string;
   token_symbol: string;
   chain: Chain;
