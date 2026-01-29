@@ -5,7 +5,8 @@
 
 import { HeliusWsManager, type LogsNotification } from '../monitors/heliusWs.js';
 import { parseMeteoraLogs, validateCreateEvent, type MeteoraCreateEvent } from './meteoraParser.js';
-import { getMeteoraProgramId, classifyError } from '@raptor/shared';
+import { findAndDecodeCreateInstruction } from './meteoraInstructionDecoder.js';
+import { getMeteoraProgramId, classifyError, SOLANA_CONFIG } from '@raptor/shared';
 
 /**
  * Signal emitted when a new Meteora DBC token is detected on-chain
@@ -213,6 +214,10 @@ export class MeteoraOnChainSource {
 
   /**
    * Handle incoming logs notification
+   *
+   * Two-layer detection:
+   *   Layer 1 — Tightened log heuristic pre-filter (fast, may have rare false positives)
+   *   Layer 2 — Fetch full transaction + IDL instruction decoder (accurate)
    */
   private async handleLogsNotification(notification: LogsNotification): Promise<void> {
     this.stats.logsReceived++;
@@ -224,22 +229,54 @@ export class MeteoraOnChainSource {
 
     const { signature, logs, slot } = notification;
 
-    // Parse logs to detect create events
-    const result = parseMeteoraLogs(logs);
-
-    if (!result.ok) {
-      if (result.reason !== 'not_create_instruction') {
+    // Layer 1: Quick log heuristic pre-filter
+    const heuristicResult = parseMeteoraLogs(logs);
+    if (!heuristicResult.ok) {
+      // Silently skip non-create instructions (vast majority of traffic)
+      if (heuristicResult.reason !== 'not_create_instruction') {
         this.stats.parseFailures++;
-        console.log(
-          `[MeteoraOnChainSource] Parse failed for ${signature.slice(0, 12)}...: ${result.reason}`
-        );
       }
       return;
     }
 
-    const event = result.event;
+    console.log(
+      `[MeteoraOnChainSource] Potential create detected, fetching tx ${signature.slice(0, 12)}...`
+    );
 
-    // Validate the event
+    // Layer 2: Fetch full transaction and use proper IDL decoder
+    let event: MeteoraCreateEvent | null = null;
+    try {
+      const tx = await this.fetchTransaction(signature);
+      if (tx) {
+        event = findAndDecodeCreateInstruction(tx);
+      }
+    } catch (error) {
+      console.error(
+        `[MeteoraOnChainSource] fetchTransaction error for ${signature.slice(0, 12)}...:`,
+        (error as Error).message
+      );
+    }
+
+    // Fallback: if RPC fetch failed but heuristic extracted addresses, use heuristic (degraded mode)
+    if (!event && heuristicResult.ok) {
+      const heuristicEvent = heuristicResult.event;
+      if (validateCreateEvent(heuristicEvent)) {
+        event = heuristicEvent;
+        console.warn(
+          `[MeteoraOnChainSource] Using heuristic fallback for ${signature.slice(0, 12)}...`
+        );
+      }
+    }
+
+    if (!event) {
+      this.stats.parseFailures++;
+      console.log(
+        `[MeteoraOnChainSource] REJECTED tx=${signature.slice(0, 12)}...: decoder_failed`
+      );
+      return;
+    }
+
+    // Final validation (defense-in-depth)
     if (!validateCreateEvent(event)) {
       this.stats.parseFailures++;
       console.log(
@@ -269,6 +306,83 @@ export class MeteoraOnChainSource {
 
     // Emit to handlers
     await this.emitSignal(signal);
+  }
+
+  /**
+   * Fetch full transaction data via HTTP RPC for accurate instruction decoding.
+   * Uses json encoding (not jsonParsed) to get raw instruction data + account indices.
+   * Merges static account keys with loaded addresses for v0 transactions.
+   */
+  private async fetchTransaction(signature: string): Promise<{
+    message: {
+      accountKeys: string[];
+      instructions: Array<{
+        programIdIndex: number;
+        accounts: number[];
+        data: string;
+      }>;
+    };
+  } | null> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const response = await fetch(SOLANA_CONFIG.rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getTransaction',
+          params: [
+            signature,
+            { encoding: 'json', maxSupportedTransactionVersion: 0 },
+          ],
+        }),
+        signal: controller.signal,
+      });
+
+      interface GetTxResponse {
+        result?: {
+          transaction?: {
+            message?: {
+              accountKeys?: string[];
+              instructions?: Array<{
+                programIdIndex: number;
+                accounts: number[];
+                data: string;
+              }>;
+            };
+          };
+          meta?: {
+            loadedAddresses?: {
+              writable?: string[];
+              readonly?: string[];
+            };
+          };
+        };
+      }
+
+      const data = (await response.json()) as GetTxResponse;
+      const tx = data.result;
+      if (!tx?.transaction?.message) return null;
+
+      // Merge static account keys with loaded addresses (for v0 transactions with ALTs)
+      const staticKeys: string[] = tx.transaction.message.accountKeys || [];
+      const loaded = tx.meta?.loadedAddresses;
+      const allKeys = loaded
+        ? [...staticKeys, ...(loaded.writable || []), ...(loaded.readonly || [])]
+        : staticKeys;
+
+      return {
+        message: {
+          accountKeys: allKeys,
+          instructions: tx.transaction.message.instructions || [],
+        },
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   /**

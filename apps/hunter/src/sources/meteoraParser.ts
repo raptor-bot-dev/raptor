@@ -52,16 +52,11 @@ export type MeteoraParseResult =
  * These patterns appear in program logs when a new pool is created
  */
 const METEORA_CREATE_PATTERNS = [
-  // Pool initialization patterns (case-insensitive matching)
-  /Program log: Instruction: InitializePool/i,
-  /Program log: Instruction: CreatePool/i,
-  /Program log: Instruction: Initialize/i,
-  /Program log: Initialize pool/i,
-  /Program log: Create pool/i,
-  /Program log: Pool created/i,
-  // DBC-specific patterns
-  /Program log: Dynamic bonding curve/i,
-  /Program log: DBC pool/i,
+  // Anchor-generated log lines for Meteora DBC pool initialization
+  /Program log: Instruction: InitializeVirtualPoolWithSplToken/i,
+  /Program log: Instruction: InitializeVirtualPoolWithToken2022/i,
+  // Catch-all for future variants (still specific to virtual pool init)
+  /Program log: Instruction: InitializeVirtualPool/i,
 ];
 
 /**
@@ -218,6 +213,7 @@ export function validateCreateEvent(event: MeteoraCreateEvent): boolean {
     !KNOWN_PROGRAM_IDS.has(event.mint) &&
     !KNOWN_PROGRAM_IDS.has(event.bondingCurve) &&
     !KNOWN_PROGRAM_IDS.has(event.creator) &&
-    event.mint !== event.bondingCurve
+    event.mint !== event.bondingCurve &&
+    event.mint !== event.creator
   );
 }
