@@ -3,6 +3,8 @@
 Single source of truth for current progress. Keep it brief.
 
 ## Current milestone
+**Infrastructure Audit & Revamp** - COMPLETE ✅ (2026-01-28, +13 commits on main)
+
 **Bags.fm / Meteora Revamp** - COMPLETE ✅ (tagged: `revamp-bags-meteora-v1`)
 
 **Phase B: TP/SL Engine (automatic position exits)** - COMPLETE (audit fixes deployed)
@@ -25,6 +27,21 @@ Single source of truth for current progress. Keep it brief.
 - State Machine: ✅ PASS
 - Discovery Hardening: ✅ PASS
 - Database Safety: ✅ PASS
+
+### Infrastructure Audit (2026-01-28)
+| Area | Status | Key Change |
+|------|--------|------------|
+| Durable Queue | ✅ DONE | SKIP LOCKED trade_jobs leasing |
+| Notifications Outbox | ✅ DONE | UUID→Telegram ID resolution |
+| Bags Telegram Ingestion | ✅ DONE | Dedupe + candidate upserts |
+| Meteora DBC Decoder | ✅ DONE | IDL discriminators, feature-flagged |
+| BAGS-only Mode | ✅ DONE | pump.fun execution disabled |
+| Phase-X Migrations | ✅ DONE | Settings, wallets, monitors, functions |
+| Supabase Access Layer | ✅ DONE | RPC removal, direct queries, type correctness |
+| Ownership Checks | ✅ DONE | Fail-closed position isolation |
+| Safety Tests | ✅ DONE | Privacy regression tests |
+| Supabase CLI | ✅ DONE | db:reset / db:push scripts |
+| DB Migration Sync | ✅ DONE | Remote matches local (dry-run clean) |
 
 ### Objectives
 - Autohunt execution is reliable (buy/exit/emergency close). ✅
@@ -287,7 +304,12 @@ Single source of truth for current progress. Keep it brief.
   - TRADE_DONE is BUY-only; SELL uses specific trigger types
 
 ## Where we left off last
-- 2026-01-20 (latest): **Token-2022 ATA detection fix (v136)**
+- 2026-01-28 (latest): **Infrastructure Audit & Revamp complete**
+  - All 13 commits ready to push (fedd1d8..6ea3e25)
+  - Remote DB migrations in sync (dry-run clean)
+  - 236 tests passing
+  - Next: push to GitHub → Fly.io auto-deploy
+- 2026-01-20 (earlier): **Token-2022 ATA detection fix (v136)**
   - **Root cause**: `getTokenBalanceRaw()` used `getAssociatedTokenAddress(mint, wallet)` without token program
   - Default is standard SPL, but pump.fun tokens use **Token-2022** which derives ATAs at **different addresses**
   - Function was checking wrong ATA (0 balance) while real Token-2022 ATA had tokens

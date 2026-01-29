@@ -2,6 +2,62 @@
 
 Keep this log short and append-only. Use ISO dates.
 
+## 2026-01-28 – Bags/Meteora Audit & Infrastructure Revamp
+
+### Durable Queue + Notifications
+- **feat(queue): implement durable trade job queue with SKIP LOCKED leasing** (9501945)
+  - `trade_jobs` table with claim/lease/finalize flow
+  - Hunter wired to produce and consume jobs via SKIP LOCKED
+- **fix(notifications): implement real outbox with UUID→tgId resolution** (ff99678)
+  - Notification delivery now resolves internal UUID user IDs to Telegram user IDs
+  - Crash-safe outbox with lease-based delivery
+
+### Discovery Hardening
+- **feat: add CandidateConsumerLoop for auto-trading from launch_candidates** (5214fc9)
+  - New loop consumes `launch_candidates` and produces `trade_jobs`
+  - Bags Telegram ingestion + dedupe logic merged into candidate upserts
+- **feat: add Meteora DBC instruction decoder with IDL discriminators** (f921257)
+  - Decodes Meteora Dynamic Bonding Curve create instructions
+  - Uses IDL-based discriminators for accurate parsing
+- **feat: mark on-chain detection as heuristic, enforce feature flag** (8f02dfa)
+  - On-chain Meteora detection labeled heuristic where applicable
+  - Feature flag `METEORA_ONCHAIN_ENABLED` enforced
+
+### Execution/Routing
+- **feat: disable pump.fun execution paths (BAGS-only mode)** (c5e22bc)
+  - pump.fun execution paths fully disabled (F-007)
+  - System operates in BAGS-only mode
+- **docs: update self-custody model and fix pump.fun reference in CLAUDE.md** (2a483f4)
+
+### Database Schema Revamp
+- **feat(db): add Phase-X schema + functions (settings, wallets, monitors)** (d67c34b)
+  - User settings, self-custody wallets, strategies, cooldowns
+  - Trade monitors with helper SQL functions (upsert, refresh, close, expire, etc.)
+  - Compatibility columns for positions (updated_at, tx sigs)
+- **chore(db): add placeholder migrations to match remote history** (4495658)
+  - 3 placeholder versions (20260128063213/33/48) to reconcile remote migration history
+- **chore(db): add Supabase CLI scripts and fix local seed** (bb579ed)
+  - Added Supabase CLI to dev deps + `db:reset` / `db:push` scripts
+  - Fixed `supabase/seed.sql` for successful `pnpm db:reset`
+
+### Shared Supabase Access Layer
+- **fix(shared): align Supabase access layer with Phase-0 schema** (4dc9213)
+  - Replaced `reserveTradeBudget()` RPC with direct executions insert/update
+  - Replaced `updateExecution()` RPC with direct executions update + status mapping
+  - `getMonitorsForRefresh()` returns `TradeMonitor[]` with runtime numeric coercion
+  - Position reads/writes reworked for Phase-0 schema + fail-closed cross-user isolation
+  - `TradeMonitor.position_id` and `RecentPosition.id` updated to UUID strings
+  - Safety/privacy regression tests added
+
+### Bot/API Wiring + UX/Security
+- **fix(apps): Phase-0 wiring, ownership checks, and monitoring UX** (fedd1d8)
+  - Ownership fail-closed checks for position views/actions
+  - Sell/buy/monitor flows use Phase-0 IDs + pass positionId into reservations
+  - API positions endpoint uses `getUserOpenPositions()`
+
+### Full Revamp (earlier batch commit)
+- **feat: complete revamp phases 0-5 (schema, routing, lifecycle, purge)** (6ea3e25)
+
 ## 2026-01-20 (Evening Session - v4.6 DECIMALS FIX)
 - **fix(executor): Token-2022 ATA derivation in getTokenBalanceRaw** (c4a1f50)
   - **ROOT CAUSE FOUND**: `getTokenBalanceRaw()` was checking wrong ATA (standard SPL instead of Token-2022)

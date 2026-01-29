@@ -17,13 +17,23 @@ Key principle: **reuse existing code**. Prefer refactor/disable paths over rewri
 
 ## Repo structure (current)
 
-- `apps/bot`: Telegram UI (grammy).
-- `apps/hunter`: Autohunt detection + strategy selection.
-- `apps/executor`: Transaction build/sign/send + chain adapters.
-- `apps/api`: Internal/utility API layer (if present).
-- `packages/*`: shared types, db helpers, common utils.
+- `apps/bot`: Telegram UI (grammy). Deploys as `raptor-bot` on Fly.io.
+- `apps/hunter`: Autohunt detection + strategy selection + CandidateConsumerLoop. Deploys as `raptor-hunter`.
+- `apps/executor`: Transaction build/sign/send + chain adapters. Linked into bot/hunter as a package.
+- `apps/api`: Internal/utility API layer.
+- `packages/shared`: Supabase access layer, types, pricing, market data.
+- `packages/database`: Migration helpers.
 
 **Do not introduce a new runtime.** The repo is Node 20+ and pnpm workspaces.
+
+## Current architecture mode
+
+**BAGS-only mode** (pump.fun execution disabled as of 2026-01-28):
+- Discovery: BagsSource (Telegram) + MeteoraOnChainSource (feature-flagged)
+- Execution: BagsTradeRouter (pre-graduation) + JupiterRouter (post-graduation)
+- Queue: Durable `trade_jobs` table with SKIP LOCKED claim/lease/finalize
+- Notifications: Transactional outbox with UUID→Telegram ID resolution
+- Ownership: Fail-closed checks on all position views/actions
 
 ## Telegram UI/UX style guide (must follow)
 

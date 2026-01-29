@@ -42,17 +42,23 @@ Key principle: **reuse existing modules** (DB schema, trade models, RPC adapters
 
 The database schema was rebuilt from scratch for the Bags.fm/Meteora migration. See `docs/revamp/DB_BOOTSTRAP.md` for full details.
 
-### Core Tables (7 total)
+### Core Tables
 
 | Table | Purpose |
 |-------|---------|
 | `users` | User identity, Telegram linkage, tiering |
-| `wallets` | Public keys associated with users (no private keys) |
-| `settings` | Per-user snap risk controls |
+| `wallets` | Public keys associated with users (no private keys, self-custody) |
+| `user_settings` | Per-user preferences |
 | `launch_candidates` | Normalized output from discovery layer |
-| `positions` | Position lifecycle with explicit state machine |
+| `positions` | Position lifecycle with explicit state machine (updated_at, tx sigs) |
 | `executions` | Immutable trade log (idempotency anchor) |
-| `notifications_outbox` | Transactional outbox for crash-safe notifications |
+| `notifications_outbox` | Transactional outbox with UUID→tgId resolution |
+| `trade_jobs` | Durable job queue with SKIP LOCKED leasing |
+| `strategies` | Per-user trading strategy configuration |
+| `cooldowns` | Rate limiting for trade execution |
+| `trade_monitors` | Active position monitoring state |
+| `manual_settings` | Manual trade mode settings |
+| `chain_settings` | Per-chain settings (priority fees, MEV protection) |
 
 ### Key Design Patterns
 
@@ -65,9 +71,27 @@ The database schema was rebuilt from scratch for the Bags.fm/Meteora migration. 
 
 Located in `supabase/migrations/`. Run with:
 ```bash
-supabase db reset   # Drop + migrate + seed
-supabase db push    # Apply to remote
+pnpm db:reset       # Drop + migrate + seed (uses Supabase CLI)
+pnpm db:push        # Apply to remote
+supabase db reset   # Alternative: direct Supabase CLI
+supabase db push    # Alternative: direct Supabase CLI
 ```
+
+### SQL Functions (Phase-X)
+
+Helper RPC functions in migrations:
+- `fn_upsert_trade_monitor` — create or update monitor
+- `fn_get_monitors_for_refresh` — get monitors due for refresh
+- `fn_update_monitor_data` — update monitor market data
+- `fn_reset_monitor_ttl` — reset monitor time-to-live
+- `fn_close_monitor` — close and archive monitor
+- `fn_get_user_monitor` — get specific user's monitor
+- `fn_expire_old_monitors` — garbage collect stale monitors
+- `fn_set_monitor_view` — set monitor display mode
+- `fn_get_recent_positions` — paginated position history
+- `fn_count_recent_positions` — position count for user
+- `fn_get_or_create_manual_settings` / `fn_update_manual_settings`
+- `fn_get_or_create_chain_settings` / `fn_update_chain_settings` / `fn_reset_chain_settings`
 
 ## Primary flows
 
@@ -190,6 +214,34 @@ States:
 1. **Atomic DB claim**: `trigger_exit_atomically()` uses `WHERE trigger_state='MONITORING'`
 2. **Idempotency key**: `idKeyExitSell({positionId, trigger, sellPercent})`
 3. **Double protection**: Even if WS duplicates events, only one exit executes
+
+## Durable Trade Job Queue (2026-01-28)
+
+### Overview
+
+Trade execution uses a durable queue (`trade_jobs` table) with PostgreSQL `SKIP LOCKED` for exactly-once job processing.
+
+### Flow
+
+```
+CandidateConsumerLoop → INSERT trade_jobs → ExecutionLoop claims via SKIP LOCKED
+                                          → Lease renewal during execution
+                                          → Finalize (COMPLETED/FAILED)
+```
+
+### Key Properties
+- **Claim**: `SELECT ... FOR UPDATE SKIP LOCKED` prevents double-processing
+- **Lease**: Jobs have a TTL; unclaimed expired jobs can be re-claimed
+- **Finalize**: Terminal state (COMPLETED/FAILED/CANCELED) with execution result
+- **Crash recovery**: Leased but unfinalized jobs expire and become re-claimable
+
+### Notification Outbox
+
+Notifications use a transactional outbox pattern:
+1. Notification created in `notifications_outbox` with UUID user reference
+2. NotificationPoller leases pending notifications via SKIP LOCKED
+3. Resolves UUID → Telegram user ID for delivery
+4. Marks delivered or retries on failure
 
 ## Discovery Sources (Bags.fm / Meteora Revamp)
 
