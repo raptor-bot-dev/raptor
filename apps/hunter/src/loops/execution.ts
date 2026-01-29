@@ -363,6 +363,7 @@ export class ExecutionLoop {
               trigger: job.payload.trigger,
               triggerPrice: job.payload.trigger_price,
               pnlPercent: result.pnlPercent || 0,
+              pnlSol: result.pnlSol || 0,
               solReceived: result.tokensReceived || 0, // This is SOL received for SELL
               txHash: result.txSig || '',
             },
@@ -389,10 +390,11 @@ export class ExecutionLoop {
 
         await createNotification({
           userId: job.user_id,
-          type: 'TRADE_FAILED',
+          type: job.action === 'BUY' ? 'BUY_FAILED' : 'SELL_FAILED',
           payload: {
             action: job.action,
             mint: job.payload.mint,
+            tokenSymbol: result.tokenSymbol ?? null,
             error: result.error,
             retrying: retryable,
           },

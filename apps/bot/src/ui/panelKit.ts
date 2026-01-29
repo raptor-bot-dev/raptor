@@ -24,7 +24,7 @@ export type Button = {
 
 // --- Constants ---
 
-const DINO = '🦖';
+const DINO = '🦅';
 const DIVIDER = '━━━━━━━━━━━━━━━━';
 
 /**

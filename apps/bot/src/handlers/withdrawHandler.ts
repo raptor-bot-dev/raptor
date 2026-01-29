@@ -16,6 +16,7 @@ import {
   type WithdrawData,
   type WithdrawConfirmData,
 } from '../ui/panels/withdraw.js';
+import { panel, code, stat } from '../ui/panelKit.js';
 import { getUserWallets } from '@raptor/shared';
 import { processWithdrawal } from '../services/wallet.js';
 import { showHome } from './home.js';
@@ -308,7 +309,12 @@ export async function handleWithdrawInput(
           ctx.session.step = null;
         }
 
-        await ctx.reply('Destination set. Returning to withdraw panel...');
+        const toast = panel('WITHDRAW', [
+          stat('Status', 'Destination set'),
+          stat('To', ''),
+          code(trimmed),
+        ]);
+        await ctx.reply(toast.text, toast.opts);
         await showWithdrawHome(ctx);
         return true;
       }

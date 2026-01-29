@@ -10,6 +10,8 @@ import {
   formatSol,
   btn,
   homeBtn,
+  urlBtn,
+  solscanTxUrl,
   type Button,
   type Panel,
 } from '../panelKit.js';
@@ -190,19 +192,18 @@ export function renderWithdrawSuccess(
   ];
 
   if (txSig) {
-    lines.push(stat('TX', txSig.slice(0, 16) + '...'));
+    lines.push(stat('TX', ''));
+    lines.push(code(txSig));
+    lines.push(stat('Explorer', 'Solscan'));
   }
 
   const buttons: Button[][] = [];
-
-  // If we have txSig, add View TX button
-  // Note: For URL buttons, we'd need to import solscanTxUrl
-  // For simplicity, using callback that can redirect
-
-  buttons.push([
-    btn('Withdraw More', CB.WITHDRAW.OPEN),
-    homeBtn(),
-  ]);
+  if (txSig) {
+    buttons.push([
+      urlBtn('View TX', solscanTxUrl(txSig)),
+    ]);
+  }
+  buttons.push([btn('Withdraw More', CB.WITHDRAW.OPEN), homeBtn()]);
 
   return panel('WITHDRAW SUCCESS', lines, buttons);
 }
