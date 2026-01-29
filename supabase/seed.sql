@@ -30,26 +30,30 @@ ON CONFLICT (telegram_chat_id) DO UPDATE SET
     tier = EXCLUDED.tier;
 
 -- Wallet for test user 1
-INSERT INTO wallets (id, user_id, pubkey, label, is_active)
+INSERT INTO wallets (id, user_id, pubkey, label, is_active, chain, wallet_index)
 VALUES (
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     '11111111-1111-1111-1111-111111111111',
     'So11111111111111111111111111111111111111112',
     'Dev Wallet',
-    true
+    true,
+    'sol',
+    1
 )
 ON CONFLICT (pubkey) DO UPDATE SET
     label = EXCLUDED.label,
     is_active = EXCLUDED.is_active;
 
 -- Wallet for test user 2
-INSERT INTO wallets (id, user_id, pubkey, label, is_active)
+INSERT INTO wallets (id, user_id, pubkey, label, is_active, chain, wallet_index)
 VALUES (
     'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
     '22222222-2222-2222-2222-222222222222',
     'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
     'Test Wallet',
-    true
+    true,
+    'sol',
+    1
 )
 ON CONFLICT (pubkey) DO UPDATE SET
     label = EXCLUDED.label,
