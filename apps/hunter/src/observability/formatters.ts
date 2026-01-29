@@ -5,10 +5,11 @@
 
 export interface DetectionEvent {
   mint: string;
-  creator: string;
-  bondingCurve: string;
-  signature: string;
-  slot: number;
+  // Optional: only available for on-chain detection
+  creator?: string;
+  bondingCurve?: string;
+  signature?: string;
+  slot?: number;
   source: string;
   timestamp: number;
   // Enrichment (optional — may not be available for brand new tokens)
@@ -71,10 +72,15 @@ export function formatDetection(event: DetectionEvent): string {
 
   lines.push(
     `Mint: <a href="${solscanToken(event.mint)}">${event.mint}</a>`,
-    `Creator: <code>${event.creator}</code>`,
-    `Curve: <code>${event.bondingCurve}</code>`,
     ``,
   );
+
+  if (event.creator) {
+    lines.splice(lines.length - 1, 0, `Creator: <code>${event.creator}</code>`);
+  }
+  if (event.bondingCurve) {
+    lines.splice(lines.length - 1, 0, `Curve: <code>${event.bondingCurve}</code>`);
+  }
 
   // Market data line — only if available
   if (event.marketCapUsd || event.liquidityUsd) {
@@ -86,9 +92,11 @@ export function formatDetection(event: DetectionEvent): string {
 
   lines.push(
     `Source: ${event.source}`,
-    `Slot: ${event.slot} | Latency: ${latency}s`,
+    `Slot: ${event.slot ?? 'n/a'} | Latency: ${latency}s`,
     ``,
-    `<a href="${solscanToken(event.mint)}">Solscan</a> | <a href="${solscanTx(event.signature)}">View TX</a>`,
+    event.signature
+      ? `<a href="${solscanToken(event.mint)}">Solscan</a> | <a href="${solscanTx(event.signature)}">View TX</a>`
+      : `<a href="${solscanToken(event.mint)}">Solscan</a>`,
   );
 
   return lines.join('\n');

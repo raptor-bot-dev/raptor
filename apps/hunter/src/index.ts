@@ -211,6 +211,32 @@ async function main() {
         console.log(
           `[BagsSource] Upserted launch_candidate: ${signal.symbol || 'UNKNOWN'} (${signal.mint.slice(0, 12)}...)`
         );
+
+        // Fire-and-forget observer notification (Telegram-based detection won't have on-chain fields).
+        if (observer) {
+          (async () => {
+            let marketCapUsd: number | null = null;
+            let liquidityUsd: number | null = null;
+
+            try {
+              const { data: tokenInfo } = await dexscreener.getTokenByAddress(signal.mint);
+              if (tokenInfo) {
+                marketCapUsd = tokenInfo.marketCap;
+                liquidityUsd = tokenInfo.liquidity || null;
+              }
+            } catch {}
+
+            await observer.postDetection({
+              mint: signal.mint,
+              source: 'bags_telegram',
+              timestamp: signal.timestamp,
+              name: signal.name ?? null,
+              symbol: signal.symbol ?? null,
+              marketCapUsd,
+              liquidityUsd,
+            });
+          })().catch(() => {});
+        }
       } catch (error) {
         console.error('[BagsSource] Failed to upsert launch_candidate:', (error as Error).message);
       }

@@ -117,8 +117,9 @@ export class MeteoraOnChainSource {
       return;
     }
 
-    console.warn('[MeteoraOnChainSource] ⚠️  HEURISTIC DETECTION — uses log-pattern regex, not instruction decoding.');
-    console.warn('[MeteoraOnChainSource] Enable only in staging or behind METEORA_ONCHAIN_ENABLED=true.');
+    console.warn('[MeteoraOnChainSource] ⚠️  On-chain detection enabled (METEORA_ONCHAIN_ENABLED=true).');
+    console.warn('[MeteoraOnChainSource] Two-layer: log prefilter → fetch tx → IDL discriminator decoder.');
+    console.warn('[MeteoraOnChainSource] If RPC fetch fails, may fall back to heuristic address extraction.');
     console.log('[MeteoraOnChainSource] Starting...');
     console.log(`[MeteoraOnChainSource] Program ID: ${this.programId}`);
 
