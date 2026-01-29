@@ -1486,7 +1486,7 @@ export async function getOrCreateAutoStrategy(userId: number, chain: Chain): Pro
     // Moon bag
     moon_bag_percent: 25,
 	    // Filters
-	    min_score: 30,
+	    min_score: 10,
 	    min_liquidity_sol: 0,
 	    // Revamp: BAGS-only discovery/execution.
 	    allowed_launchpads: ['bags'],

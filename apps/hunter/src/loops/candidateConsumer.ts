@@ -298,6 +298,19 @@ export class CandidateConsumerLoop {
       }
     }
 
+    // Check token allowlist/denylist
+    if (strategy.token_denylist && strategy.token_denylist.length > 0) {
+      if (strategy.token_denylist.includes(candidate.mint)) {
+        return { ok: false, reason: 'token_denylisted' };
+      }
+    }
+
+    if (strategy.token_allowlist && strategy.token_allowlist.length > 0) {
+      if (!strategy.token_allowlist.includes(candidate.mint)) {
+        return { ok: false, reason: 'token_not_in_allowlist' };
+      }
+    }
+
     // All checks passed
     return { ok: true };
   }
