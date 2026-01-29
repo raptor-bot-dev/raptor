@@ -28,64 +28,34 @@ const METEORA_DBC = 'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN';
 
 describe('isCreateInstruction', () => {
   describe('create patterns', () => {
-    it('should detect InitializePool instruction', () => {
+    it('should detect InitializeVirtualPoolWithSplToken instruction', () => {
       const logs = [
         'Program dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN invoke [1]',
-        'Program log: Instruction: InitializePool',
+        'Program log: Instruction: InitializeVirtualPoolWithSplToken',
         'Program dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN success',
       ];
 
       expect(isCreateInstruction(logs)).toBe(true);
     });
 
-    it('should detect CreatePool instruction', () => {
+    it('should detect InitializeVirtualPoolWithToken2022 instruction', () => {
       const logs = [
         'Program dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN invoke [1]',
-        'Program log: Instruction: CreatePool',
+        'Program log: Instruction: InitializeVirtualPoolWithToken2022',
         'Program dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN success',
       ];
 
       expect(isCreateInstruction(logs)).toBe(true);
     });
 
-    it('should detect Initialize instruction', () => {
-      const logs = ['Program log: Instruction: Initialize'];
-
-      expect(isCreateInstruction(logs)).toBe(true);
-    });
-
-    it('should detect Initialize pool log', () => {
-      const logs = ['Program log: Initialize pool'];
-
-      expect(isCreateInstruction(logs)).toBe(true);
-    });
-
-    it('should detect Create pool log', () => {
-      const logs = ['Program log: Create pool'];
-
-      expect(isCreateInstruction(logs)).toBe(true);
-    });
-
-    it('should detect Pool created log', () => {
-      const logs = ['Program log: Pool created'];
-
-      expect(isCreateInstruction(logs)).toBe(true);
-    });
-
-    it('should detect Dynamic bonding curve log', () => {
-      const logs = ['Program log: Dynamic bonding curve initialized'];
-
-      expect(isCreateInstruction(logs)).toBe(true);
-    });
-
-    it('should detect DBC pool log', () => {
-      const logs = ['Program log: DBC pool created'];
+    it('should detect InitializeVirtualPool instruction (catch-all)', () => {
+      const logs = ['Program log: Instruction: InitializeVirtualPool'];
 
       expect(isCreateInstruction(logs)).toBe(true);
     });
 
     it('should be case-insensitive', () => {
-      const logs = ['Program log: instruction: initializepool'];
+      const logs = ['Program log: instruction: initializevirtualpoolwithspltoken'];
 
       expect(isCreateInstruction(logs)).toBe(true);
     });
@@ -138,7 +108,7 @@ describe('isCreateInstruction', () => {
     it('should reject Swap even if CreatePool appears later', () => {
       const logs = [
         'Program log: Instruction: Swap',
-        'Program log: CreatePool mentioned somewhere',
+        'Program log: Instruction: InitializeVirtualPoolWithSplToken',
       ];
 
       expect(isCreateInstruction(logs)).toBe(false);
@@ -220,7 +190,7 @@ describe('parseMeteoraLogs', () => {
         `Program log: Pool: ${VALID_BONDING_CURVE}`,
         `Program log: Mint: ${VALID_MINT}`,
         `Program log: Creator: ${VALID_CREATOR}`,
-        'Program log: Instruction: InitializePool',
+        'Program log: Instruction: InitializeVirtualPoolWithSplToken',
         'Program log: Pool initialized successfully',
       ];
 
@@ -237,7 +207,7 @@ describe('parseMeteoraLogs', () => {
     it('should use account keys when provided', () => {
       const logs = [
         'Program dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN invoke [1]',
-        'Program log: Instruction: CreatePool',
+        'Program log: Instruction: InitializeVirtualPoolWithSplToken',
         'Program dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN success',
       ];
       const accountKeys = [
@@ -277,7 +247,7 @@ describe('parseMeteoraLogs', () => {
 
     it('should return insufficient_addresses for create with no addresses', () => {
       const logs = [
-        'Program log: Instruction: InitializePool',
+        'Program log: Instruction: InitializeVirtualPoolWithSplToken',
         'Program log: No addresses in these logs',
       ];
 
@@ -291,7 +261,7 @@ describe('parseMeteoraLogs', () => {
 
     it('should return insufficient_addresses for create with only one address', () => {
       const logs = [
-        'Program log: Instruction: InitializePool',
+        'Program log: Instruction: InitializeVirtualPoolWithSplToken',
         `Program log: Only one: ${VALID_MINT}`,
       ];
 
@@ -315,7 +285,7 @@ describe('parseMeteoraLogs', () => {
     });
 
     it('should handle account keys with too few valid accounts', () => {
-      const logs = ['Program log: Instruction: CreatePool'];
+      const logs = ['Program log: Instruction: InitializeVirtualPoolWithSplToken'];
       const accountKeys = [SYSTEM_PROGRAM, TOKEN_PROGRAM]; // All system accounts
 
       const result = parseMeteoraLogs(logs, accountKeys);
@@ -326,7 +296,7 @@ describe('parseMeteoraLogs', () => {
 
     it('should assign addresses heuristically when extracted from logs', () => {
       const logs = [
-        'Program log: Instruction: Initialize',
+        'Program log: Instruction: InitializeVirtualPool',
         `First: ${VALID_BONDING_CURVE}`,
         `Second: ${VALID_MINT}`,
         `Third: ${VALID_CREATOR}`,
