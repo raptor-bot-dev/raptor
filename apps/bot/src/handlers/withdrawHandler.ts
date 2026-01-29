@@ -242,11 +242,11 @@ async function confirmWithdraw(ctx: MyContext): Promise<void> {
       return;
     }
 
-    // Execute withdrawal using wallet service
+    // Execute withdrawal using wallet service (wallet_index starts at 1)
     const result = await processWithdrawal(
       userId,
       'sol',
-      0, // wallet index
+      wallet.wallet_index,
       amountSol.toString(),
       destination
     );
@@ -293,7 +293,7 @@ export async function handleWithdrawInput(
         // Store destination in pendingWithdrawal
         if (ctx.session) {
           ctx.session.pendingWithdrawal = {
-            ...(ctx.session.pendingWithdrawal || { chain: 'sol', walletIndex: 0 }),
+            ...(ctx.session.pendingWithdrawal || { chain: 'sol', walletIndex: 1 }),
             address: trimmed,
           };
           ctx.session.step = null;
@@ -331,7 +331,7 @@ export async function handleWithdrawInput(
         // Store amount in pendingWithdrawal and show confirm
         if (ctx.session) {
           ctx.session.pendingWithdrawal = {
-            ...(ctx.session.pendingWithdrawal || { chain: 'sol', walletIndex: 0 }),
+            ...(ctx.session.pendingWithdrawal || { chain: 'sol', walletIndex: 1 }),
             amount: amount.toString(),
           };
           ctx.session.step = null;
@@ -368,7 +368,7 @@ export async function handleWithdrawInput(
         // Store amount in pendingWithdrawal and show confirm
         if (ctx.session) {
           ctx.session.pendingWithdrawal = {
-            ...(ctx.session.pendingWithdrawal || { chain: 'sol', walletIndex: 0 }),
+            ...(ctx.session.pendingWithdrawal || { chain: 'sol', walletIndex: 1 }),
             amount: amountPct.toString(),
           };
           ctx.session.step = null;
