@@ -13,6 +13,25 @@
 import { isValidSolanaAddress } from '@raptor/shared';
 
 /**
+ * Known Solana system/infrastructure program IDs that must never be
+ * treated as token mints, bonding curves, or creators.
+ */
+export const KNOWN_PROGRAM_IDS = new Set([
+  '11111111111111111111111111111111',                 // System Program
+  'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',    // Token Program
+  'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',    // Token 2022
+  'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',   // ATA Program
+  'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN',    // Meteora DBC Program
+  'SysvarRent111111111111111111111111111111111',       // Rent Sysvar
+  'Sysvar1111111111111111111111111111111111111',       // Sysvar
+  'ComputeBudget111111111111111111111111111111',       // Compute Budget
+  'So11111111111111111111111111111111111111112',       // Wrapped SOL
+  'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s',    // Metaplex Metadata
+  'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr',    // Memo Program
+  'Memo1UhkJBfCR6MNBroCUJCQMNahk79PNJ5sk7SYPU8P',   // Memo Program v1
+]);
+
+/**
  * Parsed Meteora DBC create event
  */
 export interface MeteoraCreateEvent {
@@ -90,7 +109,7 @@ export function extractAddressesFromLogs(logs: string[]): string[] {
     const matches = log.match(addressRegex);
     if (matches) {
       for (const match of matches) {
-        if (isValidSolanaAddress(match) && !addresses.includes(match)) {
+        if (isValidSolanaAddress(match) && !KNOWN_PROGRAM_IDS.has(match) && !addresses.includes(match)) {
           addresses.push(match);
         }
       }
@@ -119,18 +138,8 @@ export function extractAccountsFromTransaction(
   }
 
   // Filter out system programs and well-known accounts
-  const SYSTEM_ACCOUNTS = [
-    '11111111111111111111111111111111', // System Program
-    'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // Token Program
-    'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', // Token 2022
-    'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', // ATA Program
-    'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN', // Meteora DBC Program
-    'SysvarRent111111111111111111111111111111111', // Rent Sysvar
-    'Sysvar1111111111111111111111111111111111111', // Sysvar
-  ];
-
   const candidateAccounts = accountKeys.filter(
-    (addr) => !SYSTEM_ACCOUNTS.includes(addr) && isValidSolanaAddress(addr)
+    (addr) => !KNOWN_PROGRAM_IDS.has(addr) && isValidSolanaAddress(addr)
   );
 
   if (candidateAccounts.length < 2) {
@@ -205,6 +214,10 @@ export function validateCreateEvent(event: MeteoraCreateEvent): boolean {
   return (
     isValidSolanaAddress(event.mint) &&
     isValidSolanaAddress(event.bondingCurve) &&
-    isValidSolanaAddress(event.creator)
+    isValidSolanaAddress(event.creator) &&
+    !KNOWN_PROGRAM_IDS.has(event.mint) &&
+    !KNOWN_PROGRAM_IDS.has(event.bondingCurve) &&
+    !KNOWN_PROGRAM_IDS.has(event.creator) &&
+    event.mint !== event.bondingCurve
   );
 }

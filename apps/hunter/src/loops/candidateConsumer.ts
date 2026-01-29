@@ -19,6 +19,8 @@ import {
   type LaunchCandidate,
   type Strategy,
 } from '@raptor/shared';
+import { scoreLaunchCandidate } from '../scoring/scorer.js';
+import type { HunterObserver } from '../observability/observer.js';
 
 const DEFAULT_SLIPPAGE_BPS = 1500; // 15%
 const DEFAULT_BUY_AMOUNT_SOL = 0.1;
@@ -31,6 +33,7 @@ export class CandidateConsumerLoop {
   private batchSize: number;
   private maxAgeSeconds: number;
   private lastMaintenanceAt = 0;
+  private observer: HunterObserver | null;
 
   private stats = {
     candidatesProcessed: 0,
@@ -40,8 +43,9 @@ export class CandidateConsumerLoop {
     errors: 0,
   };
 
-  constructor(workerId: string) {
+  constructor(workerId: string, observer?: HunterObserver | null) {
     this.workerId = workerId;
+    this.observer = observer ?? null;
     this.pollIntervalMs = getCandidateConsumerPollIntervalMs();
     this.batchSize = getCandidateConsumerBatchSize();
     this.maxAgeSeconds = getCandidateMaxAgeSeconds();
@@ -138,6 +142,47 @@ export class CandidateConsumerLoop {
     strategies: Strategy[]
   ): Promise<void> {
     this.stats.candidatesProcessed++;
+
+    // Score the candidate before considering strategies
+    try {
+      const scoreResult = await scoreLaunchCandidate(candidate);
+
+      const decision = scoreResult.qualified ? 'ACCEPT' : 'REJECT';
+
+      // Fire-and-forget observer notification
+      if (this.observer) {
+        this.observer.postScoringResult({
+          mint: candidate.mint,
+          symbol: candidate.symbol,
+          score: scoreResult.totalScore,
+          maxScore: scoreResult.maxScore,
+          qualified: scoreResult.qualified,
+          hardStop: scoreResult.hardStopTriggered ? (scoreResult.hardStopReason ?? null) : null,
+          rules: scoreResult.reasons,
+          decision,
+        }).catch(() => {});
+      }
+
+      if (!scoreResult.qualified) {
+        this.stats.candidatesRejected++;
+        const reason = scoreResult.hardStopTriggered
+          ? `hard_stop:${scoreResult.hardStopReason}`
+          : `score_too_low:${scoreResult.totalScore}/${scoreResult.maxScore}`;
+        await updateCandidateStatus(candidate.id, 'rejected', `scoring:${reason}`);
+        console.log(
+          `[CandidateConsumerLoop] REJECTED ${candidate.symbol || candidate.mint.slice(0, 8)}...: ${reason}`
+        );
+        return;
+      }
+
+      console.log(
+        `[CandidateConsumerLoop] QUALIFIED ${candidate.symbol || candidate.mint.slice(0, 8)}...: ` +
+          `score=${scoreResult.totalScore}/${scoreResult.maxScore}`
+      );
+    } catch (error) {
+      console.error('[CandidateConsumerLoop] Scoring error:', error);
+      // On scoring error, continue to strategy evaluation (fail-open)
+    }
 
     const jobsCreated: string[] = [];
     const rejectionReasons: string[] = [];

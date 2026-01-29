@@ -17,6 +17,9 @@ import {
   isMeteoraOnChainEnabled,
   getMeteoraProgramId,
   isCandidateConsumerEnabled,
+  isObserverEnabled,
+  getObserverBotToken,
+  getObserverChannelId,
   supabase,
 } from '@raptor/shared';
 import type { LaunchCandidateInsert } from '@raptor/database';
@@ -33,6 +36,7 @@ import {
   type BagsSignal,
   type MeteoraOnChainSignal,
 } from './sources/index.js';
+import { HunterObserver } from './observability/observer.js';
 
 async function upsertLaunchCandidateMerged(insert: LaunchCandidateInsert): Promise<void> {
   const mint = insert.mint;
@@ -143,6 +147,19 @@ async function main() {
     console.warn('⚠️  No position monitor enabled! TP/SL triggers will NOT fire.');
   }
 
+  // Initialize observer for Telegram observability channel
+  const observerEnabled = isObserverEnabled();
+  const observer = observerEnabled
+    ? new HunterObserver({
+        botToken: getObserverBotToken(),
+        channelId: getObserverChannelId(),
+        enabled: true,
+      })
+    : null;
+  if (observerEnabled) {
+    console.log('✅ Observer: ENABLED (Telegram observability channel)');
+  }
+
   // Initialize loops
   const executionLoop = new ExecutionLoop(workerId, autoExecuteEnabled);
   const maintenanceLoop = new MaintenanceLoop();
@@ -158,7 +175,7 @@ async function main() {
     ? new GraduationMonitorLoop(workerId)
     : null;
   const candidateConsumerLoop = candidateConsumerEnabled
-    ? new CandidateConsumerLoop(workerId)
+    ? new CandidateConsumerLoop(workerId, observer)
     : null;
 
   // Initialize BagsSource for Telegram signal ingestion (Phase 1)
@@ -230,8 +247,22 @@ async function main() {
       try {
         await upsertLaunchCandidateMerged(insert);
         console.log(
-          `[MeteoraOnChainSource] Detected on-chain: ${signal.mint.slice(0, 12)}... (tx: ${signal.signature.slice(0, 12)}...)`
+          `[MeteoraOnChainSource] SAVED mint=${signal.mint.slice(0, 12)}... ` +
+            `creator=${signal.creator.slice(0, 12)}... tx=${signal.signature.slice(0, 12)}...`
         );
+
+        // Fire-and-forget observer notification
+        if (observer) {
+          observer.postDetection({
+            mint: signal.mint,
+            creator: signal.creator,
+            bondingCurve: signal.bondingCurve,
+            signature: signal.signature,
+            slot: signal.slot,
+            source: 'meteora_onchain',
+            timestamp: signal.timestamp,
+          }).catch(() => {});
+        }
       } catch (error) {
         console.error('[MeteoraOnChainSource] Failed to upsert launch_candidate:', (error as Error).message);
       }
@@ -287,6 +318,9 @@ async function main() {
     if (candidateConsumerLoop) {
       console.log('   - Candidate Consumer: Auto-trading from launch_candidates');
     }
+    if (observer) {
+      console.log('   - Observer: Posting to Telegram channel');
+    }
     console.log('   - Maintenance loop: Cleanup & recovery');
     console.log('');
   } catch (error) {
@@ -320,6 +354,9 @@ async function main() {
     }
     if (candidateConsumerLoop) {
       stopPromises.push(candidateConsumerLoop.stop());
+    }
+    if (observer) {
+      observer.stop();
     }
 
     await Promise.all(stopPromises);

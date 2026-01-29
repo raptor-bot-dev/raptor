@@ -3,9 +3,9 @@
 // Scores token opportunities based on multiple factors with metadata support
 // =============================================================================
 
-import type { OpportunityV31 } from '@raptor/shared';
+import type { OpportunityV31, LaunchCandidate } from '@raptor/shared';
 import type { PumpFunEvent } from '../monitors/pumpfun.js';
-import { scoringRules, type ScoringRule } from './rules.js';
+import { scoringRules, candidateScoringRules, type ScoringRule, type CandidateScoringContext } from './rules.js';
 import type { TokenMetadata } from '../utils/metadataFetcher.js';
 
 export interface ScoringReason {
@@ -24,8 +24,11 @@ export interface ScoringResult {
   hardStopReason?: string;
 }
 
-// Minimum score to qualify an opportunity
+// Minimum score to qualify an opportunity (PumpFun full scoring)
 const MIN_QUALIFICATION_SCORE = 23;
+
+// Lower threshold for on-chain candidates (fewer signals available)
+const MIN_CANDIDATE_QUALIFICATION_SCORE = 10;
 
 /**
  * Score a token opportunity
@@ -91,6 +94,68 @@ export async function scoreOpportunity(
     totalScore,
     maxScore,
     qualified: !hardStopTriggered && totalScore >= MIN_QUALIFICATION_SCORE,
+    reasons,
+    hardStopTriggered,
+    hardStopReason,
+  };
+}
+
+/**
+ * Score a launch candidate from on-chain detection
+ * Uses a reduced rule set since on-chain detections may lack name/symbol/metadata
+ */
+export async function scoreLaunchCandidate(
+  candidate: LaunchCandidate
+): Promise<ScoringResult> {
+  const reasons: ScoringReason[] = [];
+  let totalScore = 0;
+  let maxScore = 0;
+  let hardStopTriggered = false;
+  let hardStopReason: string | undefined;
+
+  const payload = candidate.raw_payload as Record<string, unknown> | null;
+  const onchain = (payload?.onchain ?? {}) as Record<string, unknown>;
+
+  const context: CandidateScoringContext = {
+    mint: candidate.mint,
+    name: candidate.name ?? '',
+    symbol: candidate.symbol ?? '',
+    creator: (onchain.creator as string) ?? '',
+    bondingCurve: (onchain.bonding_curve as string) ?? '',
+    timestamp: new Date(candidate.first_seen_at).getTime() / 1000,
+  };
+
+  for (const rule of candidateScoringRules) {
+    try {
+      const result = await rule.evaluate(context);
+
+      reasons.push({
+        rule: rule.name,
+        value: result.value,
+        passed: result.passed,
+        weight: rule.weight,
+      });
+
+      if (result.passed) {
+        totalScore += rule.weight;
+      }
+
+      maxScore += rule.weight;
+
+      if (rule.isHardStop && !result.passed) {
+        hardStopTriggered = true;
+        hardStopReason = rule.name;
+        break;
+      }
+    } catch (error) {
+      console.error(`[Scorer] Candidate rule ${rule.name} error:`, error);
+    }
+  }
+
+  return {
+    totalScore,
+    maxScore,
+    qualified: !hardStopTriggered && totalScore >= MIN_CANDIDATE_QUALIFICATION_SCORE,
     reasons,
     hardStopTriggered,
     hardStopReason,

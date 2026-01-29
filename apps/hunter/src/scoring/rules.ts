@@ -7,6 +7,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { PROGRAM_IDS, SOLANA_CONFIG, isValidSolanaAddress, type OpportunityV31 } from '@raptor/shared';
 import type { PumpFunEvent } from '../monitors/pumpfun.js';
 import type { TokenMetadata } from '../utils/metadataFetcher.js';
+import { KNOWN_PROGRAM_IDS } from '../sources/meteoraParser.js';
 
 const solanaConnection = new Connection(SOLANA_CONFIG.rpcUrl, 'confirmed');
 const DEV_HOLDINGS_MAX_PERCENT = 10;
@@ -268,6 +269,99 @@ export const scoringRules: ScoringRule[] = [
       if (!ctx.metadata) return { passed: false, value: 'no_metadata' };
       const hasImage = Boolean(ctx.metadata.image);
       return { passed: hasImage, value: ctx.metadata.image?.slice(0, 50) || null };
+    },
+  },
+];
+
+// =============================================================================
+// CANDIDATE SCORING (for launch_candidates from on-chain detection)
+// =============================================================================
+
+export interface CandidateScoringContext {
+  mint: string;
+  name: string;
+  symbol: string;
+  creator: string;
+  bondingCurve: string;
+  timestamp: number; // first_seen_at as epoch seconds
+}
+
+export interface CandidateScoringRule {
+  name: string;
+  weight: number;
+  isHardStop: boolean;
+  evaluate: (context: CandidateScoringContext) => Promise<RuleResult>;
+}
+
+export const candidateScoringRules: CandidateScoringRule[] = [
+  // Hard stops
+  {
+    name: 'mint_not_known_program',
+    weight: 0,
+    isHardStop: true,
+    evaluate: async (ctx) => {
+      const passed = !KNOWN_PROGRAM_IDS.has(ctx.mint);
+      return { passed, value: passed ? 'ok' : 'known_program' };
+    },
+  },
+
+  {
+    name: 'creator_not_known_program',
+    weight: 0,
+    isHardStop: true,
+    evaluate: async (ctx) => {
+      const passed = !KNOWN_PROGRAM_IDS.has(ctx.creator);
+      return { passed, value: passed ? 'ok' : 'known_program' };
+    },
+  },
+
+  // Positive signals
+  {
+    name: 'timestamp_recent',
+    weight: 10,
+    isHardStop: false,
+    evaluate: async (ctx) => {
+      const age = Date.now() / 1000 - ctx.timestamp;
+      const isRecent = age < 60;
+      return { passed: isRecent, value: Math.round(age) };
+    },
+  },
+
+  {
+    name: 'has_symbol',
+    weight: 5,
+    isHardStop: false,
+    evaluate: async (ctx) => {
+      const passed = Boolean(ctx.symbol && ctx.symbol.length > 0);
+      return { passed, value: ctx.symbol || 'none' };
+    },
+  },
+
+  {
+    name: 'symbol_length',
+    weight: 5,
+    isHardStop: false,
+    evaluate: async (ctx) => {
+      if (!ctx.symbol) return { passed: false, value: 0 };
+      const len = ctx.symbol.length;
+      const passed = len >= 3 && len <= 6;
+      return { passed, value: len };
+    },
+  },
+
+  {
+    name: 'name_not_spam',
+    weight: 8,
+    isHardStop: false,
+    evaluate: async (ctx) => {
+      if (!ctx.name) return { passed: true, value: 'no_name' };
+      const name = ctx.name.toLowerCase();
+      const spamPatterns = [
+        'test', 'rug', 'scam', 'fake', 'free',
+        'giveaway', 'airdrop', 'presale', 'whitelist',
+      ];
+      const isSpam = spamPatterns.some((p) => name.includes(p));
+      return { passed: !isSpam, value: isSpam };
     },
   },
 ];

@@ -9,18 +9,21 @@ import {
   isCreateInstruction,
   extractAddressesFromLogs,
   validateCreateEvent,
+  KNOWN_PROGRAM_IDS,
   type MeteoraCreateEvent,
 } from '../meteoraParser.js';
 
-// Valid test addresses (using real Solana address format patterns)
-// These match the format from bagsParser tests which are known to work
-const VALID_MINT = 'So11111111111111111111111111111111111111112';
+// Valid test addresses (real non-program Solana addresses)
+const VALID_MINT = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
 const VALID_BONDING_CURVE = 'CuieVDEDtLo7FypA9SbLM9saXFdb1dsshEkyErMqkRQq';
 const VALID_CREATOR = 'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH';
 
 // System accounts (should be filtered)
 const SYSTEM_PROGRAM = '11111111111111111111111111111111';
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const ATA_PROGRAM = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
+const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111';
+const WRAPPED_SOL = 'So11111111111111111111111111111111111111112';
 const METEORA_DBC = 'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN';
 
 describe('isCreateInstruction', () => {
@@ -392,5 +395,129 @@ describe('validateCreateEvent', () => {
     };
 
     expect(validateCreateEvent(event)).toBe(false);
+  });
+
+  it('should reject System Program as mint', () => {
+    const event: MeteoraCreateEvent = {
+      mint: SYSTEM_PROGRAM,
+      bondingCurve: VALID_BONDING_CURVE,
+      creator: VALID_CREATOR,
+    };
+
+    expect(validateCreateEvent(event)).toBe(false);
+  });
+
+  it('should reject Token Program as mint', () => {
+    const event: MeteoraCreateEvent = {
+      mint: TOKEN_PROGRAM,
+      bondingCurve: VALID_BONDING_CURVE,
+      creator: VALID_CREATOR,
+    };
+
+    expect(validateCreateEvent(event)).toBe(false);
+  });
+
+  it('should reject ATA Program as creator', () => {
+    const event: MeteoraCreateEvent = {
+      mint: VALID_MINT,
+      bondingCurve: VALID_BONDING_CURVE,
+      creator: ATA_PROGRAM,
+    };
+
+    expect(validateCreateEvent(event)).toBe(false);
+  });
+
+  it('should reject Compute Budget as bonding curve', () => {
+    const event: MeteoraCreateEvent = {
+      mint: VALID_MINT,
+      bondingCurve: COMPUTE_BUDGET,
+      creator: VALID_CREATOR,
+    };
+
+    expect(validateCreateEvent(event)).toBe(false);
+  });
+
+  it('should reject Wrapped SOL as mint', () => {
+    const event: MeteoraCreateEvent = {
+      mint: WRAPPED_SOL,
+      bondingCurve: VALID_BONDING_CURVE,
+      creator: VALID_CREATOR,
+    };
+
+    expect(validateCreateEvent(event)).toBe(false);
+  });
+
+  it('should reject when mint equals bondingCurve', () => {
+    const event: MeteoraCreateEvent = {
+      mint: VALID_MINT,
+      bondingCurve: VALID_MINT,
+      creator: VALID_CREATOR,
+    };
+
+    expect(validateCreateEvent(event)).toBe(false);
+  });
+});
+
+describe('extractAddressesFromLogs - known program filtering', () => {
+  it('should filter out System Program address', () => {
+    const logs = [
+      `Program log: Account: ${SYSTEM_PROGRAM}`,
+      `Program log: Mint: ${VALID_MINT}`,
+    ];
+
+    const addresses = extractAddressesFromLogs(logs);
+
+    expect(addresses).not.toContain(SYSTEM_PROGRAM);
+    expect(addresses).toContain(VALID_MINT);
+  });
+
+  it('should filter out Token Program address', () => {
+    const logs = [
+      `Program log: Token: ${TOKEN_PROGRAM}`,
+      `Program log: Mint: ${VALID_MINT}`,
+    ];
+
+    const addresses = extractAddressesFromLogs(logs);
+
+    expect(addresses).not.toContain(TOKEN_PROGRAM);
+    expect(addresses).toContain(VALID_MINT);
+  });
+
+  it('should filter out Compute Budget address', () => {
+    const logs = [
+      `Program log: Budget: ${COMPUTE_BUDGET}`,
+      `Program log: Mint: ${VALID_MINT}`,
+    ];
+
+    const addresses = extractAddressesFromLogs(logs);
+
+    expect(addresses).not.toContain(COMPUTE_BUDGET);
+    expect(addresses).toContain(VALID_MINT);
+  });
+
+  it('should filter out all known program IDs', () => {
+    const programLogs = Array.from(KNOWN_PROGRAM_IDS).map(
+      (id) => `Program log: Addr: ${id}`
+    );
+    const logs = [...programLogs, `Program log: Real: ${VALID_MINT}`];
+
+    const addresses = extractAddressesFromLogs(logs);
+
+    for (const programId of KNOWN_PROGRAM_IDS) {
+      expect(addresses).not.toContain(programId);
+    }
+    expect(addresses).toContain(VALID_MINT);
+  });
+
+  it('should return empty when only system programs are present', () => {
+    const logs = [
+      `Program log: Addr: ${SYSTEM_PROGRAM}`,
+      `Program log: Addr: ${TOKEN_PROGRAM}`,
+      `Program log: Addr: ${ATA_PROGRAM}`,
+    ];
+
+    const addresses = extractAddressesFromLogs(logs);
+
+    expect(addresses).toHaveLength(0);
   });
 });

@@ -243,7 +243,8 @@ export class MeteoraOnChainSource {
     if (!validateCreateEvent(event)) {
       this.stats.parseFailures++;
       console.log(
-        `[MeteoraOnChainSource] Invalid event for ${signature.slice(0, 12)}...: validation failed`
+        `[MeteoraOnChainSource] REJECTED tx=${signature.slice(0, 12)}...: ` +
+          `validation_failed mint=${event.mint.slice(0, 12)}... curve=${event.bondingCurve.slice(0, 12)}... creator=${event.creator.slice(0, 12)}...`
       );
       return;
     }
@@ -251,8 +252,9 @@ export class MeteoraOnChainSource {
     this.stats.createEventsDetected++;
 
     console.log(
-      `[MeteoraOnChainSource] Detected new token: ${event.mint.slice(0, 12)}... ` +
-        `(tx: ${signature.slice(0, 12)}...)`
+      `[MeteoraOnChainSource] LAUNCH mint=${event.mint.slice(0, 12)}... ` +
+        `creator=${event.creator.slice(0, 12)}... curve=${event.bondingCurve.slice(0, 12)}... ` +
+        `tx=${signature.slice(0, 12)}... slot=${slot}`
     );
 
     // Build signal

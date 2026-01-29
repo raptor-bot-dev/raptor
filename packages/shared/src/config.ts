@@ -274,6 +274,32 @@ export function getMeteoraProgramId(): string {
 }
 
 // =============================================================================
+// Observer (Telegram observability channel)
+// =============================================================================
+
+/**
+ * Check if the hunter observer channel is enabled
+ * Set OBSERVER_ENABLED=true to post detection/scoring events to a Telegram channel
+ */
+export function isObserverEnabled(): boolean {
+  return process.env.OBSERVER_ENABLED === 'true';
+}
+
+/**
+ * Bot token for the observer channel (can be same as TELEGRAM_BOT_TOKEN or a separate bot)
+ */
+export function getObserverBotToken(): string {
+  return process.env.OBSERVER_BOT_TOKEN || '';
+}
+
+/**
+ * Telegram channel/chat ID for observer messages
+ */
+export function getObserverChannelId(): string {
+  return process.env.OBSERVER_CHANNEL_ID || '';
+}
+
+// =============================================================================
 // Phase 5: Comprehensive Config Validation
 // =============================================================================
 
@@ -336,6 +362,16 @@ export function validateAllConfig(context: 'hunter' | 'bot' | 'executor' = 'hunt
   if (isMeteoraOnChainEnabled()) {
     if (!process.env.SOLANA_WSS_URL) {
       errors.push('METEORA_ONCHAIN_ENABLED=true but missing SOLANA_WSS_URL');
+    }
+  }
+
+  // Observer channel validation
+  if (isObserverEnabled()) {
+    if (!getObserverBotToken()) {
+      errors.push('OBSERVER_ENABLED=true but missing OBSERVER_BOT_TOKEN');
+    }
+    if (!getObserverChannelId()) {
+      errors.push('OBSERVER_ENABLED=true but missing OBSERVER_CHANNEL_ID');
     }
   }
 
