@@ -11,16 +11,22 @@ export interface DetectionEvent {
   slot: number;
   source: string;
   timestamp: number;
+  // Enrichment (optional — may not be available for brand new tokens)
+  name?: string | null;
+  symbol?: string | null;
+  marketCapUsd?: number | null;
+  liquidityUsd?: number | null;
 }
 
 export interface ScoringEvent {
   mint: string;
   symbol: string | null;
+  name: string | null;
   score: number;
   maxScore: number;
   qualified: boolean;
   hardStop: string | null;
-  rules: Array<{ rule: string; passed: boolean; weight: number; value: unknown }>;
+  rules: Array<{ rule: string; passed: boolean; weight: number; value: unknown; isHardStop?: boolean }>;
   decision: 'ACCEPT' | 'REJECT';
 }
 
@@ -42,43 +48,90 @@ function solscanToken(mint: string): string {
   return `https://solscan.io/token/${mint}`;
 }
 
+function formatUsd(value: number): string {
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
+  return `$${value.toFixed(0)}`;
+}
+
 export function formatDetection(event: DetectionEvent): string {
-  const age = Math.round((Date.now() - event.timestamp) / 1000);
-  return [
-    `<b>🔍 LAUNCH DETECTED</b>`,
+  const latency = Math.round((Date.now() - event.timestamp) / 1000);
+  const lines: string[] = [
+    `<b>🦖 LAUNCH DETECTED</b>`,
     ``,
-    `Mint: <a href="${solscanToken(event.mint)}">${event.mint.slice(0, 16)}...</a>`,
-    `Creator: <code>${event.creator.slice(0, 16)}...</code>`,
-    `Curve: <code>${event.bondingCurve.slice(0, 16)}...</code>`,
+  ];
+
+  // Token line — only if name or symbol available
+  if (event.symbol || event.name) {
+    const parts: string[] = [];
+    if (event.symbol) parts.push(`$${event.symbol}`);
+    if (event.name) parts.push(event.name);
+    lines.push(`Token: <b>${parts.join(' — ')}</b>`);
+  }
+
+  lines.push(
+    `Mint: <a href="${solscanToken(event.mint)}">${event.mint}</a>`,
+    `Creator: <code>${event.creator}</code>`,
+    `Curve: <code>${event.bondingCurve}</code>`,
+    ``,
+  );
+
+  // Market data line — only if available
+  if (event.marketCapUsd || event.liquidityUsd) {
+    const mcParts: string[] = [];
+    if (event.marketCapUsd) mcParts.push(`MC: ${formatUsd(event.marketCapUsd)}`);
+    if (event.liquidityUsd) mcParts.push(`Liq: ${formatUsd(event.liquidityUsd)}`);
+    lines.push(mcParts.join(' | '));
+  }
+
+  lines.push(
     `Source: ${event.source}`,
-    `Slot: ${event.slot} | Age: ${age}s`,
-    `<a href="${solscanTx(event.signature)}">View TX</a>`,
-  ].join('\n');
+    `Slot: ${event.slot} | Latency: ${latency}s`,
+    ``,
+    `<a href="${solscanToken(event.mint)}">Solscan</a> | <a href="${solscanTx(event.signature)}">View TX</a>`,
+  );
+
+  return lines.join('\n');
 }
 
 export function formatScoring(event: ScoringEvent): string {
-  const icon = event.qualified ? '✅' : '❌';
-  const label = event.qualified ? 'PASS' : 'FAIL';
-  const tokenLabel = event.symbol || event.mint.slice(0, 12) + '...';
+  const icon = event.qualified ? '🦕' : '💀';
+  const label = event.qualified ? 'QUALIFIED' : 'REJECTED';
 
-  const ruleLines = event.rules.map((r) => {
-    const status = r.passed ? '✓' : '✗';
-    const pts = r.passed && r.weight > 0 ? ` +${r.weight}` : '';
-    return `  ${status} ${r.rule}${pts}`;
-  });
-
-  const lines = [
-    `<b>${icon} SCORING: ${label}</b> (${event.score}/${event.maxScore})`,
+  const lines: string[] = [
+    `<b>${icon} ${label}</b> (${event.score}/${event.maxScore})`,
     ``,
-    `Token: ${tokenLabel}`,
-    ...ruleLines,
   ];
 
-  if (event.hardStop) {
-    lines.push(``, `Hard stop: ${event.hardStop}`);
+  // Token line — only if name or symbol available
+  if (event.symbol || event.name) {
+    const parts: string[] = [];
+    if (event.symbol) parts.push(`$${event.symbol}`);
+    if (event.name) parts.push(event.name);
+    lines.push(`Token: <b>${parts.join(' — ')}</b>`);
+  }
+
+  lines.push(
+    `Mint: <a href="${solscanToken(event.mint)}">${event.mint}</a>`,
+    ``,
+    `Rules:`,
+  );
+
+  for (const r of event.rules) {
+    if (r.isHardStop && !r.passed) {
+      lines.push(` 🚫 ${r.rule}  <b>HARD STOP</b>`);
+    } else if (r.passed && r.weight > 0) {
+      lines.push(` ✅ ${r.rule}  +${r.weight}`);
+    } else {
+      lines.push(` ⬜ ${r.rule}`);
+    }
   }
 
   lines.push(``, `Decision: <b>${event.decision}</b>`);
+
+  if (event.qualified) {
+    lines.push(``, `<a href="${solscanToken(event.mint)}">Solscan</a>`);
+  }
 
   return lines.join('\n');
 }

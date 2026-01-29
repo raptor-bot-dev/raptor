@@ -13,6 +13,7 @@ export interface ScoringReason {
   value: unknown;
   passed: boolean;
   weight: number;
+  isHardStop?: boolean;
 }
 
 export interface ScoringResult {
@@ -134,6 +135,7 @@ export async function scoreLaunchCandidate(
         value: result.value,
         passed: result.passed,
         weight: rule.weight,
+        isHardStop: rule.isHardStop,
       });
 
       if (result.passed) {

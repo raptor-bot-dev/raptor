@@ -154,6 +154,7 @@ export class CandidateConsumerLoop {
         this.observer.postScoringResult({
           mint: candidate.mint,
           symbol: candidate.symbol,
+          name: candidate.name ?? null,
           score: scoreResult.totalScore,
           maxScore: scoreResult.maxScore,
           qualified: scoreResult.qualified,

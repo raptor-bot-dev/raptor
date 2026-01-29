@@ -20,6 +20,7 @@ import {
   isObserverEnabled,
   getObserverBotToken,
   getObserverChannelId,
+  dexscreener,
   supabase,
 } from '@raptor/shared';
 import type { LaunchCandidateInsert } from '@raptor/database';
@@ -102,7 +103,7 @@ process.on('uncaughtException', (error) => {
 });
 
 async function main() {
-  console.log('🦅 RAPTOR Hunter v3.1 starting...');
+  console.log('🦖 RAPTOR Hunter v3.1 starting...');
 
   // Validate configuration
   validateHunterConfig();
@@ -251,17 +252,38 @@ async function main() {
             `creator=${signal.creator.slice(0, 12)}... tx=${signal.signature.slice(0, 12)}...`
         );
 
-        // Fire-and-forget observer notification
+        // Fire-and-forget observer notification with async enrichment
         if (observer) {
-          observer.postDetection({
-            mint: signal.mint,
-            creator: signal.creator,
-            bondingCurve: signal.bondingCurve,
-            signature: signal.signature,
-            slot: signal.slot,
-            source: 'meteora_onchain',
-            timestamp: signal.timestamp,
-          }).catch(() => {});
+          (async () => {
+            let name: string | null = null;
+            let symbol: string | null = null;
+            let marketCapUsd: number | null = null;
+            let liquidityUsd: number | null = null;
+
+            try {
+              const { data: tokenInfo } = await dexscreener.getTokenByAddress(signal.mint);
+              if (tokenInfo) {
+                name = tokenInfo.name || null;
+                symbol = tokenInfo.symbol || null;
+                marketCapUsd = tokenInfo.marketCap;
+                liquidityUsd = tokenInfo.liquidity || null;
+              }
+            } catch {}
+
+            await observer.postDetection({
+              mint: signal.mint,
+              creator: signal.creator,
+              bondingCurve: signal.bondingCurve,
+              signature: signal.signature,
+              slot: signal.slot,
+              source: 'meteora_onchain',
+              timestamp: signal.timestamp,
+              name,
+              symbol,
+              marketCapUsd,
+              liquidityUsd,
+            });
+          })().catch(() => {});
         }
       } catch (error) {
         console.error('[MeteoraOnChainSource] Failed to upsert launch_candidate:', (error as Error).message);
