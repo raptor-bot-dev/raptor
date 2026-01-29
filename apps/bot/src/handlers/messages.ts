@@ -18,6 +18,7 @@ import { formatSendToAddress, escapeMarkdownV2, LINE, formatWalletName } from '.
 import { confirmDeleteWallet, cancelDeleteWallet } from '../commands/wallet.js';
 import { handleSettingsInput } from './settingsHandler.js';
 import { SESSION_STEPS } from '../ui/callbackIds.js';
+import { handleWithdrawInput } from './withdrawHandler.js';
 
 // Regex patterns for address detection
 const SOLANA_ADDRESS_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -67,11 +68,24 @@ async function handleSessionFlow(ctx: MyContext, text: string): Promise<boolean>
 
   switch (ctx.session.step) {
     case 'awaiting_withdrawal_amount':
-      await handleWithdrawalAmountInput(ctx, text);
+      if (ctx.session.withdrawUi === 'wallet') {
+        await handleWithdrawalAmountInput(ctx, text);
+      } else {
+        await handleWithdrawInput(ctx, SESSION_STEPS.AWAITING_WITHDRAWAL_AMOUNT, text);
+      }
       return true;
 
     case 'awaiting_withdrawal_address':
-      await handleWithdrawalAddressInput(ctx, text);
+      if (ctx.session.withdrawUi === 'wallet') {
+        await handleWithdrawalAddressInput(ctx, text);
+      } else {
+        await handleWithdrawInput(ctx, SESSION_STEPS.AWAITING_WITHDRAWAL_ADDRESS, text);
+      }
+      return true;
+
+    case 'awaiting_withdrawal_percent':
+      // New withdraw panel supports percent entry; legacy wallet flow does not use this step.
+      await handleWithdrawInput(ctx, SESSION_STEPS.AWAITING_WITHDRAWAL_PERCENT, text);
       return true;
 
     case 'awaiting_withdrawal_confirm':

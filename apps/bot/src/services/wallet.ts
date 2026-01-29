@@ -219,8 +219,8 @@ async function processSolanaWithdrawal(
   );
 
   // Get recent blockhash
-  const { blockhash } = await connection.getLatestBlockhash();
-  tx.recentBlockhash = blockhash;
+  const latest = await connection.getLatestBlockhash('confirmed');
+  tx.recentBlockhash = latest.blockhash;
   tx.feePayer = keypair.publicKey;
 
   // Sign and send
@@ -228,8 +228,10 @@ async function processSolanaWithdrawal(
   const signature = await connection.sendRawTransaction(tx.serialize());
 
   // Confirm
-  await connection.confirmTransaction(signature, 'confirmed');
+  await connection.confirmTransaction(
+    { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+    'confirmed'
+  );
 
   return { hash: signature };
 }
-

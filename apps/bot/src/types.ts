@@ -51,6 +51,12 @@ export interface SessionData {
     amount?: string;
     address?: string;
   } | null;
+  /**
+   * Disambiguates withdrawal flows:
+   * - 'panel'  => new `withdraw:*` terminal UI (apps/bot/src/handlers/withdrawHandler.ts)
+   * - 'wallet' => legacy wallet withdrawal flow (apps/bot/src/commands/wallet.ts + handlers/messages.ts)
+   */
+  withdrawUi?: 'panel' | 'wallet' | null;
   pendingSend?: {
     toAddress: string;
     chain: Chain;

@@ -91,6 +91,11 @@ export async function showWithdrawHome(ctx: MyContext): Promise<void> {
   if (!userId) return;
 
   try {
+    // Mark this chat as using the new withdraw panel flow so text input routes correctly.
+    if (ctx.session) {
+      ctx.session.withdrawUi = 'panel';
+    }
+
     const wallets = await getUserWallets(userId);
     if (wallets.length === 0) {
       await ctx.answerCallbackQuery('No wallet found');
@@ -136,6 +141,7 @@ async function showSetDestination(ctx: MyContext): Promise<void> {
 
   try {
     if (ctx.session) {
+      ctx.session.withdrawUi = 'panel';
       ctx.session.step = SESSION_STEPS.AWAITING_WITHDRAWAL_ADDRESS;
     }
 
@@ -169,6 +175,7 @@ async function showAmountSolPrompt(ctx: MyContext): Promise<void> {
     const maxWithdrawSol = maxWithdraw(balanceSol);
 
     if (ctx.session) {
+      ctx.session.withdrawUi = 'panel';
       ctx.session.step = SESSION_STEPS.AWAITING_WITHDRAWAL_AMOUNT;
     }
 
@@ -190,6 +197,7 @@ async function showAmountPercentPrompt(ctx: MyContext): Promise<void> {
 
   try {
     if (ctx.session) {
+      ctx.session.withdrawUi = 'panel';
       ctx.session.step = SESSION_STEPS.AWAITING_WITHDRAWAL_PERCENT;
     }
 
@@ -256,6 +264,7 @@ async function confirmWithdraw(ctx: MyContext): Promise<void> {
     if (ctx.session) {
       ctx.session.pendingWithdrawal = null;
       ctx.session.step = null;
+      ctx.session.withdrawUi = null;
     }
 
     const panel = renderWithdrawSuccess(amountSol, destination, txSig);

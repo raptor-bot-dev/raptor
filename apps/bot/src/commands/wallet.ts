@@ -872,6 +872,7 @@ Select amount to withdraw:`;
         pendingWithdrawal: null,
       };
     }
+    ctx.session.withdrawUi = 'wallet';
     ctx.session.pendingWithdrawal = {
       chain: 'sol',
       walletIndex,
@@ -943,6 +944,7 @@ export async function selectWithdrawalPercentage(
     }
 
     // Update session with amount
+    ctx.session.withdrawUi = 'wallet';
     ctx.session.pendingWithdrawal = {
       chain: 'sol',
       walletIndex,
@@ -991,6 +993,7 @@ export async function startCustomWithdrawal(
 
   try {
     // Set session for custom amount input
+    ctx.session.withdrawUi = 'wallet';
     ctx.session.step = 'awaiting_withdrawal_amount';
     ctx.session.pendingWithdrawal = {
       chain: 'sol',

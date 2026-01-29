@@ -3371,6 +3371,7 @@ Tap "Show Keys" to reveal your private keys.`;
       await ctx.editMessageText('Cancelled.');
       ctx.session.step = null;
       ctx.session.pendingWithdrawal = null;
+      ctx.session.withdrawUi = null;
       return;
     }
 
@@ -3912,6 +3913,7 @@ async function handleConfirmWithdrawal(ctx: MyContext) {
     });
     ctx.session.step = null;
     ctx.session.pendingWithdrawal = null;
+    ctx.session.withdrawUi = null;
     return;
   }
 
@@ -3971,6 +3973,7 @@ Please check:
 
   ctx.session.step = null;
   ctx.session.pendingWithdrawal = null;
+  ctx.session.withdrawUi = null;
 }
 
 async function handleWithdrawConfirm(ctx: MyContext) {
