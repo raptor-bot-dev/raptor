@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authMiddleware } from '../middleware/auth.js';
-import { getRecentTrades, getActivePositions } from '@raptor/shared';
+import { getRecentTrades, getUserOpenPositions } from '@raptor/shared';
 
 async function handler(
   req: VercelRequest,
@@ -26,24 +26,24 @@ async function handler(
 
     if (type === 'positions') {
       // Return active positions
-      const positions = await getActivePositions(tgUser.id);
+      const positions = await getUserOpenPositions(tgUser.id);
 
       return res.status(200).json({
         positions: positions.map((p) => ({
-          id: p.id,
+          id: p.uuid_id,
           chain: p.chain,
-          tokenAddress: p.token_address,
+          tokenAddress: p.token_mint,
           tokenSymbol: p.token_symbol,
-          amountIn: p.amount_in,
-          tokensHeld: p.tokens_held,
-          entryPrice: p.entry_price,
-          currentPrice: p.current_price,
-          unrealizedPnl: p.unrealized_pnl,
-          unrealizedPnlPercent: p.unrealized_pnl_percent,
-          takeProfitPercent: p.take_profit_percent,
-          stopLossPercent: p.stop_loss_percent,
-          source: p.source,
-          score: p.score,
+          amountIn: String(p.entry_cost_sol ?? 0),
+          tokensHeld: String(p.size_tokens ?? 0),
+          entryPrice: String(p.entry_price ?? 0),
+          currentPrice: String(p.current_price ?? p.entry_price ?? 0),
+          unrealizedPnl: String(p.unrealized_pnl_sol ?? 0),
+          unrealizedPnlPercent: p.unrealized_pnl_percent ?? 0,
+          takeProfitPercent: null,
+          stopLossPercent: null,
+          source: 'revamp',
+          score: 0,
           status: p.status,
           createdAt: p.created_at,
         })),

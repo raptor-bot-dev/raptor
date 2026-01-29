@@ -29,6 +29,9 @@ import {
   createLogger,
   loadSolanaKeypair,
   applySellFeeDecimal,
+  isTradingPaused,
+  isCircuitOpen,
+  isManualTradingEnabledBySafetyControls,
   type EncryptedData,
 } from '@raptor/shared';
 import { idKeyManualSell } from '@raptor/shared';
@@ -75,6 +78,29 @@ export async function handleManualSell(
   // Validate percent
   if (isNaN(sellPercent) || sellPercent <= 0 || sellPercent > 100) {
     await ctx.answerCallbackQuery({ text: 'Invalid sell percentage', show_alert: true });
+    return;
+  }
+
+  // SAFETY (F-008): Global safety controls gating for manual trading
+  if (!(await isManualTradingEnabledBySafetyControls())) {
+    await ctx.answerCallbackQuery({
+      text: 'Manual trading is currently disabled',
+      show_alert: true,
+    });
+    return;
+  }
+  if (await isTradingPaused()) {
+    await ctx.answerCallbackQuery({
+      text: 'Trading is currently paused',
+      show_alert: true,
+    });
+    return;
+  }
+  if (await isCircuitOpen()) {
+    await ctx.answerCallbackQuery({
+      text: 'Circuit breaker is open — try again shortly',
+      show_alert: true,
+    });
     return;
   }
 
@@ -222,8 +248,8 @@ export async function showPositionsForSell(ctx: MyContext): Promise<void> {
 
     // Add sell buttons
     keyboard
-      .text(`Sell 50% ${p.token_symbol || 'Token'}`, `sell_v31:${p.id}:50`)
-      .text(`Sell 100% ${p.token_symbol || 'Token'}`, `sell_v31:${p.id}:100`)
+      .text(`Sell 50% ${p.token_symbol || 'Token'}`, `sell_v31:${p.uuid_id}:50`)
+      .text(`Sell 100% ${p.token_symbol || 'Token'}`, `sell_v31:${p.uuid_id}:100`)
       .row();
   }
 
@@ -272,6 +298,7 @@ export async function executeManualSell(params: {
     action: 'SELL',
     tokenMint: position.token_mint,
     amountSol: 0, // SELL doesn't spend SOL budget
+    positionId: position.uuid_id,
     idempotencyKey,
   });
 

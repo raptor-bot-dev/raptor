@@ -17,6 +17,7 @@ import {
   getStrategy,
   isTradingPaused,
   isCircuitOpen,
+  isAutoExecuteEnabledBySafetyControls,
   getActiveWallet,
   getPositionByUuid,
   loadSolanaKeypair,
@@ -88,6 +89,13 @@ export class ExecutionLoop {
         const circuitOpen = await isCircuitOpen();
         if (circuitOpen) {
           console.log('[ExecutionLoop] Circuit breaker is open');
+          await this.sleep(5000);
+          continue;
+        }
+
+        const autoAllowedBySafety = await isAutoExecuteEnabledBySafetyControls();
+        if (!autoAllowedBySafety) {
+          console.log('[ExecutionLoop] Auto-execution disabled by safety controls');
           await this.sleep(5000);
           continue;
         }
@@ -176,6 +184,7 @@ export class ExecutionLoop {
         action: job.action,
         tokenMint: job.payload.mint,
         amountSol: job.payload.amount_sol || 0,
+        positionId: job.payload.position_id || undefined,
         idempotencyKey: job.idempotency_key,
         allowRetry: job.attempts > 0,
       });

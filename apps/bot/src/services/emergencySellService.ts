@@ -26,6 +26,9 @@ import {
   createLogger,
   loadSolanaKeypair,
   applySellFeeDecimal,
+  isTradingPaused,
+  isCircuitOpen,
+  isManualTradingEnabledBySafetyControls,
   type EncryptedData,
 } from '@raptor/shared';
 import { idKeyExitSell } from '@raptor/shared';
@@ -74,6 +77,29 @@ export async function executeEmergencySell(params: {
 
   logger.info('Starting emergency sell', { userId, positionId: position.uuid_id, sellPercent });
 
+  // SAFETY (F-008): Global safety controls gating for manual trading
+  if (!(await isManualTradingEnabledBySafetyControls())) {
+    return {
+      success: false,
+      error: 'Manual trading is currently disabled',
+      tokensSold: tokensToSell,
+    };
+  }
+  if (await isTradingPaused()) {
+    return {
+      success: false,
+      error: 'Trading is currently paused',
+      tokensSold: tokensToSell,
+    };
+  }
+  if (await isCircuitOpen()) {
+    return {
+      success: false,
+      error: 'Circuit breaker is open — try again shortly',
+      tokensSold: tokensToSell,
+    };
+  }
+
   // Step 1: Generate idempotency key using exit trigger
   // This ensures only ONE emergency sell per position (regardless of how many times clicked)
   const idempotencyKey = idKeyExitSell({
@@ -95,6 +121,7 @@ export async function executeEmergencySell(params: {
     action: 'SELL',
     tokenMint: position.token_mint,
     amountSol: 0, // SELL doesn't spend SOL budget
+    positionId: position.uuid_id,
     idempotencyKey,
     allowRetry: true, // Allow retry on FAILED status - emergency sells should always be retryable
   });

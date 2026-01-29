@@ -3821,7 +3821,7 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
       );
 
       // Create Position record for this buy
-      let positionId: number | undefined;
+      let positionId: string | undefined;
       try {
         // Get or create a MANUAL strategy for this user+chain (required FK)
         const strategy = await getOrCreateManualStrategy(user.id, 'sol');
@@ -3838,8 +3838,7 @@ async function handleBuyToken(ctx: MyContext, chain: Chain, tokenAddress: string
           entryPrice: pricePerToken,
           sizeTokens: tokensReceived,
         });
-        // position.id is typed as string but DB returns number (SERIAL)
-        positionId = typeof position.id === 'string' ? parseInt(position.id, 10) : position.id;
+        positionId = position.uuid_id;
         console.log('[Callbacks] Position created:', positionId, 'with strategy:', strategy.id);
       } catch (positionError) {
         console.error('[Callbacks] Failed to create position:', positionError);
@@ -4562,7 +4561,7 @@ async function handleSellPctFromMonitor(ctx: MyContext, mint: string, percent: n
 
   try {
     // Import required functions
-    const { getActivePositions, getUserWallets, loadSolanaKeypair } = await import('@raptor/shared');
+    const { getUserOpenPositions, getUserWallets, loadSolanaKeypair } = await import('@raptor/shared');
     const { idKeyManualSell, reserveTradeBudget, updateExecution, closePositionV31 } = await import('@raptor/shared');
 
     // v3.5: Get user's active wallet for the correct chain
@@ -4596,16 +4595,16 @@ async function handleSellPctFromMonitor(ctx: MyContext, mint: string, percent: n
       return;
     }
 
-    // Find position for this token (needed for idempotency key)
-    const positions = await getActivePositions(user.id);
-    const position = positions.find(p => p.token_address === mint && p.chain === chain);
+    // Find position for this token (needed for idempotency key); fail closed to avoid cross-user leaks.
+    const positions = await getUserOpenPositions(user.id);
+    const position = positions.find(p => p.token_mint === mint && p.chain === chain);
 
     // Generate idempotency key - P0-1 core fix
     const idempotencyKey = idKeyManualSell({
       chain,
       userId: user.id,
       mint,
-      positionId: position?.id?.toString() || 'no-position',
+      positionId: position?.uuid_id || 'no-position',
       tgEventId: callbackQueryId,
       sellPercent: percent,
     });
@@ -4619,6 +4618,7 @@ async function handleSellPctFromMonitor(ctx: MyContext, mint: string, percent: n
       action: 'SELL',
       tokenMint: mint,
       amountSol: 0, // SELL doesn't spend SOL
+      positionId: position?.uuid_id,
       idempotencyKey,
     });
 

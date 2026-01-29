@@ -35,8 +35,8 @@ import { GrammyError } from 'grammy';
 import { executeEmergencySell as executeEmergencySellService } from '../services/emergencySellService.js';
 import { showHome } from './home.js';
 
-// Pump.fun tokens have fixed 1 billion total supply
-const PUMP_FUN_TOTAL_SUPPLY = 1_000_000_000;
+// Default total supply fallback when unknown.
+const DEFAULT_TOTAL_SUPPLY = 1_000_000_000;
 
 /**
  * Handle positions:* and position:* callbacks
@@ -182,9 +182,8 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
   try {
     const position = await getPositionByUuid(positionId);
 
-    // New schema uses user_id UUID, skip ownership check for now
-    // FIXME: Implement proper tg_id -> user_id lookup
-    if (!position) {
+    // SECURITY: fail closed on ownership mismatch to prevent cross-user access via forged callbacks.
+    if (!position || position.tg_id !== userId) {
       const panel = renderPositionNotFound();
       await ctx.editMessageText(panel.text, panel.opts);
       await ctx.answerCallbackQuery('Position not found');
@@ -201,7 +200,7 @@ async function showPositionDetails(ctx: MyContext, positionId: string): Promise<
     });
 
     // Calculate entry MC from stored value or entry price × total supply
-    const supply = marketData?.supply ?? PUMP_FUN_TOTAL_SUPPLY;
+    const supply = marketData?.supply ?? DEFAULT_TOTAL_SUPPLY;
     const entryMcSol = position.entry_mc_sol
       ?? (position.entry_price > 0 ? position.entry_price * supply : 0);
     const entryMcUsd = position.entry_mc_usd
@@ -271,9 +270,8 @@ async function showEmergencySellConfirm(ctx: MyContext, positionId: string): Pro
   try {
     const position = await getPositionByUuid(positionId);
 
-    // New schema uses user_id UUID, skip ownership check for now
-    // FIXME: Implement proper tg_id -> user_id lookup
-    if (!position) {
+    // SECURITY: fail closed on ownership mismatch.
+    if (!position || position.tg_id !== userId) {
       await ctx.answerCallbackQuery('Position not found');
       return;
     }
@@ -313,9 +311,8 @@ async function executeEmergencySell(ctx: MyContext, positionId: string): Promise
   try {
     const position = await getPositionByUuid(positionId);
 
-    // New schema uses user_id UUID, skip ownership check for now
-    // FIXME: Implement proper tg_id -> user_id lookup
-    if (!position) {
+    // SECURITY: fail closed on ownership mismatch.
+    if (!position || position.tg_id !== userId) {
       await ctx.answerCallbackQuery('Position not found');
       return;
     }

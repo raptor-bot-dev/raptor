@@ -430,7 +430,7 @@ export async function createTradeMonitor(
   entryTokens: number,
   entryPriceSol: number,
   routeLabel: string,
-  positionId?: number,
+  positionId?: string,
   entryMarketCapUsd?: number  // v3.4.1: Entry market cap for PnL calculation
 ): Promise<TradeMonitor | null> {
   try {

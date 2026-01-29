@@ -20,6 +20,7 @@ import { startMonitorRefreshLoop, stopMonitorRefreshLoop } from './services/trad
 // v3.1 Notification poller (DB → Telegram delivery)
 import { createNotificationPoller } from './services/notifications.js';
 import { solanaExecutor } from '@raptor/executor/solana';
+import { validateBotConfig } from '@raptor/shared';
 import { shouldWrapTelegramText, wrapTelegramMarkdown, clampTelegramText } from './utils/panelWrap.js';
 
 // SECURITY: L-007 - Global promise rejection and error handlers
@@ -35,8 +36,10 @@ process.on('uncaughtException', (error) => {
 });
 
 // Validate environment
-if (!process.env.TELEGRAM_BOT_TOKEN) {
-  console.error('ERROR: TELEGRAM_BOT_TOKEN is required');
+try {
+  validateBotConfig();
+} catch (error) {
+  console.error('ERROR: Bot configuration invalid:', (error as Error).message);
   process.exit(1);
 }
 
@@ -51,8 +54,8 @@ console.log(`  App:      ${process.env.FLY_APP_NAME || 'raptor-bot'}`);
 console.log(`  Started:  ${new Date().toISOString()}`);
 console.log('==================================================');
 
-// Initialize bot
-const bot = new Bot<MyContext>(process.env.TELEGRAM_BOT_TOKEN);
+// Initialize bot (validateBotConfig ensures this is set)
+const bot = new Bot<MyContext>(process.env.TELEGRAM_BOT_TOKEN!);
 
 // ---------------------------------------------------------------------------
 // Global UI middleware (panel wrapper)

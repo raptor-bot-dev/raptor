@@ -43,9 +43,8 @@ export async function backupCommand(ctx: MyContext) {
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-*Your Addresses:*
-🟣 Solana: \`${wallet.solana_address}\`
-⚪ EVM: \`${wallet.evm_address}\`
+*Your Address (Solana):*
+🟣 \`${wallet.solana_address}\`
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
@@ -79,7 +78,6 @@ export async function handleBackupConfirm(ctx: MyContext) {
 
     // Decrypt private keys (pass tgId for v2 encryption)
     const solanaKey = decryptPrivateKey(wallet.solana_private_key_encrypted as EncryptedData, user.id);
-    const evmKey = decryptPrivateKey(wallet.evm_private_key_encrypted as EncryptedData, user.id);
 
     const message = `🔐 *YOUR PRIVATE KEYS*
 
@@ -94,18 +92,6 @@ Private Key (Base58):
 \`${solanaKey}\`
 
 _Import into: Phantom, Solflare_
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-⚪ *EVM (BSC/Base/ETH)*
-
-Address:
-\`${wallet.evm_address}\`
-
-Private Key (Hex):
-\`${evmKey}\`
-
-_Import into: MetaMask, Trust Wallet_
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
@@ -173,9 +159,6 @@ export async function showWalletInfo(ctx: MyContext) {
 
 🟣 *Solana*
 \`${wallet.solana_address}\`
-
-⚪ *EVM (BSC/Base/ETH)*
-\`${wallet.evm_address}\`
 
 ━━━━━━━━━━━━━━━━━━━━━━
 

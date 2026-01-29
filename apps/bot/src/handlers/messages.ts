@@ -483,8 +483,8 @@ async function showSendOptions(ctx: MyContext, toAddress: string, chain: Chain) 
 }
 
 /**
- * Show token card with buy options - comprehensive data from all sources
- * Uses fast DexScreener first, then launchpad APIs as fallback
+ * Show token card with buy options (Solana-only).
+ * Uses fast DexScreener first, then a bonding-curve/source detector as fallback.
  */
 async function showTokenCard(ctx: MyContext, tokenAddress: string, _chain: Chain) {
   // Solana-only build
@@ -493,8 +493,8 @@ async function showTokenCard(ctx: MyContext, tokenAddress: string, _chain: Chain
   let message: string;
 
   // Solana-only path {
-    // Fast path: Try DexScreener first (2s timeout), then launchpad detector
-    const { dexscreener, launchpadDetector, tokenData, goplus } = await import('@raptor/shared');
+	    // Fast path: Try DexScreener first (2s timeout), then source detector
+	    const { dexscreener, launchpadDetector, tokenData, goplus } = await import('@raptor/shared');
 
     // Quick DexScreener check with short timeout
     const quickDexResult = await Promise.race([
@@ -541,8 +541,8 @@ ${LINE}
 
 \`${tokenAddress}\``;
     } else {
-      // Not on DexScreener - try launchpad detector (may be bonding curve token)
-      const tokenInfo = await launchpadDetector.detectAndFetch(tokenAddress).catch(() => null);
+	      // Not on DexScreener - try source detector (may be bonding curve token)
+	      const tokenInfo = await launchpadDetector.detectAndFetch(tokenAddress).catch(() => null);
 
     if (tokenInfo) {
       const lpEmoji = launchpadDetector.getLaunchpadEmoji(tokenInfo.launchpad.launchpad);
@@ -551,9 +551,9 @@ ${LINE}
       // Is it a bonding curve token?
       const isBonding = tokenInfo.launchpad.status === 'bonding' || tokenInfo.launchpad.status === 'migrating';
 
-      if (isBonding) {
-        // Bonding curve display (PumpFun, Moonshot, Bonk.fun)
-        const progressBar = launchpadDetector.formatBondingBar(tokenInfo.launchpad.bondingProgress);
+	      if (isBonding) {
+	        // Bonding curve display
+	        const progressBar = launchpadDetector.formatBondingBar(tokenInfo.launchpad.bondingProgress);
         const statusEmoji = tokenInfo.launchpad.bondingProgress >= 90 ? '🔥' :
           tokenInfo.launchpad.bondingProgress >= 50 ? '📈' : '🌱';
 
@@ -641,20 +641,20 @@ ${LINE}
 
 \`${tokenAddress}\``;
       }
-    } else {
-      // Token not found on any launchpad
-      // v3.3.1 FIX: Line below heading, not surrounding
-      message = `☀️ *TOKEN* — Solana
+	    } else {
+	      // Token not found in known sources
+	      // v3.3.1 FIX: Line below heading, not surrounding
+	      message = `☀️ *TOKEN* — Solana
 ${LINE}
 
 ⚠️ *New/Unlisted Token*
 
-Not found on any known launchpad.
+Not found on DexScreener or configured sources.
 Proceed with extreme caution.
 
 \`${tokenAddress}\``;
-    }
-  }
+	    }
+	  }
 
   // Build keyboard with buy options - Solana-only
   // v3.2: Added → Sell button

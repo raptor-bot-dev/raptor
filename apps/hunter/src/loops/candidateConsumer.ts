@@ -11,6 +11,7 @@ import {
   createTradeJob,
   isTradingPaused,
   isCircuitOpen,
+  isAutoExecuteEnabledBySafetyControls,
   idKeyAutoBuy,
   getCandidateConsumerPollIntervalMs,
   getCandidateConsumerBatchSize,
@@ -87,6 +88,13 @@ export class CandidateConsumerLoop {
         const circuitOpen = await isCircuitOpen();
         if (circuitOpen) {
           console.log('[CandidateConsumerLoop] Circuit breaker is open');
+          await this.sleep(5000);
+          continue;
+        }
+
+        const autoEnabled = await isAutoExecuteEnabledBySafetyControls();
+        if (!autoEnabled) {
+          console.log('[CandidateConsumerLoop] Auto-execution disabled by safety controls');
           await this.sleep(5000);
           continue;
         }

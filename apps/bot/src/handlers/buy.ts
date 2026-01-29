@@ -30,6 +30,9 @@ import {
   createLogger,
   loadSolanaKeypair,
   applyBuyFeeDecimal,
+  isTradingPaused,
+  isCircuitOpen,
+  isManualTradingEnabledBySafetyControls,
   type EncryptedData,
 } from '@raptor/shared';
 import { idKeyManualBuy } from '@raptor/shared';
@@ -93,6 +96,29 @@ export async function handleManualBuy(
   if (amountSol < 0.01) {
     await ctx.answerCallbackQuery({
       text: 'Minimum buy amount is 0.01 SOL',
+      show_alert: true,
+    });
+    return;
+  }
+
+  // SAFETY (F-008): Global safety controls gating for manual trading
+  if (!(await isManualTradingEnabledBySafetyControls())) {
+    await ctx.answerCallbackQuery({
+      text: 'Manual trading is currently disabled',
+      show_alert: true,
+    });
+    return;
+  }
+  if (await isTradingPaused()) {
+    await ctx.answerCallbackQuery({
+      text: 'Trading is currently paused',
+      show_alert: true,
+    });
+    return;
+  }
+  if (await isCircuitOpen()) {
+    await ctx.answerCallbackQuery({
+      text: 'Circuit breaker is open — try again shortly',
       show_alert: true,
     });
     return;
