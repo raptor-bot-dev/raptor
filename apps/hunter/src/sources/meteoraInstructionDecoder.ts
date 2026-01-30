@@ -209,9 +209,14 @@ export function decodeInitPoolInstruction(
 }
 
 /**
- * Find and decode Meteora DBC initialize pool instruction from a transaction
+ * Find and decode Meteora DBC initialize pool instruction from a transaction.
  *
- * @param transaction - Parsed transaction object with message and instructions
+ * Scans BOTH top-level instructions AND inner instructions (CPI calls).
+ * This is critical for bags.fm launches where the Fee Share program
+ * CPI-calls Meteora DBC — the init pool instruction appears as an
+ * inner instruction, not top-level.
+ *
+ * @param transaction - Parsed transaction object with message, instructions, and innerInstructions
  * @returns MeteoraCreateEvent if a create instruction was found, null otherwise
  */
 export function findAndDecodeCreateInstruction(
@@ -223,17 +228,26 @@ export function findAndDecodeCreateInstruction(
         accounts: number[];
         data: string; // Base58-encoded instruction data
       }>;
+      innerInstructions?: Array<{
+        programIdIndex: number;
+        accounts: number[];
+        data: string;
+      }>;
     };
   },
   programId: string = METEORA_DBC_PROGRAM_ID
 ): MeteoraCreateEvent | null {
-  const { accountKeys, instructions } = transaction.message;
+  const { accountKeys, instructions, innerInstructions } = transaction.message;
 
-  // Look for initialize pool instruction
-  for (const ix of instructions) {
+  // Helper: try to decode a single instruction
+  const tryDecodeInstruction = (ix: {
+    programIdIndex: number;
+    accounts: number[];
+    data: string;
+  }): MeteoraCreateEvent | null => {
     const ixProgramId = accountKeys[ix.programIdIndex];
     if (ixProgramId !== programId) {
-      continue;
+      return null;
     }
 
     // Decode base58 instruction data
@@ -242,13 +256,33 @@ export function findAndDecodeCreateInstruction(
       data = Buffer.from(decodeBase58(ix.data));
     } catch {
       console.warn('[MeteoraDecoder] Failed to decode instruction data');
-      continue;
+      return null;
     }
 
     // Check if this is an init pool instruction
     if (isInitializePoolInstruction(data)) {
-      const event = decodeInitPoolInstruction(data, accountKeys, ix.accounts);
+      return decodeInitPoolInstruction(data, accountKeys, ix.accounts);
+    }
+
+    return null;
+  };
+
+  // Pass 1: Scan top-level instructions
+  for (const ix of instructions) {
+    const event = tryDecodeInstruction(ix);
+    if (event) {
+      return event;
+    }
+  }
+
+  // Pass 2: Scan inner instructions (CPI calls)
+  // Bags.fm launches invoke Meteora DBC via CPI through their Fee Share program,
+  // so the initializeVirtualPool instruction appears here, not top-level.
+  if (innerInstructions && innerInstructions.length > 0) {
+    for (const ix of innerInstructions) {
+      const event = tryDecodeInstruction(ix);
       if (event) {
+        console.log('[MeteoraDecoder] Found init pool in inner instruction (CPI)');
         return event;
       }
     }

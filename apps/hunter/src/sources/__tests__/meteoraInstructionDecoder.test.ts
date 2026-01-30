@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   METEORA_DISCRIMINATORS,
+  METEORA_DBC_PROGRAM_ID,
   isInitializePoolInstruction,
   isSwapInstruction,
   isMigrationInstruction,
   getInitPoolType,
+  findAndDecodeCreateInstruction,
   validateDecodedEvent,
 } from '../meteoraInstructionDecoder.js';
 
@@ -157,6 +159,158 @@ describe('meteoraInstructionDecoder', () => {
       expect(Array.from(METEORA_DISCRIMINATORS.INIT_POOL_TOKEN2022)).toEqual([
         169, 118, 51, 78, 145, 110, 220, 155,
       ]);
+    });
+  });
+
+  describe('findAndDecodeCreateInstruction — CPI inner instructions', () => {
+    // Simulates a bags.fm launch where the Fee Share program CPI-calls Meteora DBC.
+    // The init pool instruction is in innerInstructions, not top-level.
+
+    // Helper: base58-encode bytes (matches the decoder's expectation)
+    function encodeBase58(bytes: Uint8Array): string {
+      const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+      if (bytes.length === 0) return '';
+      let num = BigInt(0);
+      for (const b of bytes) {
+        num = num * 256n + BigInt(b);
+      }
+      let encoded = '';
+      while (num > 0n) {
+        const remainder = Number(num % 58n);
+        num = num / 58n;
+        encoded = ALPHABET[remainder] + encoded;
+      }
+      // Leading zeros
+      for (const b of bytes) {
+        if (b !== 0) break;
+        encoded = '1' + encoded;
+      }
+      return encoded;
+    }
+
+    // Build a fake init pool instruction data (discriminator + padding)
+    const initPoolData = Buffer.concat([
+      METEORA_DISCRIMINATORS.INIT_POOL_SPL,
+      Buffer.alloc(64), // params
+    ]);
+    const initPoolDataB58 = encodeBase58(initPoolData);
+
+    // Swap discriminator data (should NOT match)
+    const swapData = Buffer.concat([
+      METEORA_DISCRIMINATORS.SWAP,
+      Buffer.alloc(32),
+    ]);
+    const swapDataB58 = encodeBase58(swapData);
+
+    // Account keys: [0]=config, [1]=poolAuthority, [2]=creator, [3]=baseMint, [4]=quoteMint, [5]=pool, ...
+    const accountKeys = [
+      '7nYBuL3wPMcsHE1XGfHFRXjMSmNa9igf9pMQTFjwSQM9', // 0: config
+      'FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM', // 1: pool authority
+      '9WzDXwBbmPELPRCheThSFdwpTTcy2cHt5Rd8xVx8FkQ3', // 2: creator
+      '7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr', // 3: base mint (new token)
+      'So11111111111111111111111111111111111111112',      // 4: quote mint (SOL)
+      'BSwp6bEBihVLdqJRKGgzjcGLHkcTuzmSo1TQkHepzH8p', // 5: pool (bonding curve)
+      'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', // 6: ATA program
+      '11111111111111111111111111111111',                 // 7: system
+      'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',    // 8: token program
+      METEORA_DBC_PROGRAM_ID,                             // 9: DBC program
+      'FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK',  // 10: Bags Fee Share v2
+    ];
+
+    it('should find init pool in top-level instructions', () => {
+      const tx = {
+        message: {
+          accountKeys,
+          instructions: [
+            {
+              programIdIndex: 9, // DBC program
+              accounts: [0, 1, 2, 3, 4, 5],
+              data: initPoolDataB58,
+            },
+          ],
+          innerInstructions: [],
+        },
+      };
+
+      const event = findAndDecodeCreateInstruction(tx, METEORA_DBC_PROGRAM_ID);
+      expect(event).not.toBeNull();
+      expect(event!.mint).toBe(accountKeys[3]);       // base mint
+      expect(event!.creator).toBe(accountKeys[2]);     // creator
+      expect(event!.bondingCurve).toBe(accountKeys[5]); // pool
+    });
+
+    it('should find init pool in inner instructions (CPI from Bags Fee Share)', () => {
+      // Top-level: only the Bags Fee Share program call (not Meteora DBC)
+      // Inner: Meteora DBC init pool as CPI
+      const tx = {
+        message: {
+          accountKeys,
+          instructions: [
+            {
+              programIdIndex: 10, // Bags Fee Share program (top-level)
+              accounts: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+              data: swapDataB58, // irrelevant data for the fee share call
+            },
+          ],
+          innerInstructions: [
+            {
+              programIdIndex: 9, // Meteora DBC program (CPI)
+              accounts: [0, 1, 2, 3, 4, 5],
+              data: initPoolDataB58,
+            },
+          ],
+        },
+      };
+
+      const event = findAndDecodeCreateInstruction(tx, METEORA_DBC_PROGRAM_ID);
+      expect(event).not.toBeNull();
+      expect(event!.mint).toBe(accountKeys[3]);
+      expect(event!.creator).toBe(accountKeys[2]);
+      expect(event!.bondingCurve).toBe(accountKeys[5]);
+    });
+
+    it('should return null when no init pool exists in either level', () => {
+      const tx = {
+        message: {
+          accountKeys,
+          instructions: [
+            {
+              programIdIndex: 9, // DBC program but SWAP, not init
+              accounts: [0, 1, 2, 3, 4, 5],
+              data: swapDataB58,
+            },
+          ],
+          innerInstructions: [
+            {
+              programIdIndex: 8, // Token program, not DBC
+              accounts: [0, 1],
+              data: swapDataB58,
+            },
+          ],
+        },
+      };
+
+      const event = findAndDecodeCreateInstruction(tx, METEORA_DBC_PROGRAM_ID);
+      expect(event).toBeNull();
+    });
+
+    it('should work when innerInstructions is undefined (backwards compat)', () => {
+      const tx = {
+        message: {
+          accountKeys,
+          instructions: [
+            {
+              programIdIndex: 10, // Not DBC
+              accounts: [0, 1, 2],
+              data: swapDataB58,
+            },
+          ],
+          // No innerInstructions field at all
+        },
+      };
+
+      const event = findAndDecodeCreateInstruction(tx, METEORA_DBC_PROGRAM_ID);
+      expect(event).toBeNull();
     });
   });
 });

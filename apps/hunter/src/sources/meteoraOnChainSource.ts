@@ -313,11 +313,17 @@ export class MeteoraOnChainSource {
    * Fetch full transaction data via HTTP RPC for accurate instruction decoding.
    * Uses json encoding (not jsonParsed) to get raw instruction data + account indices.
    * Merges static account keys with loaded addresses for v0 transactions.
+   * Returns both top-level AND inner instructions (CPI calls).
    */
   private async fetchTransaction(signature: string): Promise<{
     message: {
       accountKeys: string[];
       instructions: Array<{
+        programIdIndex: number;
+        accounts: number[];
+        data: string;
+      }>;
+      innerInstructions: Array<{
         programIdIndex: number;
         accounts: number[];
         data: string;
@@ -343,6 +349,12 @@ export class MeteoraOnChainSource {
         signal: controller.signal,
       });
 
+      interface InnerInstruction {
+        programIdIndex: number;
+        accounts: number[];
+        data: string;
+      }
+
       interface GetTxResponse {
         result?: {
           transaction?: {
@@ -360,6 +372,10 @@ export class MeteoraOnChainSource {
               writable?: string[];
               readonly?: string[];
             };
+            innerInstructions?: Array<{
+              index: number;
+              instructions: InnerInstruction[];
+            }>;
           };
         };
       }
@@ -378,10 +394,20 @@ export class MeteoraOnChainSource {
         ? [...staticKeys, ...(loaded.writable || []), ...(loaded.readonly || [])]
         : staticKeys;
 
+      // Flatten all inner instructions (CPI calls) into a single array
+      const innerIxGroups = tx.meta?.innerInstructions || [];
+      const flatInnerIxs: InnerInstruction[] = [];
+      for (const group of innerIxGroups) {
+        for (const ix of group.instructions) {
+          flatInnerIxs.push(ix);
+        }
+      }
+
       return {
         message: {
           accountKeys: allKeys,
           instructions: tx.transaction.message.instructions || [],
+          innerInstructions: flatInnerIxs,
         },
       };
     } finally {
