@@ -104,14 +104,14 @@ describe('isCreateInstruction', () => {
     });
   });
 
-  describe('priority filtering', () => {
-    it('should reject Swap even if CreatePool appears later', () => {
+  describe('mixed-instruction transactions', () => {
+    it('should accept create even if Swap appears in the same transaction logs', () => {
       const logs = [
         'Program log: Instruction: Swap',
         'Program log: Instruction: InitializeVirtualPoolWithSplToken',
       ];
 
-      expect(isCreateInstruction(logs)).toBe(false);
+      expect(isCreateInstruction(logs)).toBe(true);
     });
   });
 });

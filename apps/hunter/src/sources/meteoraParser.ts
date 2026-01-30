@@ -53,20 +53,10 @@ export type MeteoraParseResult =
  */
 const METEORA_CREATE_PATTERNS = [
   // Anchor-generated log lines for Meteora DBC pool initialization
-  /Program log: Instruction: InitializeVirtualPoolWithSplToken/i,
-  /Program log: Instruction: InitializeVirtualPoolWithToken2022/i,
+  /(?:Program log:\s*)?Instruction:\s*InitializeVirtualPoolWithSplToken/i,
+  /(?:Program log:\s*)?Instruction:\s*InitializeVirtualPoolWithToken2022/i,
   // Catch-all for future variants (still specific to virtual pool init)
-  /Program log: Instruction: InitializeVirtualPool/i,
-];
-
-/**
- * Patterns that indicate this is NOT a create event (filter out)
- */
-const METEORA_NON_CREATE_PATTERNS = [
-  /Program log: Instruction: Swap/i,
-  /Program log: Instruction: AddLiquidity/i,
-  /Program log: Instruction: RemoveLiquidity/i,
-  /Program log: Instruction: Claim/i,
+  /(?:Program log:\s*)?Instruction:\s*InitializeVirtualPool/i,
 ];
 
 /**
@@ -74,13 +64,6 @@ const METEORA_NON_CREATE_PATTERNS = [
  */
 export function isCreateInstruction(logs: string[]): boolean {
   const logsText = logs.join(' ');
-
-  // Filter out non-create events first
-  for (const pattern of METEORA_NON_CREATE_PATTERNS) {
-    if (pattern.test(logsText)) {
-      return false;
-    }
-  }
 
   // Check for create patterns
   for (const pattern of METEORA_CREATE_PATTERNS) {

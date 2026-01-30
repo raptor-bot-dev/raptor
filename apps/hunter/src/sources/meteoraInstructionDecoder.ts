@@ -224,22 +224,15 @@ export function findAndDecodeCreateInstruction(
         data: string; // Base58-encoded instruction data
       }>;
     };
-  }
+  },
+  programId: string = METEORA_DBC_PROGRAM_ID
 ): MeteoraCreateEvent | null {
   const { accountKeys, instructions } = transaction.message;
 
-  // Find the Meteora DBC program index
-  const dbcProgramIndex = accountKeys.findIndex(
-    (key) => key === METEORA_DBC_PROGRAM_ID
-  );
-
-  if (dbcProgramIndex === -1) {
-    return null;
-  }
-
   // Look for initialize pool instruction
   for (const ix of instructions) {
-    if (ix.programIdIndex !== dbcProgramIndex) {
+    const ixProgramId = accountKeys[ix.programIdIndex];
+    if (ixProgramId !== programId) {
       continue;
     }
 

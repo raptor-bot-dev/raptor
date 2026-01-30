@@ -249,7 +249,7 @@ export class MeteoraOnChainSource {
     try {
       const tx = await this.fetchTransaction(signature);
       if (tx) {
-        event = findAndDecodeCreateInstruction(tx);
+        event = findAndDecodeCreateInstruction(tx, this.programId);
       }
     } catch (error) {
       console.error(
@@ -347,7 +347,7 @@ export class MeteoraOnChainSource {
         result?: {
           transaction?: {
             message?: {
-              accountKeys?: string[];
+              accountKeys?: Array<string | { pubkey?: string }>;
               instructions?: Array<{
                 programIdIndex: number;
                 accounts: number[];
@@ -369,7 +369,10 @@ export class MeteoraOnChainSource {
       if (!tx?.transaction?.message) return null;
 
       // Merge static account keys with loaded addresses (for v0 transactions with ALTs)
-      const staticKeys: string[] = tx.transaction.message.accountKeys || [];
+      const rawKeys = tx.transaction.message.accountKeys || [];
+      const staticKeys: string[] = rawKeys
+        .map((k) => (typeof k === 'string' ? k : k?.pubkey))
+        .filter((k): k is string => typeof k === 'string' && k.length > 0);
       const loaded = tx.meta?.loadedAddresses;
       const allKeys = loaded
         ? [...staticKeys, ...(loaded.writable || []), ...(loaded.readonly || [])]

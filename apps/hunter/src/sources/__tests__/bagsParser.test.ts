@@ -8,7 +8,8 @@ import { parseBagsMessage, isValidMintAddress, type BagsParseResult } from '../b
 
 // Valid test addresses (base58, decode to 32 bytes)
 const VALID_MINT = 'So11111111111111111111111111111111111111112';
-const VALID_MINT_2 = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const VALID_MINT_2 = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const VALID_MINT_3 = 'Es9vMFrzaCERmJfrF4H2FY2qg7xE5Kq1d9Y9ycYzaqj';
 
 // Invalid addresses
 const INVALID_MINT_TOO_SHORT = 'So1111';
@@ -61,6 +62,41 @@ $TEST token`;
       const text = `New launch detected
 ${VALID_MINT_2}
 Get in early!`;
+
+      const result = parseBagsMessage(text);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.candidate.mint).toBe(VALID_MINT_2);
+      }
+    });
+
+    it('should parse mint from a dexscreener URL', () => {
+      const text = `Dexscreener: https://dexscreener.com/solana/${VALID_MINT_2}
+$URL`;
+
+      const result = parseBagsMessage(text);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.candidate.mint).toBe(VALID_MINT_2);
+        expect(result.candidate.symbol).toBe('URL');
+      }
+    });
+
+    it('should parse mint from a Solscan token URL', () => {
+      const text = `Solscan https://solscan.io/token/${VALID_MINT_2}`;
+
+      const result = parseBagsMessage(text);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.candidate.mint).toBe(VALID_MINT_2);
+      }
+    });
+
+    it('should parse mint from a Birdeye token URL', () => {
+      const text = `Birdeye: https://birdeye.so/token/${VALID_MINT_2}?chain=solana`;
 
       const result = parseBagsMessage(text);
 
@@ -231,6 +267,20 @@ Get in early!`;
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.reason).toBe('no_valid_mint');
+      }
+    });
+
+    it('should fail closed if multiple mint candidates exist without a clear label', () => {
+      const text = `New token
+${VALID_MINT_2}
+${VALID_MINT_3}
+Get in early!`;
+
+      const result = parseBagsMessage(text);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe('ambiguous_mint_candidates');
       }
     });
   });

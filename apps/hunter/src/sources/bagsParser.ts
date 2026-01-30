@@ -33,12 +33,27 @@ export type BagsParseResult =
  * Matches: "Mint: <address>" or "CA: <address>" or just a raw base58 address on its own line.
  * Solana addresses are 32-44 characters in base58 alphabet (no 0, O, I, l).
  */
-const MINT_PATTERNS = [
+const LABELED_MINT_PATTERNS = [
   // Explicit "Mint:" or "CA:" labels
-  /(?:Mint|CA|Contract|Address)[\s:]+([1-9A-HJ-NP-Za-km-z]{32,44})/i,
-  // Standalone base58 address on its own line (fallback)
-  /^([1-9A-HJ-NP-Za-km-z]{43,44})$/m,
+  /(?:Mint|CA|Contract|Address)[\s:]+([1-9A-HJ-NP-Za-km-z]{32,44})/gi,
 ];
+
+/**
+ * URL patterns that commonly embed the Solana mint address.
+ * We intentionally keep the allowlist small and deterministic.
+ */
+const MINT_URL_PATTERNS = [
+  /dexscreener\.com\/solana\/([1-9A-HJ-NP-Za-km-z]{32,44})/gi,
+  /birdeye\.so\/token\/([1-9A-HJ-NP-Za-km-z]{32,44})/gi,
+  /solscan\.io\/token\/([1-9A-HJ-NP-Za-km-z]{32,44})/gi,
+];
+
+const NON_MINT_ADDRESSES = new Set<string>([
+  // Common program / placeholder addresses that show up in messages and should not be treated as a token mint.
+  '11111111111111111111111111111111', // System Program
+  'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL Token Program
+  'So11111111111111111111111111111111111111112', // Wrapped SOL mint
+]);
 
 /**
  * Symbol pattern - matches $SYMBOL or (SYMBOL) formats.
@@ -60,6 +75,40 @@ const NAME_PATTERNS = [
 // =============================================================================
 // Parser Implementation
 // =============================================================================
+
+function extractUniqueMintFromTextByPatterns(text: string, patterns: RegExp[]): string | null | 'ambiguous' {
+  const matches = new Set<string>();
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const candidate = match?.[1];
+      if (!candidate) continue;
+      if (isValidSolanaAddress(candidate)) {
+        matches.add(candidate);
+      }
+    }
+  }
+  if (matches.size === 0) return null;
+  if (matches.size > 1) return 'ambiguous';
+  return [...matches][0] ?? null;
+}
+
+function extractUniqueMintFromAnyAddress(text: string): string | null | 'ambiguous' {
+  const candidates = new Set<string>();
+  const re = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = re.exec(text)) !== null) {
+    const value = match[0];
+    if (NON_MINT_ADDRESSES.has(value)) continue;
+    if (!isValidSolanaAddress(value)) continue;
+    candidates.add(value);
+    if (candidates.size > 1) break;
+  }
+
+  if (candidates.size === 0) return null;
+  if (candidates.size > 1) return 'ambiguous';
+  return [...candidates][0] ?? null;
+}
 
 /**
  * Parse a Bags.fm Telegram message into a normalized signal.
@@ -93,14 +142,35 @@ export function parseBagsMessage(
   // Step 1: Extract mint address (required)
   let mint: string | null = null;
 
-  for (const pattern of MINT_PATTERNS) {
-    const match = trimmed.match(pattern);
-    if (match && match[1]) {
-      const candidate = match[1];
-      if (isValidSolanaAddress(candidate)) {
-        mint = candidate;
-        break;
-      }
+  // 1a) Prefer explicit labels (Mint/CA/etc).
+  const labeled = extractUniqueMintFromTextByPatterns(trimmed, LABELED_MINT_PATTERNS);
+  if (labeled === 'ambiguous') {
+    return { ok: false, reason: 'ambiguous_mint_candidates', raw: trimmed };
+  }
+  if (labeled) {
+    mint = labeled;
+  }
+
+  // 1b) Extract from common token URLs (dexscreener/birdeye/solscan).
+  if (!mint) {
+    const fromUrl = extractUniqueMintFromTextByPatterns(trimmed, MINT_URL_PATTERNS);
+    if (fromUrl === 'ambiguous') {
+      return { ok: false, reason: 'ambiguous_mint_candidates', raw: trimmed };
+    }
+    if (fromUrl) {
+      mint = fromUrl;
+    }
+  }
+
+  // 1c) Fallback: accept exactly one valid Solana address anywhere in the message.
+  // If multiple are present, fail-closed to avoid trading the wrong token.
+  if (!mint) {
+    const fromAny = extractUniqueMintFromAnyAddress(trimmed);
+    if (fromAny === 'ambiguous') {
+      return { ok: false, reason: 'ambiguous_mint_candidates', raw: trimmed };
+    }
+    if (fromAny) {
+      mint = fromAny;
     }
   }
 

@@ -45,6 +45,7 @@ export class BagsSource {
   private handlers: BagsSignalHandler[] = [];
   private deduplicator: BagsDeduplicator;
   private running = false;
+  private seenUnconfiguredChats = new Set<number>();
   private stats = {
     messagesReceived: 0,
     parseSuccesses: 0,
@@ -110,17 +111,47 @@ export class BagsSource {
     try {
       this.bot = new Bot(this.config.botToken);
 
-      // Handle channel posts
-      this.bot.on('channel_post:text', async (ctx) => {
-        // If the bot is in multiple channels, ensure we only process the configured channel.
-        if (!this.isConfiguredChannel(ctx.channelPost.chat.id, ctx.channelPost.chat.username)) return;
-        await this.handleChannelPost(ctx.channelPost.text || '', ctx.channelPost.date);
+      // Handle channel posts (text + media captions)
+      this.bot.on('channel_post', async (ctx) => {
+        const chat = ctx.channelPost.chat;
+        if (!this.isConfiguredChannel(chat.id, chat.username)) {
+          this.logUnconfiguredChatOnce(chat.id, chat.username, chat.type);
+          return;
+        }
+        const text = ctx.channelPost.text ?? ctx.channelPost.caption ?? '';
+        await this.handleIncomingMessage(text, ctx.channelPost.date);
       });
 
       // Handle edited channel posts (in case signals are corrected)
-      this.bot.on('edited_channel_post:text', async (ctx) => {
-        if (!this.isConfiguredChannel(ctx.editedChannelPost.chat.id, ctx.editedChannelPost.chat.username)) return;
-        await this.handleChannelPost(ctx.editedChannelPost.text || '', ctx.editedChannelPost.date);
+      this.bot.on('edited_channel_post', async (ctx) => {
+        const chat = ctx.editedChannelPost.chat;
+        if (!this.isConfiguredChannel(chat.id, chat.username)) {
+          this.logUnconfiguredChatOnce(chat.id, chat.username, chat.type);
+          return;
+        }
+        const text = ctx.editedChannelPost.text ?? ctx.editedChannelPost.caption ?? '';
+        await this.handleIncomingMessage(text, ctx.editedChannelPost.date);
+      });
+
+      // Some "mint channels" are actually groups/supergroups. Support those too.
+      this.bot.on('message', async (ctx) => {
+        const chat = ctx.message.chat;
+        if (!this.isConfiguredChannel(chat.id, chat.username)) {
+          this.logUnconfiguredChatOnce(chat.id, chat.username, chat.type);
+          return;
+        }
+        const text = ctx.message.text ?? ctx.message.caption ?? '';
+        await this.handleIncomingMessage(text, ctx.message.date);
+      });
+
+      this.bot.on('edited_message', async (ctx) => {
+        const chat = ctx.editedMessage.chat;
+        if (!this.isConfiguredChannel(chat.id, chat.username)) {
+          this.logUnconfiguredChatOnce(chat.id, chat.username, chat.type);
+          return;
+        }
+        const text = ctx.editedMessage.text ?? ctx.editedMessage.caption ?? '';
+        await this.handleIncomingMessage(text, ctx.editedMessage.date);
       });
 
       // Error handling
@@ -170,9 +201,9 @@ export class BagsSource {
   }
 
   /**
-   * Handle an incoming channel post.
+   * Handle an incoming Telegram message (channel posts or group messages).
    */
-  private async handleChannelPost(text: string, unixTimestamp: number): Promise<void> {
+  private async handleIncomingMessage(text: string, unixTimestamp: number): Promise<void> {
     if (!this.running) return;
 
     this.stats.messagesReceived++;
@@ -249,6 +280,18 @@ export class BagsSource {
       return chatId === asNumber;
     }
     return false;
+  }
+
+  private logUnconfiguredChatOnce(chatId: number, username: string | null | undefined, type: string): void {
+    if (this.seenUnconfiguredChats.has(chatId)) return;
+    this.seenUnconfiguredChats.add(chatId);
+
+    const configured = String(this.config.channelId);
+
+    console.log(
+      `[BagsSource] Ignoring message from unconfigured chat: id=${chatId}` +
+        `${username ? ` @${username}` : ''} type=${type}; configured BAGS_CHANNEL_ID=${configured}`
+    );
   }
 
   /**
