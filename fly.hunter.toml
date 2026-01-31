@@ -1,4 +1,4 @@
-app = "raptor-hunter"
+app = "raptor-sniper-hunter"
 primary_region = "iad"
 
 [build]
