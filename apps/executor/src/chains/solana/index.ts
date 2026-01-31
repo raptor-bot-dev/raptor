@@ -34,3 +34,4 @@ export { JupiterClient, jupiter } from './jupiter.js';
 
 // v3.5: Export Jito client for anti-MEV
 export { JitoClient, createJitoClient } from './jitoClient.js';
+export { HeliusSender, createHeliusSender } from './heliusSender.js';

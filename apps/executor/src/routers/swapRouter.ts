@@ -178,6 +178,8 @@ export interface BagsTradeRouterConfig {
   apiKey?: string;
   /** Jito client for MEV protection */
   jitoClient?: unknown;
+  /** Helius Sender for staked tx submission (primary send method) */
+  heliusSender?: unknown;
   /** RPC URL override */
   rpcUrl?: string;
 }

@@ -9,6 +9,7 @@ import { SOLANA_CONFIG, solToLamports, lamportsToSol } from '@raptor/shared';
 import { fetchWithRetry } from '../utils/fetchWithTimeout.js';
 import bs58 from 'bs58';
 import type { JitoClient } from '../chains/solana/jitoClient.js';
+import type { HeliusSender } from '../chains/solana/heliusSender.js';
 import type {
   SwapRouter,
   SwapIntent,
@@ -83,12 +84,14 @@ export class BagsTradeRouter implements SwapRouter {
   private apiKey: string | undefined;
   private connection: Connection;
   private jitoClient: JitoClient | null;
+  private heliusSender: HeliusSender | null;
 
   constructor(config: BagsTradeRouterConfig = {}) {
     this.bagsApiUrl = config.bagsApiUrl || DEFAULT_BAGS_API_URL;
     this.apiKey = config.apiKey || process.env.BAGS_API_KEY;
     this.connection = new Connection(config.rpcUrl || SOLANA_CONFIG.rpcUrl, 'confirmed');
     this.jitoClient = (config.jitoClient as JitoClient) || null;
+    this.heliusSender = (config.heliusSender as HeliusSender) || null;
   }
 
   /**
@@ -288,37 +291,86 @@ export class BagsTradeRouter implements SwapRouter {
 
       let signature: string;
 
-      if (options?.useJito && this.jitoClient) {
-        // Send via Jito for MEV protection
-        console.log('[BagsTradeRouter] Sending via Jito for MEV protection');
+      if (options?.useJito && this.heliusSender) {
+        // PRIMARY: Send via Helius Sender (routes to both validators + Jito)
+        console.log('[BagsTradeRouter] Sending via Helius Sender (staked + Jito dual-path)');
+        const senderResult = await this.heliusSender.sendRawTransaction(tx, {
+          priorityFeeSol: options.priorityFeeSol,
+        });
+
+        if (senderResult.success && senderResult.signature) {
+          signature = senderResult.signature;
+          console.log(`[BagsTradeRouter] Helius Sender success: ${signature}`);
+        } else {
+          // FALLBACK 1: Try direct Jito bundles
+          console.warn(`[BagsTradeRouter] Helius Sender failed: ${senderResult.error}`);
+          if (this.jitoClient) {
+            console.log('[BagsTradeRouter] Falling back to direct Jito bundle...');
+            const jitoResult = await this.jitoClient.sendTransaction(tx, keypair, {
+              priorityFeeSol: options.priorityFeeSol,
+            });
+
+            if (jitoResult.success) {
+              signature =
+                jitoResult.signatures?.[0] ||
+                (tx.signatures[0] ? bs58.encode(tx.signatures[0]) : jitoResult.bundleId || '');
+              console.log(`[BagsTradeRouter] Jito fallback success: ${signature}`);
+
+              if (jitoResult.bundleId && jitoResult.signatures?.[0]) {
+                const confirmed = await this.jitoClient.waitForBundleConfirmation(
+                  jitoResult.bundleId,
+                  jitoResult.signatures[0],
+                  options.confirmTimeoutMs || TX_CONFIRM_TIMEOUT_MS
+                );
+                if (!confirmed) {
+                  console.warn('[BagsTradeRouter] Jito confirmation timeout, checking RPC...');
+                }
+              }
+            } else {
+              // FALLBACK 2: Standard RPC send
+              console.warn(`[BagsTradeRouter] Jito also failed: ${jitoResult.error}`);
+              console.log('[BagsTradeRouter] Falling back to standard RPC send...');
+              const rawTransaction = tx.serialize();
+              signature = await this.connection.sendRawTransaction(rawTransaction, {
+                skipPreflight: false,
+                preflightCommitment: 'confirmed',
+                maxRetries: 3,
+              });
+              console.log(`[BagsTradeRouter] RPC fallback sent: ${signature}`);
+            }
+          } else {
+            // No Jito client, go straight to RPC
+            console.log('[BagsTradeRouter] No Jito client, falling back to standard RPC...');
+            const rawTransaction = tx.serialize();
+            signature = await this.connection.sendRawTransaction(rawTransaction, {
+              skipPreflight: false,
+              preflightCommitment: 'confirmed',
+              maxRetries: 3,
+            });
+            console.log(`[BagsTradeRouter] RPC fallback sent: ${signature}`);
+          }
+        }
+      } else if (options?.useJito && this.jitoClient) {
+        // Jito direct (no Helius Sender configured)
+        console.log('[BagsTradeRouter] Sending via Jito bundle (no Helius Sender)');
         const jitoResult = await this.jitoClient.sendTransaction(tx, keypair, {
           priorityFeeSol: options.priorityFeeSol,
         });
 
         if (!jitoResult.success) {
-          return {
-            success: false,
-            error: `Jito bundle failed: ${jitoResult.error}`,
-            errorCode: 'JITO_BUNDLE_FAILED',
-            router: this.name,
-          };
-        }
-
-        // Prefer explicit signature from Jito result (base58), otherwise derive from signed tx.
-        signature =
-          jitoResult.signatures?.[0] ||
-          (tx.signatures[0] ? bs58.encode(tx.signatures[0]) : jitoResult.bundleId || '');
-
-        // Wait for Jito bundle confirmation
-        if (jitoResult.bundleId && jitoResult.signatures?.[0]) {
-          const confirmed = await this.jitoClient.waitForBundleConfirmation(
-            jitoResult.bundleId,
-            jitoResult.signatures[0],
-            options.confirmTimeoutMs || TX_CONFIRM_TIMEOUT_MS
-          );
-          if (!confirmed) {
-            console.warn('[BagsTradeRouter] Jito bundle confirmation timeout, checking RPC...');
-          }
+          // Fallback to RPC instead of hard fail
+          console.warn(`[BagsTradeRouter] Jito failed: ${jitoResult.error}, falling back to RPC`);
+          const rawTransaction = tx.serialize();
+          signature = await this.connection.sendRawTransaction(rawTransaction, {
+            skipPreflight: false,
+            preflightCommitment: 'confirmed',
+            maxRetries: 3,
+          });
+          console.log(`[BagsTradeRouter] RPC fallback sent: ${signature}`);
+        } else {
+          signature =
+            jitoResult.signatures?.[0] ||
+            (tx.signatures[0] ? bs58.encode(tx.signatures[0]) : jitoResult.bundleId || '');
         }
       } else {
         // Send via standard RPC

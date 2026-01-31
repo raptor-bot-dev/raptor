@@ -39,6 +39,7 @@ import {
 
 // v3.5: Import Jito client
 import { createJitoClient, type JitoClient } from './jitoClient.js';
+import { createHeliusSender, type HeliusSender } from './heliusSender.js';
 
 // L-1: Structured logger for sensitive operations
 // TODO: Migrate remaining console.log statements to use this logger
@@ -105,6 +106,7 @@ export class SolanaExecutor {
   private connection: Connection;
   private pumpFunClient: PumpFunClient | null = null;
   private jitoClient: JitoClient | null = null;
+  private heliusSender: HeliusSender | null = null;
   private running: boolean = false;
 
   // Phase 2: RouterFactory for venue-agnostic swap routing
@@ -119,8 +121,9 @@ export class SolanaExecutor {
     this.jupiterClient = new JupiterClient();
     this.connection = new Connection(this.rpcUrl, 'confirmed');
     this.jitoClient = createJitoClient(this.connection);
+    this.heliusSender = createHeliusSender(this.connection, process.env.HELIUS_API_KEY);
 
-    // Phase 2: Initialize RouterFactory with Jito client
+    // Phase 2: Initialize RouterFactory with Helius Sender (primary) + Jito (fallback)
     this.routerFactory = new RouterFactory({
       jupiter: {
         rpcUrl: this.rpcUrl,
@@ -129,6 +132,7 @@ export class SolanaExecutor {
       bags: {
         rpcUrl: this.rpcUrl,
         jitoClient: this.jitoClient || undefined,
+        heliusSender: this.heliusSender || undefined,
       },
     });
   }
