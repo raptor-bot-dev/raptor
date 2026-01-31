@@ -1,4 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createPgAdapter } from './pg-adapter.js';
+import type { PgAdapter } from './pg-adapter.js';
 import type {
   User,
   UserBalance,
@@ -13,27 +15,38 @@ import type {
   UserModePreference,
 } from './types.js';
 
-// Lazy-load Supabase client to allow tests without credentials
-let _supabase: SupabaseClient | null = null;
+// ---------------------------------------------------------------------------
+// Client initialisation: DATABASE_URL → pg-adapter, else → @supabase/supabase-js
+// ---------------------------------------------------------------------------
 
-function getSupabaseClient(): SupabaseClient {
-  if (!_supabase) {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+type AnyClient = SupabaseClient | PgAdapter;
 
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY must be set');
+let _client: AnyClient | null = null;
+
+function getClient(): AnyClient {
+  if (!_client) {
+    if (process.env.DATABASE_URL) {
+      _client = createPgAdapter();
+    } else {
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('DATABASE_URL or SUPABASE_URL+SUPABASE_SERVICE_KEY must be set');
+      }
+
+      _client = createClient(supabaseUrl, supabaseKey);
     }
-
-    _supabase = createClient(supabaseUrl, supabaseKey);
   }
-  return _supabase;
+  return _client;
 }
 
 // Export getter for supabase client (backwards compatibility)
+// The Proxy ensures every property access goes through getClient(),
+// which returns either a real SupabaseClient or a PgAdapter.
 export const supabase = new Proxy({} as SupabaseClient, {
   get(_, prop) {
-    const client = getSupabaseClient();
+    const client = getClient();
     return (client as unknown as Record<string | symbol, unknown>)[prop];
   },
 });
