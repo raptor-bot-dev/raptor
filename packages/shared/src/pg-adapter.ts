@@ -28,7 +28,7 @@ interface PgResult<T = any> {
   count?: number | null;
 }
 
-type FilterOp = 'eq' | 'neq' | 'gt' | 'lt' | 'gte' | 'lte' | 'in' | 'is';
+type FilterOp = 'eq' | 'neq' | 'gt' | 'lt' | 'gte' | 'lte' | 'in' | 'is' | 'not_is' | 'not_eq' | 'not_in';
 
 interface Filter {
   column: string;
@@ -151,6 +151,11 @@ class QueryBuilder implements PromiseLike<PgResult> {
     return this;
   }
 
+  not(column: string, op: string, value: unknown): this {
+    this.filters.push({ column, op: ('not_' + op) as FilterOp, value });
+    return this;
+  }
+
   // -- Modifiers -----------------------------------------------------------
 
   order(column: string, opts?: { ascending?: boolean }): this {
@@ -260,10 +265,75 @@ class QueryBuilder implements PromiseLike<PgResult> {
             values.push(f.value);
           }
           break;
+        case 'not_is':
+          if (f.value === null) {
+            parts.push(`${col} IS NOT NULL`);
+          } else {
+            parts.push(`${col} IS NOT $${++idx}`);
+            values.push(f.value);
+          }
+          break;
+        case 'not_eq':
+          parts.push(`${col} != $${++idx}`);
+          values.push(f.value);
+          break;
+        case 'not_in':
+          parts.push(`${col} != ALL($${++idx})`);
+          values.push(f.value);
+          break;
       }
     }
 
     return { clause: `WHERE ${parts.join(' AND ')}`, values };
+  }
+
+  /**
+   * Parse Supabase-style FK join syntax in select columns.
+   * e.g. '*, users(telegram_chat_id)' → SELECT t.*, "users"."telegram_chat_id" + LEFT JOIN
+   * Returns the joined row data as a nested JSON object to match Supabase format.
+   */
+  private parseSelectWithJoins(): { selectExpr: string; joinClause: string } {
+    const fkPattern = /(\w+)\(([^)]+)\)/g;
+    let match: RegExpExecArray | null;
+    const joins: { table: string; columns: string[] }[] = [];
+
+    // Extract FK join patterns
+    let cleanSelect = this.selectColumns;
+    while ((match = fkPattern.exec(this.selectColumns)) !== null) {
+      const joinTable = match[1];
+      const joinCols = match[2].split(',').map((c) => c.trim());
+      joins.push({ table: joinTable, columns: joinCols });
+      // Remove the FK pattern from select string
+      cleanSelect = cleanSelect.replace(match[0], '').replace(/,\s*,/, ',').replace(/,\s*$/, '').replace(/^\s*,/, '').trim();
+    }
+
+    if (joins.length === 0) {
+      const selectCols = this.selectColumns === '*' ? '*' : this.selectColumns;
+      return { selectExpr: selectCols, joinClause: '' };
+    }
+
+    // Build select expression with join columns as JSON
+    const mainCols = cleanSelect || '*';
+    const mainTable = quoteIdent(this.table);
+    const selectParts = [`${mainTable}.${mainCols === '*' ? '*' : mainCols}`];
+    const joinClauses: string[] = [];
+
+    for (const j of joins) {
+      const jt = quoteIdent(j.table);
+      // Build a JSON object from join columns: json_build_object('col1', jt.col1, ...)
+      const jsonParts = j.columns
+        .map((c) => `'${c}', ${jt}.${quoteIdent(c)}`)
+        .join(', ');
+      selectParts.push(`json_build_object(${jsonParts}) AS ${quoteIdent(j.table)}`);
+
+      // Infer FK: this.table.user_id = joinTable.id (convention)
+      joinClauses.push(`LEFT JOIN ${jt} ON ${mainTable}."user_id" = ${jt}."id"`);
+    }
+
+    return {
+      selectExpr: selectParts.join(', '),
+      joinClause: joinClauses.join(' '),
+    };
   }
 
   private buildOrderBy(): string {
@@ -334,14 +404,14 @@ class QueryBuilder implements PromiseLike<PgResult> {
       return { data: null, error: null, count };
     }
 
-    // Build main query
-    const selectCols = this.selectColumns === '*' ? '*' : this.selectColumns;
-    let sql = `SELECT ${selectCols} FROM ${quoteIdent(this.table)} ${whereClause} ${orderBy} ${limitOffset}`;
+    // Build main query — handle Supabase FK join syntax: *, table(col1, col2)
+    const { selectExpr, joinClause } = this.parseSelectWithJoins();
+    let sql = `SELECT ${selectExpr} FROM ${quoteIdent(this.table)} ${joinClause} ${whereClause} ${orderBy} ${limitOffset}`;
 
     // If count mode, run count in parallel
     let count: number | null = null;
     if (this.countMode === 'exact') {
-      const countSql = `SELECT COUNT(*) AS cnt FROM ${quoteIdent(this.table)} ${whereClause}`;
+      const countSql = `SELECT COUNT(*) AS cnt FROM ${quoteIdent(this.table)} ${joinClause} ${whereClause}`;
       const [dataResult, countResult] = await Promise.all([
         this.pool.query(sql, values),
         this.pool.query(countSql, values),
