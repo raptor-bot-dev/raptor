@@ -258,20 +258,32 @@ export class MeteoraOnChainSource {
     );
 
     // Layer 2: Fetch full transaction and use proper IDL decoder
+    // Note: logsSubscribe fires before getTransaction is available (race condition),
+    // so we retry with backoff.
     let event: MeteoraCreateEvent | null = null;
-    try {
-      const tx = await this.fetchTransaction(signature);
-      if (tx) {
-        console.log(`[MeteoraOnChainSource] Fetched tx OK: ${tx.message.accountKeys.length} keys, ${tx.message.instructions.length} ixs, ${tx.message.innerInstructions?.length || 0} inner`);
-        event = findAndDecodeCreateInstruction(tx, this.programId);
-      } else {
-        console.warn(`[MeteoraOnChainSource] fetchTransaction returned null for ${signature.slice(0, 12)}...`);
+    const FETCH_DELAYS = [500, 1000, 2000, 3000]; // ms between retries
+    for (let attempt = 0; attempt <= FETCH_DELAYS.length; attempt++) {
+      if (attempt > 0) {
+        await new Promise(r => setTimeout(r, FETCH_DELAYS[attempt - 1]));
       }
-    } catch (error) {
-      console.error(
-        `[MeteoraOnChainSource] fetchTransaction error for ${signature.slice(0, 12)}...:`,
-        (error as Error).message
-      );
+      try {
+        const tx = await this.fetchTransaction(signature);
+        if (tx) {
+          console.log(`[MeteoraOnChainSource] Fetched tx OK (attempt ${attempt + 1}): ${tx.message.accountKeys.length} keys, ${tx.message.instructions.length} ixs, ${tx.message.innerInstructions?.length || 0} inner`);
+          event = findAndDecodeCreateInstruction(tx, this.programId);
+          break;
+        } else if (attempt < FETCH_DELAYS.length) {
+          console.log(`[MeteoraOnChainSource] tx not ready yet (attempt ${attempt + 1}), retrying...`);
+        } else {
+          console.warn(`[MeteoraOnChainSource] fetchTransaction failed after ${attempt + 1} attempts for ${signature.slice(0, 12)}...`);
+        }
+      } catch (error) {
+        console.error(
+          `[MeteoraOnChainSource] fetchTransaction error (attempt ${attempt + 1}) for ${signature.slice(0, 12)}...:`,
+          (error as Error).message
+        );
+        if (attempt >= FETCH_DELAYS.length) break;
+      }
     }
 
     // Fallback: if RPC fetch failed, try heuristic address extraction from logs
