@@ -8,12 +8,9 @@
  */
 
 import {
-  getOrCreateBalance,
-  updateBalance,
   getUserWallet,
   createUserWallet,
   getOrCreateUserWallet,
-  getUserBalance,
   type Chain,
   type TradingMode,
   type UserWallet,
@@ -68,10 +65,11 @@ export async function getOrCreateDepositAddress(
   // Solana-only - always use Solana address
   const address = wallet.solana_address;
 
-  // Store in balances table for deposit monitoring
-  await getOrCreateBalance(tgId, chain, address, mode);
+  // AUDIT FIX (C-3/H-3): Removed getOrCreateBalance call.
+  // Self-custodial wallets don't need balance tracking in a separate table.
+  // The user_balances table does not exist in the Phase 0 schema.
 
-  // Start watching for deposits
+  // Start watching for deposits (on-chain balance monitoring)
   await depositMonitor.watchAddress(tgId, chain, address);
   logger.info('Deposit address generated', { userId: tgId, chain, address });
 

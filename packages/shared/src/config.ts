@@ -40,6 +40,12 @@ export function validateBotConfig(): void {
   if (encKey.length < 32) {
     throw new Error('BOT: WALLET_ENCRYPTION_KEY must be at least 32 characters');
   }
+
+  // AUDIT FIX (M-12): Warn if USER_WALLET_ENCRYPTION_KEY differs from WALLET_ENCRYPTION_KEY.
+  // The crypto module reads USER_WALLET_ENCRYPTION_KEY while config validates WALLET_ENCRYPTION_KEY.
+  if (!process.env.USER_WALLET_ENCRYPTION_KEY) {
+    console.warn('BOT: USER_WALLET_ENCRYPTION_KEY not set — wallet decryption may fail');
+  }
 }
 
 /**

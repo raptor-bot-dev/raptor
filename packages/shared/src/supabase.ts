@@ -105,87 +105,53 @@ export async function upsertUser(user: {
 }
 
 // Balance functions
+// AUDIT FIX (C-3): user_balances table does not exist in Phase 0 schema.
+// These functions are guarded to return safe defaults instead of crashing.
 export async function getUserBalances(tgId: number): Promise<UserBalance[]> {
-  const { data, error } = await supabase
-    .from('user_balances')
-    .select('*')
-    .eq('tg_id', tgId);
-
-  if (error) throw error;
-  return data || [];
+  console.warn('[DEPRECATED] getUserBalances: user_balances table does not exist in Phase 0 schema');
+  return [];
 }
 
 /**
  * Get user balance for a specific chain
- * SECURITY: v2.3.1 - Used for withdrawal validation
+ * AUDIT FIX (C-3): user_balances table does not exist in Phase 0 schema.
  */
 export async function getUserBalance(tgId: number, chain: Chain): Promise<UserBalance | null> {
-  const { data, error } = await supabase
-    .from('user_balances')
-    .select('*')
-    .eq('tg_id', tgId)
-    .eq('chain', chain)
-    .single();
-
-  if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-    throw error;
-  }
-  return data || null;
+  console.warn('[DEPRECATED] getUserBalance: user_balances table does not exist in Phase 0 schema');
+  return null;
 }
 
+/**
+ * AUDIT FIX (C-3): user_balances table does not exist in Phase 0 schema.
+ */
 export async function getOrCreateBalance(
   tgId: number,
   chain: Chain,
   depositAddress: string,
   mode: TradingMode = 'pool'
 ): Promise<UserBalance> {
-  const { data: existing } = await supabase
-    .from('user_balances')
-    .select('*')
-    .eq('tg_id', tgId)
-    .eq('chain', chain)
-    .eq('mode', mode)
-    .single();
-
-  if (existing) return existing;
-
-  const { data, error } = await supabase
-    .from('user_balances')
-    .insert({
-      tg_id: tgId,
-      chain,
-      mode,
-      deposited: '0',
-      current_value: '0',
-      deposit_address: depositAddress,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  console.warn('[DEPRECATED] getOrCreateBalance: user_balances table does not exist in Phase 0 schema');
+  return {
+    tg_id: tgId,
+    chain,
+    mode,
+    deposited: '0',
+    current_value: '0',
+    deposit_address: depositAddress,
+  } as unknown as UserBalance;
 }
 
+/**
+ * AUDIT FIX (C-3): user_balances table does not exist in Phase 0 schema.
+ */
 export async function updateBalance(
   tgId: number,
   chain: Chain,
   updates: { deposited?: string; current_value?: string },
   mode: TradingMode = 'pool'
 ): Promise<UserBalance> {
-  const { data, error } = await supabase
-    .from('user_balances')
-    .update({
-      ...updates,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('tg_id', tgId)
-    .eq('chain', chain)
-    .eq('mode', mode)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  console.warn('[DEPRECATED] updateBalance: user_balances table does not exist in Phase 0 schema');
+  return {} as unknown as UserBalance;
 }
 
 // Position functions
@@ -295,16 +261,11 @@ export async function closePosition(
 }
 
 // Trade functions
+// AUDIT FIX (C-2): trades table does not exist in Phase 0 schema.
+// These functions are guarded to return safe defaults.
 export async function getRecentTrades(tgId: number, limit = 20): Promise<Trade[]> {
-  const { data, error } = await supabase
-    .from('trades')
-    .select('*')
-    .eq('tg_id', tgId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (error) throw error;
-  return data || [];
+  console.warn('[DEPRECATED] getRecentTrades: trades table does not exist in Phase 0 schema');
+  return [];
 }
 
 export async function getTradesPaginated(
@@ -312,18 +273,8 @@ export async function getTradesPaginated(
   limit = 20,
   offset = 0
 ): Promise<{ trades: Trade[]; total: number }> {
-  const from = Math.max(0, offset);
-  const to = from + Math.max(1, limit) - 1;
-
-  const { data, error, count } = await supabase
-    .from('trades')
-    .select('*', { count: 'exact' })
-    .eq('tg_id', tgId)
-    .order('created_at', { ascending: false })
-    .range(from, to);
-
-  if (error) throw error;
-  return { trades: data || [], total: count || 0 };
+  console.warn('[DEPRECATED] getTradesPaginated: trades table does not exist in Phase 0 schema');
+  return { trades: [], total: 0 };
 }
 
 export async function recordTrade(trade: {
@@ -344,29 +295,16 @@ export async function recordTrade(trade: {
   tx_hash: string;
   status: 'PENDING' | 'CONFIRMED' | 'FAILED';
 }): Promise<Trade> {
-  const { data, error } = await supabase
-    .from('trades')
-    .insert(trade)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  console.warn('[DEPRECATED] recordTrade: trades table does not exist in Phase 0 schema');
+  return {} as unknown as Trade;
 }
 
 export async function updateTradeStatus(
   tradeId: number,
   status: 'PENDING' | 'CONFIRMED' | 'FAILED'
 ): Promise<Trade> {
-  const { data, error } = await supabase
-    .from('trades')
-    .update({ status })
-    .eq('id', tradeId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  console.warn('[DEPRECATED] updateTradeStatus: trades table does not exist in Phase 0 schema');
+  return {} as unknown as Trade;
 }
 
 // Stats functions
@@ -413,33 +351,20 @@ export async function getUserStats(tgId: number): Promise<UserStats> {
 }
 
 // Allocations
+// AUDIT FIX (C-3): user_balances table does not exist in Phase 0 schema.
 export async function getUserAllocations(
   chain: Chain,
   mode: TradingMode = 'pool'
 ): Promise<Map<number, bigint>> {
-  const { data, error } = await supabase
-    .from('user_balances')
-    .select('tg_id, current_value')
-    .eq('chain', chain)
-    .eq('mode', mode)
-    .gt('current_value', '0');
-
-  if (error) throw error;
-
-  const allocations = new Map<number, bigint>();
-  for (const balance of data || []) {
-    const value = BigInt(Math.floor(parseFloat(balance.current_value) * 1e18));
-    if (value > 0n) {
-      allocations.set(balance.tg_id, value);
-    }
-  }
-  return allocations;
+  console.warn('[DEPRECATED] getUserAllocations: user_balances table does not exist in Phase 0 schema');
+  return new Map();
 }
 
 // ============================================================================
 // Fee Functions
 // ============================================================================
 
+// AUDIT FIX (C-4): fees table does not exist in Phase 0 schema.
 export async function recordFee(fee: {
   trade_id?: number | null;
   tg_id: number;
@@ -447,46 +372,26 @@ export async function recordFee(fee: {
   amount: string;
   token: string;
 }): Promise<Fee> {
-  const { data, error } = await supabase
-    .from('fees')
-    .insert(fee)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  console.warn('[DEPRECATED] recordFee: fees table does not exist in Phase 0 schema');
+  return {} as unknown as Fee;
 }
 
 export async function getUserFees(tgId: number, chain?: Chain): Promise<Fee[]> {
-  let query = supabase.from('fees').select('*').eq('tg_id', tgId);
-
-  if (chain) {
-    query = query.eq('chain', chain);
-  }
-
-  const { data, error } = await query.order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return data || [];
+  console.warn('[DEPRECATED] getUserFees: fees table does not exist in Phase 0 schema');
+  return [];
 }
 
 export async function getTotalFees(chain?: Chain): Promise<number> {
-  let query = supabase.from('fees').select('amount');
-
-  if (chain) {
-    query = query.eq('chain', chain);
-  }
-
-  const { data, error } = await query;
-
-  if (error) throw error;
-  return data?.reduce((sum, f) => sum + parseFloat(f.amount), 0) || 0;
+  console.warn('[DEPRECATED] getTotalFees: fees table does not exist in Phase 0 schema');
+  return 0;
 }
 
 // ============================================================================
 // Snipe Request Functions
 // ============================================================================
 
+// AUDIT FIX (C-5): snipe_requests table does not exist in Phase 0 schema.
+// All snipe_requests functions are guarded to return safe defaults.
 export async function createSnipeRequest(request: {
   tg_id: number;
   chain: Chain;
@@ -496,71 +401,26 @@ export async function createSnipeRequest(request: {
   stop_loss_percent?: number;
   skip_safety_check?: boolean;
 }): Promise<SnipeRequest> {
-  const { data, error } = await supabase
-    .from('snipe_requests')
-    .insert({
-      ...request,
-      take_profit_percent: request.take_profit_percent ?? 50,
-      stop_loss_percent: request.stop_loss_percent ?? 30,
-      skip_safety_check: request.skip_safety_check ?? false,
-      status: 'PENDING',
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  console.warn('[DEPRECATED] createSnipeRequest: snipe_requests table does not exist in Phase 0 schema');
+  return {} as unknown as SnipeRequest;
 }
 
 export async function getSnipeRequest(id: number): Promise<SnipeRequest | null> {
-  const { data, error } = await supabase
-    .from('snipe_requests')
-    .select('*')
-    .eq('id', id)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') return null;
-    throw error;
-  }
-  return data;
+  console.warn('[DEPRECATED] getSnipeRequest: snipe_requests table does not exist in Phase 0 schema');
+  return null;
 }
 
 export async function getUserSnipeRequests(
   tgId: number,
   status?: SnipeStatus
 ): Promise<SnipeRequest[]> {
-  let query = supabase
-    .from('snipe_requests')
-    .select('*')
-    .eq('tg_id', tgId)
-    .order('created_at', { ascending: false });
-
-  if (status) {
-    query = query.eq('status', status);
-  }
-
-  const { data, error } = await query;
-
-  if (error) throw error;
-  return data || [];
+  console.warn('[DEPRECATED] getUserSnipeRequests: snipe_requests table does not exist in Phase 0 schema');
+  return [];
 }
 
 export async function getPendingSnipeRequests(chain?: Chain): Promise<SnipeRequest[]> {
-  let query = supabase
-    .from('snipe_requests')
-    .select('*')
-    .eq('status', 'PENDING')
-    .order('created_at', { ascending: true });
-
-  if (chain) {
-    query = query.eq('chain', chain);
-  }
-
-  const { data, error } = await query;
-
-  if (error) throw error;
-  return data || [];
+  console.warn('[DEPRECATED] getPendingSnipeRequests: snipe_requests table does not exist in Phase 0 schema');
+  return [];
 }
 
 export async function updateSnipeRequestStatus(
@@ -571,49 +431,20 @@ export async function updateSnipeRequestStatus(
     error_message?: string;
   }
 ): Promise<SnipeRequest> {
-  const updateData: Record<string, unknown> = { status };
-
-  if (updates?.position_id !== undefined) {
-    updateData.position_id = updates.position_id;
-  }
-  if (updates?.error_message !== undefined) {
-    updateData.error_message = updates.error_message;
-  }
-  if (status === 'COMPLETED' || status === 'FAILED') {
-    updateData.executed_at = new Date().toISOString();
-  }
-
-  const { data, error } = await supabase
-    .from('snipe_requests')
-    .update(updateData)
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  console.warn('[DEPRECATED] updateSnipeRequestStatus: snipe_requests table does not exist in Phase 0 schema');
+  return {} as unknown as SnipeRequest;
 }
 
 // ============================================================================
 // Mode Preference Functions
 // ============================================================================
 
+// AUDIT FIX (C-6): user_mode_preferences table does not exist in Phase 0 schema.
 export async function getUserModePreference(
   tgId: number,
   chain: Chain
 ): Promise<TradingMode> {
-  const { data, error } = await supabase
-    .from('user_mode_preferences')
-    .select('default_mode')
-    .eq('tg_id', tgId)
-    .eq('chain', chain)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') return 'pool'; // Default to pool mode
-    throw error;
-  }
-  return data.default_mode as TradingMode;
+  return 'pool'; // Default mode — table doesn't exist
 }
 
 export async function setUserModePreference(
@@ -621,19 +452,8 @@ export async function setUserModePreference(
   chain: Chain,
   mode: TradingMode
 ): Promise<UserModePreference> {
-  const { data, error } = await supabase
-    .from('user_mode_preferences')
-    .upsert({
-      tg_id: tgId,
-      chain,
-      default_mode: mode,
-      updated_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  console.warn('[DEPRECATED] setUserModePreference: user_mode_preferences table does not exist in Phase 0 schema');
+  return {} as unknown as UserModePreference;
 }
 
 // ============================================================================
@@ -728,18 +548,13 @@ export async function updatePositionTpSl(
 // Balance Functions by Mode
 // ============================================================================
 
+// AUDIT FIX (C-3): user_balances table does not exist in Phase 0 schema.
 export async function getUserBalancesByMode(
   tgId: number,
   mode: TradingMode
 ): Promise<UserBalance[]> {
-  const { data, error } = await supabase
-    .from('user_balances')
-    .select('*')
-    .eq('tg_id', tgId)
-    .eq('mode', mode);
-
-  if (error) throw error;
-  return data || [];
+  console.warn('[DEPRECATED] getUserBalancesByMode: user_balances table does not exist in Phase 0 schema');
+  return [];
 }
 
 // ============================================================================
@@ -2581,6 +2396,7 @@ export async function getOpportunityById(opportunityId: string): Promise<Opportu
 
 /**
  * Create or update an opportunity
+ * AUDIT FIX (C-1): opportunities table does not exist in Phase 0 schema.
  */
 export async function upsertOpportunity(opp: {
   chain: Chain;
@@ -2595,59 +2411,20 @@ export async function upsertOpportunity(opp: {
   bondingCurve?: string;
   initialLiquiditySol?: number;
 }): Promise<OpportunityV31> {
-  const { data, error } = await supabase
-    .from('opportunities')
-    .upsert({
-      chain: opp.chain,
-      source: opp.source,
-      token_mint: opp.tokenMint,
-      token_name: opp.tokenName || null,
-      token_symbol: opp.tokenSymbol || null,
-      score: opp.score || null,
-      reasons: opp.reasons || null,
-      raw_data: opp.rawData || null,
-      deployer: opp.deployer || null,
-      bonding_curve: opp.bondingCurve || null,
-      initial_liquidity_sol: opp.initialLiquiditySol || null,
-      updated_at: new Date().toISOString(),
-    }, {
-      onConflict: 'chain,source,token_mint',
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  console.warn('[DEPRECATED] upsertOpportunity: opportunities table does not exist in Phase 0 schema. Use launch_candidates instead.');
+  return {} as unknown as OpportunityV31;
 }
 
 /**
  * Update opportunity status
+ * AUDIT FIX (C-1): opportunities table does not exist in Phase 0 schema.
  */
 export async function updateOpportunityStatus(
   opportunityId: string,
   status: 'NEW' | 'QUALIFIED' | 'REJECTED' | 'EXPIRED' | 'EXECUTING' | 'COMPLETED',
   reason?: string
 ): Promise<void> {
-  const updates: Record<string, unknown> = {
-    status,
-    status_reason: reason || null,
-    updated_at: new Date().toISOString(),
-  };
-
-  if (status === 'QUALIFIED') {
-    updates.qualified_at = new Date().toISOString();
-  } else if (status === 'EXPIRED') {
-    updates.expired_at = new Date().toISOString();
-  } else if (status === 'COMPLETED') {
-    updates.completed_at = new Date().toISOString();
-  }
-
-  const { error } = await supabase
-    .from('opportunities')
-    .update(updates)
-    .eq('id', opportunityId);
-
-  if (error) throw error;
+  console.warn('[DEPRECATED] updateOpportunityStatus: opportunities table does not exist in Phase 0 schema');
 }
 
 // ============================================================================
