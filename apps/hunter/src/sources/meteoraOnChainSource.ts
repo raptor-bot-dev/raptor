@@ -315,6 +315,14 @@ export class MeteoraOnChainSource {
       return;
     }
 
+    // Filter for bags.fm creates only — the BAGS platform uses a specific creator address
+    // for all pool initializations. Other Meteora DBC creates (pump.fun, etc.) are ignored.
+    const BAGS_CREATOR = 'BAGSB9TpGrZxQbEsrEznv5jXXdwyP6AXerN8aVRiAmcv';
+    if (event.creator !== BAGS_CREATOR) {
+      // Not a bags.fm launch — skip silently (vast majority of DBC creates)
+      return;
+    }
+
     this.stats.createEventsDetected++;
 
     console.log(
