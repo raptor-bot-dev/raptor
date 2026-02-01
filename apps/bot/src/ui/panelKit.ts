@@ -151,7 +151,7 @@ export function panel(
 
   const textLines = [
     `${DINO} <b>RAPTOR | ${safeTitle}</b>`,
-    `${DIVIDER}<code>${WIDTH_PAD}</code>`,
+    DIVIDER,
     ...body,
   ];
 
