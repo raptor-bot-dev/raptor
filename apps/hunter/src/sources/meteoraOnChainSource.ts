@@ -4,7 +4,7 @@
 // =============================================================================
 
 import { HeliusWsManager, type LogsNotification } from '../monitors/heliusWs.js';
-import { parseMeteoraLogs, validateCreateEvent, type MeteoraCreateEvent } from './meteoraParser.js';
+import { parseMeteoraLogs, isCreateInstruction, validateCreateEvent, type MeteoraCreateEvent } from './meteoraParser.js';
 import { findAndDecodeCreateInstruction } from './meteoraInstructionDecoder.js';
 import { getMeteoraProgramId, classifyError, SOLANA_CONFIG } from '@raptor/shared';
 
@@ -244,15 +244,14 @@ export class MeteoraOnChainSource {
 
     const { signature, logs, slot } = notification;
 
-    // Layer 1: Quick log heuristic pre-filter
-    const heuristicResult = parseMeteoraLogs(logs);
-    if (!heuristicResult.ok) {
-      // Silently skip non-create instructions (vast majority of traffic)
-      if (heuristicResult.reason !== 'not_create_instruction') {
-        this.stats.parseFailures++;
-      }
+    // Layer 1: Quick log pre-filter — check if this is a create instruction
+    // Only check instruction name, don't try to extract addresses from logs
+    // (addresses are in tx account keys, not log text)
+    if (!isCreateInstruction(logs)) {
       return;
     }
+
+    this.stats.createEventsDetected++;
 
     console.log(
       `[MeteoraOnChainSource] Potential create detected, fetching tx ${signature.slice(0, 12)}...`
@@ -272,11 +271,11 @@ export class MeteoraOnChainSource {
       );
     }
 
-    // Fallback: if RPC fetch failed but heuristic extracted addresses, use heuristic (degraded mode)
-    if (!event && heuristicResult.ok) {
-      const heuristicEvent = heuristicResult.event;
-      if (validateCreateEvent(heuristicEvent)) {
-        event = heuristicEvent;
+    // Fallback: if RPC fetch failed, try heuristic address extraction from logs
+    if (!event) {
+      const heuristicResult = parseMeteoraLogs(logs);
+      if (heuristicResult.ok && validateCreateEvent(heuristicResult.event)) {
+        event = heuristicResult.event;
         console.warn(
           `[MeteoraOnChainSource] Using heuristic fallback for ${signature.slice(0, 12)}...`
         );
