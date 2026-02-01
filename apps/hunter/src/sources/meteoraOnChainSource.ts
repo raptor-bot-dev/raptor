@@ -228,6 +228,15 @@ export class MeteoraOnChainSource {
       console.log(`[MeteoraOnChainSource] DEBUG: logsReceived=${this.stats.logsReceived}, sig=${notification.signature?.slice(0, 16)}..., err=${!!notification.err}, logs=${notification.logs?.length}`);
     }
 
+    // Debug: log any notification with 60+ log lines (potential creates)
+    if (notification.logs?.length >= 60) {
+      const hasInit = notification.logs.some(l => l.includes('InitializeVirtualPool'));
+      console.log(`[MeteoraOnChainSource] LARGE TX: sig=${notification.signature?.slice(0, 20)}..., logs=${notification.logs.length}, hasInit=${hasInit}, err=${!!notification.err}`);
+      if (hasInit) {
+        console.log(`[MeteoraOnChainSource] CREATE CANDIDATE: ${notification.logs.slice(4, 7).join(' | ')}`);
+      }
+    }
+
     // Skip failed transactions
     if (notification.err) {
       return;
