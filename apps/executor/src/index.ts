@@ -35,8 +35,6 @@ async function validateStartupConfiguration(): Promise<void> {
 
   // Required environment variables for executor service
   const required = [
-    'SUPABASE_URL',
-    'SUPABASE_SERVICE_KEY',
     'SOLANA_EXECUTOR_PRIVATE_KEY',
     'SOLANA_RPC_URL',
   ];
@@ -45,6 +43,11 @@ async function validateStartupConfiguration(): Promise<void> {
     if (!process.env[envVar]) {
       throw new Error(`❌ FATAL: Required environment variable ${envVar} not set`);
     }
+  }
+
+  // Database: accept either DATABASE_URL (direct Postgres) or SUPABASE_URL + SUPABASE_SERVICE_KEY
+  if (!process.env.DATABASE_URL && (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY)) {
+    throw new Error('❌ FATAL: Required environment variable DATABASE_URL or SUPABASE_URL+SUPABASE_SERVICE_KEY not set');
   }
 
   // Validate RPC URL uses HTTPS
