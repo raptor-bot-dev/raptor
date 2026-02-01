@@ -239,16 +239,20 @@ export function findAndDecodeCreateInstruction(
 ): MeteoraCreateEvent | null {
   const { accountKeys, instructions, innerInstructions } = transaction.message;
 
+  console.log(`[MeteoraDecoder] findAndDecode: ${instructions.length} top-level ixs, ${innerInstructions?.length || 0} inner ixs, ${accountKeys.length} keys`);
+
   // Helper: try to decode a single instruction
   const tryDecodeInstruction = (ix: {
     programIdIndex: number;
     accounts: number[];
     data: string;
-  }): MeteoraCreateEvent | null => {
+  }, label: string): MeteoraCreateEvent | null => {
     const ixProgramId = accountKeys[ix.programIdIndex];
     if (ixProgramId !== programId) {
       return null;
     }
+
+    console.log(`[MeteoraDecoder] ${label}: matched DBC program, data=${ix.data.slice(0, 20)}..., accounts=${ix.accounts.length}`);
 
     // Decode base58 instruction data
     let data: Buffer;
@@ -260,7 +264,9 @@ export function findAndDecodeCreateInstruction(
     }
 
     // Check if this is an init pool instruction
-    if (isInitializePoolInstruction(data)) {
+    const isInit = isInitializePoolInstruction(data);
+    console.log(`[MeteoraDecoder] ${label}: first8=[${Array.from(data.slice(0, 8)).join(',')}], isInit=${isInit}`);
+    if (isInit) {
       return decodeInitPoolInstruction(data, accountKeys, ix.accounts);
     }
 
@@ -268,8 +274,8 @@ export function findAndDecodeCreateInstruction(
   };
 
   // Pass 1: Scan top-level instructions
-  for (const ix of instructions) {
-    const event = tryDecodeInstruction(ix);
+  for (let i = 0; i < instructions.length; i++) {
+    const event = tryDecodeInstruction(instructions[i], `top[${i}]`);
     if (event) {
       return event;
     }
@@ -279,8 +285,8 @@ export function findAndDecodeCreateInstruction(
   // Bags.fm launches invoke Meteora DBC via CPI through their Fee Share program,
   // so the initializeVirtualPool instruction appears here, not top-level.
   if (innerInstructions && innerInstructions.length > 0) {
-    for (const ix of innerInstructions) {
-      const event = tryDecodeInstruction(ix);
+    for (let i = 0; i < innerInstructions.length; i++) {
+      const event = tryDecodeInstruction(innerInstructions[i], `inner[${i}]`);
       if (event) {
         console.log('[MeteoraDecoder] Found init pool in inner instruction (CPI)');
         return event;
