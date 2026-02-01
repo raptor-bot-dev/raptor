@@ -326,8 +326,9 @@ class QueryBuilder implements PromiseLike<PgResult> {
         .join(', ');
       selectParts.push(`json_build_object(${jsonParts}) AS ${quoteIdent(j.table)}`);
 
-      // Infer FK: this.table.user_id = joinTable.id (convention)
-      joinClauses.push(`LEFT JOIN ${jt} ON ${mainTable}."user_id" = ${jt}."id"`);
+      // Infer FK column using known relationships + convention fallback
+      const fkCol = inferFkColumn(this.table, j.table);
+      joinClauses.push(`LEFT JOIN ${jt} ON ${mainTable}.${quoteIdent(fkCol)} = ${jt}."id"`);
     }
 
     return {
@@ -738,6 +739,29 @@ class PgAdapter {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Known foreign key relationships: { sourceTable: { joinTable: fkColumn } }
+ * Falls back to convention: singularize(joinTable) + '_id'
+ */
+const FK_MAP: Record<string, Record<string, string>> = {
+  positions:  { users: 'user_id' },
+  wallets:    { users: 'user_id' },
+  strategies: { users: 'user_id' },
+  trade_jobs: { strategies: 'strategy_id', users: 'user_id' },
+  executions: { trade_jobs: 'job_id' },
+};
+
+/**
+ * Infer the foreign key column on `sourceTable` that points to `joinTable`.id.
+ */
+function inferFkColumn(sourceTable: string, joinTable: string): string {
+  const explicit = FK_MAP[sourceTable]?.[joinTable];
+  if (explicit) return explicit;
+  // Convention: strip trailing 's' to singularize, then add '_id'
+  const singular = joinTable.endsWith('s') ? joinTable.slice(0, -1) : joinTable;
+  return `${singular}_id`;
+}
 
 /**
  * Quote a SQL identifier (table/column name).

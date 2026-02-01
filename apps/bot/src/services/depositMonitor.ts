@@ -10,7 +10,6 @@
 import {
   Chain,
   SOLANA_CONFIG,
-  updateBalance,
   supabase,
   createLogger,
   maskAddress,
@@ -100,25 +99,25 @@ export class DepositMonitor {
 
   /**
    * Load all deposit addresses from database
+   * Uses wallets table with users join (Phase 0 schema)
    */
   private async loadWatchedAddresses(): Promise<void> {
     try {
-      const { data: balances, error } = await supabase
-        .from('user_balances')
-        .select('*')
-        .not('deposit_address', 'is', null);
+      const { data: wallets, error } = await supabase
+        .from('wallets')
+        .select('*, users(telegram_chat_id)')
+        .eq('is_active', true);
 
       if (error) {
         logger.error('Error loading addresses', error);
         return;
       }
 
-      for (const balance of balances || []) {
-        await this.watchAddress(
-          balance.tg_id,
-          balance.chain as Chain,
-          balance.deposit_address
-        );
+      for (const wallet of wallets || []) {
+        const tgId = Number((wallet as any)?.users?.telegram_chat_id ?? 0);
+        if (!tgId || !wallet.pubkey) continue;
+        // Solana-only build — all wallets are Solana
+        await this.watchAddress(tgId, 'sol' as Chain, wallet.pubkey);
       }
     } catch (error) {
       logger.error('Error loading watched addresses', error);
@@ -291,34 +290,20 @@ export class DepositMonitor {
 
   /**
    * Credit a confirmed deposit to user balance
+   * Phase 0: On-chain balances tracked via wallet pubkeys — no user_balances table.
+   * We log the deposit and notify the user; actual balance is on-chain.
    */
   private async creditDeposit(deposit: PendingDeposit): Promise<void> {
     const { tgId, chain, address, amount } = deposit;
     const symbol = this.getChainSymbol(chain);
     const amountStr = this.formatAmount(chain, amount);
 
-    // Update balance in database
-    try {
-      const { data: balance } = await supabase
-        .from('user_balances')
-        .select('current_value')
-        .eq('tg_id', tgId)
-        .eq('chain', chain)
-        .single();
-
-      const currentValue = balance ? parseFloat(balance.current_value) : 0;
-      const newValue = currentValue + parseFloat(amountStr);
-
-      await updateBalance(tgId, chain, {
-        current_value: newValue.toString(),
-        deposited: amountStr,
-      });
-
-      logger.info('Balance credited', { userId: tgId, amount: `${amountStr} ${symbol}`, chain });
-    } catch (error) {
-      logger.error('Error crediting deposit', error, { userId: tgId });
-      throw error; // Re-throw to prevent removing from pending
-    }
+    logger.info('Deposit confirmed (on-chain balance)', {
+      userId: tgId,
+      amount: `${amountStr} ${symbol}`,
+      chain,
+      address,
+    });
 
     // Send confirmation notification to user
     await sendAlertToUser(tgId, 'DEPOSIT_CONFIRMED', {

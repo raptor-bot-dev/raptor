@@ -54,15 +54,26 @@ function buildEndpoints(): Record<Chain, RpcEndpoint[]> {
   const result: Record<Chain, RpcEndpoint[]> = { sol: [] };
   const endpoints: RpcEndpoint[] = [];
 
-  // Check for environment-configured RPCs
+  // Check SOLANA_RPC_URL first (primary RPC, e.g. Helius)
+  const primaryRpc = process.env.SOLANA_RPC_URL;
+  if (primaryRpc) {
+    endpoints.push({
+      url: primaryRpc,
+      name: 'SOL-RPC-Primary',
+      priority: 1,
+      healthy: true,
+    });
+  }
+
+  // Check for additional numbered RPCs (SOLANA_RPC_1, _2, _3)
   for (let i = 1; i <= 3; i++) {
     const envVar = `SOLANA_RPC_${i}`;
     const url = process.env[envVar];
-    if (url) {
+    if (url && url !== primaryRpc) {
       endpoints.push({
         url,
         name: `SOL-RPC-${i}`,
-        priority: i === 1 ? 1 : 2,
+        priority: i === 1 && !primaryRpc ? 1 : 2,
         healthy: true,
       });
     }
@@ -95,7 +106,7 @@ const RPC_ENDPOINTS: Record<Chain, RpcEndpoint[]> = buildEndpoints();
  * Check if private RPCs are configured
  */
 export function hasPrivateRpc(_chain: Chain): boolean {
-  return !!process.env['SOLANA_RPC_1'];
+  return !!(process.env['SOLANA_RPC_URL'] || process.env['SOLANA_RPC_1']);
 }
 
 /**
