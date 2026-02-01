@@ -19,7 +19,7 @@ module.exports = {
       name: 'raptor-bot',
       script: 'dist/index.js',
       cwd: './apps/bot',
-      node_args: '--enable-source-maps --env-file=.env',
+      node_args: '--enable-source-maps --env-file=../../.env',
       env: {
         NODE_ENV: 'production',
       },
@@ -42,7 +42,7 @@ module.exports = {
       name: 'raptor-hunter',
       script: 'dist/index.js',
       cwd: './apps/hunter',
-      node_args: '--enable-source-maps --env-file=.env',
+      node_args: '--enable-source-maps --env-file=../../.env',
       env: {
         NODE_ENV: 'production',
       },
