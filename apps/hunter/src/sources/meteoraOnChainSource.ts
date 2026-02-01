@@ -223,6 +223,11 @@ export class MeteoraOnChainSource {
   private async handleLogsNotification(notification: LogsNotification): Promise<void> {
     this.stats.logsReceived++;
 
+    // Debug: log every 100th notification and the first 3
+    if (this.stats.logsReceived <= 3 || this.stats.logsReceived % 100 === 0) {
+      console.log(`[MeteoraOnChainSource] DEBUG: logsReceived=${this.stats.logsReceived}, sig=${notification.signature?.slice(0, 16)}..., err=${!!notification.err}, logs=${notification.logs?.length}`);
+    }
+
     // Skip failed transactions
     if (notification.err) {
       return;

@@ -238,10 +238,22 @@ export class HeliusWsManager extends EventEmitter {
     }
   }
 
+  // Debug counter for messages received
+  private _dbgMsgCount = 0;
+  private _dbgLastLog = 0;
+
   /**
    * Handle incoming WebSocket message
    */
   private handleMessage(data: string): void {
+    this._dbgMsgCount++;
+    const now = Date.now();
+    // Log every 30s a summary of messages received
+    if (now - this._dbgLastLog > 30000) {
+      console.log(`[HeliusWsManager] DEBUG: ${this._dbgMsgCount} messages received, subs: ${this.subscriptions.size}, subIdMap: ${this.subscriptionIdMap.size}`);
+      this._dbgLastLog = now;
+    }
+
     try {
       const message = JSON.parse(data);
 
@@ -261,7 +273,12 @@ export class HeliusWsManager extends EventEmitter {
       if (message.method === 'logsNotification' && message.params?.result?.value) {
         const slot = Number(message.params.result.context?.slot ?? 0);
         const value = message.params.result.value;
-        this.handleLogsNotification(message.params.subscription, {
+        const subId = message.params.subscription;
+        // Debug: log first few notifications
+        if (this._dbgMsgCount <= 5) {
+          console.log(`[HeliusWsManager] DEBUG notification: subId=${subId}, sig=${value.signature?.slice(0, 16)}..., err=${!!value.err}, logs=${Array.isArray(value.logs) ? value.logs.length : 0}, subIdMap.has=${this.subscriptionIdMap.has(subId)}`);
+        }
+        this.handleLogsNotification(subId, {
           signature: value.signature,
           err: value.err ?? null,
           logs: Array.isArray(value.logs) ? value.logs : [],
