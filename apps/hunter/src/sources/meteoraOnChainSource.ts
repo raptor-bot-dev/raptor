@@ -262,7 +262,10 @@ export class MeteoraOnChainSource {
     try {
       const tx = await this.fetchTransaction(signature);
       if (tx) {
+        console.log(`[MeteoraOnChainSource] Fetched tx OK: ${tx.message.accountKeys.length} keys, ${tx.message.instructions.length} ixs, ${tx.message.innerInstructions?.length || 0} inner`);
         event = findAndDecodeCreateInstruction(tx, this.programId);
+      } else {
+        console.warn(`[MeteoraOnChainSource] fetchTransaction returned null for ${signature.slice(0, 12)}...`);
       }
     } catch (error) {
       console.error(
@@ -395,7 +398,11 @@ export class MeteoraOnChainSource {
 
       const data = (await response.json()) as GetTxResponse;
       const tx = data.result;
-      if (!tx?.transaction?.message) return null;
+      if (!tx?.transaction?.message) {
+        console.warn(`[MeteoraOnChainSource] fetchTransaction: no result or missing message, status=${response.status}`);
+        if (!tx) console.warn(`[MeteoraOnChainSource] fetchTransaction: result is ${tx === null ? 'null' : typeof tx}`);
+        return null;
+      }
 
       // Merge static account keys with loaded addresses (for v0 transactions with ALTs)
       const rawKeys = tx.transaction.message.accountKeys || [];
