@@ -19,12 +19,10 @@ module.exports = {
       name: 'raptor-bot',
       script: 'dist/index.js',
       cwd: './apps/bot',
-      node_args: '--enable-source-maps',
+      node_args: '--enable-source-maps --env-file=.env',
       env: {
         NODE_ENV: 'production',
       },
-      // Load .env from project root
-      env_file: '.env',
       // Auto-restart on crash
       autorestart: true,
       max_restarts: 10,
@@ -44,11 +42,10 @@ module.exports = {
       name: 'raptor-hunter',
       script: 'dist/index.js',
       cwd: './apps/hunter',
-      node_args: '--enable-source-maps',
+      node_args: '--enable-source-maps --env-file=.env',
       env: {
         NODE_ENV: 'production',
       },
-      env_file: '.env',
       autorestart: true,
       max_restarts: 10,
       restart_delay: 5000,

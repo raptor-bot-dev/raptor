@@ -10,8 +10,6 @@
 export function validateBotConfig(): void {
   const required = [
     'TELEGRAM_BOT_TOKEN',
-    'SUPABASE_URL',
-    'SUPABASE_SERVICE_KEY',
     'WALLET_ENCRYPTION_KEY',
   ];
 
@@ -20,6 +18,11 @@ export function validateBotConfig(): void {
     if (!process.env[key]) {
       missing.push(key);
     }
+  }
+
+  // Database: accept either DATABASE_URL (direct Postgres) or SUPABASE_URL + SUPABASE_SERVICE_KEY
+  if (!process.env.DATABASE_URL && (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY)) {
+    missing.push('DATABASE_URL or SUPABASE_URL+SUPABASE_SERVICE_KEY');
   }
 
   if (missing.length > 0) {
@@ -45,8 +48,6 @@ export function validateBotConfig(): void {
  */
 export function validateHunterConfig(): void {
   const required = [
-    'SUPABASE_URL',
-    'SUPABASE_SERVICE_KEY',
     'SOLANA_RPC_URL',
     'SOLANA_WSS_URL',
     'WALLET_ENCRYPTION_KEY',
@@ -57,6 +58,11 @@ export function validateHunterConfig(): void {
     if (!process.env[key]) {
       missing.push(key);
     }
+  }
+
+  // Database: accept either DATABASE_URL (direct Postgres) or SUPABASE_URL + SUPABASE_SERVICE_KEY
+  if (!process.env.DATABASE_URL && (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY)) {
+    missing.push('DATABASE_URL or SUPABASE_URL+SUPABASE_SERVICE_KEY');
   }
 
   if (missing.length > 0) {
@@ -320,12 +326,12 @@ export function validateAllConfig(context: 'hunter' | 'bot' | 'executor' = 'hunt
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // Required for all deployments
-  if (!process.env.SUPABASE_URL) {
-    errors.push('Missing SUPABASE_URL');
+  // Required for all deployments: DATABASE_URL (direct Postgres) or SUPABASE_URL + SUPABASE_SERVICE_KEY
+  if (!process.env.DATABASE_URL && !process.env.SUPABASE_URL) {
+    errors.push('Missing DATABASE_URL or SUPABASE_URL');
   }
-  if (!process.env.SUPABASE_SERVICE_KEY) {
-    errors.push('Missing SUPABASE_SERVICE_KEY');
+  if (!process.env.DATABASE_URL && !process.env.SUPABASE_SERVICE_KEY) {
+    errors.push('Missing DATABASE_URL or SUPABASE_SERVICE_KEY');
   }
 
   // Context-specific validation
