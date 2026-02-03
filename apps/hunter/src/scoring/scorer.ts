@@ -1,6 +1,7 @@
 // =============================================================================
-// RAPTOR v4.3 Token Scorer
-// Scores token opportunities based on multiple factors with metadata support
+// RAPTOR v6.0 Token Scorer — bags.fm Optimized
+// Scores tokens based on metadata quality, holder distribution, volume
+// Assumes bags.fm handles mint/freeze revocation automatically
 // =============================================================================
 
 import type { OpportunityV31, LaunchCandidate } from '@raptor/shared';
@@ -25,8 +26,10 @@ export interface ScoringResult {
   hardStopReason?: string;
 }
 
-// Minimum score to qualify an opportunity (PumpFun full scoring)
-const MIN_QUALIFICATION_SCORE = 23;
+// Minimum score to qualify an opportunity (v6.0: bags.fm optimized)
+// Max possible: 90 points (if all scoring signals pass)
+// 30+ = qualifies, 50+ = strong (full position)
+const MIN_QUALIFICATION_SCORE = 30;
 
 // Lower threshold for on-chain candidates (fewer signals available)
 const MIN_CANDIDATE_QUALIFICATION_SCORE = 10;
